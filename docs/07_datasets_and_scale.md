@@ -1,12 +1,30 @@
 # Task families, memorization/generalization contrasts, and scale
 
+**Active ordering (19 October 2026):** the initial empirical dataset is **linear conditional-token teacher data for a matched graph pair**, not parity, exceptions or grokking. Those remain follow-on nonlinear/generalization settings after we establish what fixed routing changes when expressivity and initial tangent geometry are controlled. See [matched linear study](15_matched_linear_topology_study.md) and [critical review](14_critical_review_and_revised_scope.md).
+
 The task suite is a **scientific instrument**, not a benchmark leaderboard. It must reveal mechanism formation without telling the interpreter where the mechanism is. Training uses softmax CE over token labels. The generator may know latent ground truth for auditing, while the discovery algorithm must initially operate blind to it.
+
+## 0. First study: linearly generated token distributions with known modes
+
+Use $x\in\mathbb R^d$ from a controlled mean-zero distribution with known covariance and input subspaces. Let a fixed teacher matrix $M_*$ define:
+$p_*(y|x)=\operatorname{softmax}(R M_*x/\tau+c_*),$
+where $R\in\mathbb R^{V\times d}$ is the same **fixed full-row-rank readout** for both experimental graphs where dimensions permit. Student logits are $R h_\theta(x)+c$ for either parallel $h_P=(I+A+B)x$ or composed $h_C=(I+B)(I+A)x$.
+
+Student function class must be identical; any representable target logit map with teacher/readout mismatch should be explicitly accounted for (a common-logit shift does not affect softmax). Sample a finite train dataset once and reuse exactly; also hold a fixed integration/probe set to estimate expected CE, conditional probabilities and learned linear logit modes.
+
+**Vary:** singular strengths/orientations of $M_*$, alignment with covariance directions, class balance, finite sample size, label stochasticity, initial $A/B$ scales, optimizer and feature dimension. Keep training objective **softmax CE** in every primary trial.
+
+**Discover first:** evolution of the centered student logit map and its singular/Fourier-like linear modes, from data-only probes as well as teacher-aligned decomposition. Observe one-example counterfactual transfer $T_t(i,j)$, not only teacher-mode fitting or aggregate CE.
+
+**Why this precedes nonlinear work:** graph pair has identical attainable linear functions and identical parameter-to-logit Jacobians at exact zero, but a second-order $BAx$ interaction. It isolates a real parameterized-topology question without assuming a long nonlinear rule can form. No claims about circuits encoding XOR or memorization mechanisms are justified at this stage.
+
+**Controls:** identical graph rerun, $B=0$ limiting equivalence, label/class balance changes, modes not observable through readout $R$, zero versus small nonzero init, matched step count versus matched achieved CE, and examples where composed routing is worse.
 
 ## A. Why simply training on parity isn't enough
 
 A parity classifier is a good mathematical calibration: Boolean Fourier coefficients reveal interaction order exactly over a balanced finite domain. But a model can learn parity in unexpected ways; a graph with no substantial generalization might still memorize a small domain; and discovering the expected parity term is not the same as source-agnostic circuit discovery.
 
-We therefore require **at least three families**:
+After the linear study, nonlinear mechanism research should use **at least three families**:
 1. Simple known interaction / graph circuits for instrument calibration.
 2. Rule + shortcut + arbitrary exception tasks for distinguishing reusable structure from instance-specific retention.
 3. A held-out family of compositions (modular arithmetic / small latent programs / controlled symbolic grammar) to test method and topology generality.
@@ -27,7 +45,7 @@ Control:
 
 Observations: output logit contrast Fourier coefficients across *all* subsets; emergence of interactions; causal graph interventions; exact verification that a learned path is needed. Some operations can compute complex rules in one stage; do not assume Fourier order measures graph path length.
 
-## C. Primary family: structured rules, shortcuts and memorized exceptions
+## C. Follow-on nonlinear family: structured rules, shortcuts and memorized exceptions
 
 Generate a deterministic latent program $y_{\rm rule}=f_\omega(u_1,\dots,u_r)$ outputting one of $V$ tokens. Include an input identity key $k$ and optionally nuisance factors $n$.
 
@@ -106,4 +124,25 @@ Test at least a small Cartesian subset of $(\text{width},\text{feature count},\t
 
 Always log CE, accuracy/calibration and shortcut-broken outcomes; they detect invalid training or data leakage. But a lower CE alone does not show memorization or generalization circuits are separate, or that one topology caused circuit formation.
 
-The primary comparisons are longitudinal **functional atlases** and **causal behavior-specific route utility**. Use held-out task families and blinded discovery to avoid hindsight analysis.
+The primary comparisons are longitudinal **functional atlases** and **actual example-to-example transfer / interference**. Causal behavior-specific route utility follows where a reproducible functional change justifies targeted interventions; depth-based utility is a secondary, baseline-dependent descriptor. Use held-out task families and blinded discovery to avoid hindsight analysis.
+
+
+## I. Expressive-competence control for nonlinear comparisons
+
+Raw-input-fed residual blocks and sequential residual blocks do **not** generally represent the same finite-width nonlinear functions. If one graph generalizes to a compositional rule and the other cannot even fit the full input domain, we have demonstrated an **expressivity difference**, not isolated circuit-formation efficiency.
+
+For each nonlinear target chosen in a learning-dynamics study:
+1. Construct example weights that solve/approximate the task in both graphs if possible, or run a pre-declared strong-capacity/long-training approximation check without using test results to tune only one candidate.
+2. Report residual approximation gap / failure to fit for each at matched learned capacity.
+3. Evaluate function acquisition at equal optimizer steps and at comparable **achieved train CE** where feasible. The first is a compute comparison, the second distinguishes delayed learning from distinct fitted functions.
+4. If competence cannot be established, relabel the result as an expressivity study with separate conclusions.
+
+No empirical fitting test proves whole function-class equivalence. It merely bounds competence for a selected task, which is enough for a carefully qualified comparison.
+
+## J. Training histories and source-agnostic audits
+
+Choose tasks that have both predictable structure and arbitrary instance-specific exceptions, but **do not tell the circuit detector** the known program or which exception memorization is supposed to occupy which graph region. Use the generator truth only to score discovery and behavior transfer after observing the learned function.
+
+Remember: a general circuit may act on memorized keys; a network can store instances and reusable features using overlapping or superposed directions. Behavioral generalization and memorization do not guarantee separately identifiable subgraphs.
+
+See [measurement hierarchy](16_functional_learning_and_transfer_measurement.md), [protocol](08_experimental_protocol.md) and [decision gates](17_decision_gates_and_novelty.md).
