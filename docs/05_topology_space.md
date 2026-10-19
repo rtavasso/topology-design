@@ -1,8 +1,25 @@
 # Topology grammar, controls, and candidate-generation strategy
 
+**Active priority (19 October 2026):** begin with [the matched linear graph pair](15_matched_linear_topology_study.md), **not** the broad $L!$ DAG enumeration below. The latter remains the controlled *next* graph family after we understand basic function/mode learning dynamics. See [critical review](14_critical_review_and_revised_scope.md).
+
 Goal: a **scientifically auditable** family of parameter-free, single-pass DAGs that can be exhaustively enumerated at small scale and later searched. The architecture is the object of intervention; changing learned operators, logits head, objective or training length is not an edge-only result.
 
-## A. Narrow primary family (recommended first)
+## 0. Initial comparison: matched linear expressivity and first-order learning geometry
+
+Use a pair of fixed operator graphs with $A,B\in\mathbb R^{d\times d}$:
+
+$h_P=x+Ax+Bx,\qquad h_C=x+Ax+B(x+Ax).$
+
+Same learned matrices, two fixed residual additions, one evaluation of each learned operator, same output space. Both represent all linear maps and at exact zero initialization ($A=B=0$) have identical input-output functions, parameter-to-logit Jacobians and NTKs under a common fixed readout. Their difference $BAx$ creates an additional **second-order** parameter interaction and can change the CE Hessian and subsequent updates even when first SGD gradients match.
+
+This distinction is ideal for the first study:
+- **Expressivity held constant:** any linear map $Mx$ is expressible in either graph via $A=M-I,B=0$.
+- **Initial first-order dynamics held constant:** Jacobian identity at zero allows a controlled test of higher-order learning.
+- **Possible confounders still present:** parameterization/implicit bias, optimization at finite steps, critical path/activation memory, initialization realism. These are studied, not assumed away.
+
+Use a fixed common vocabulary readout $R$ and softmax CE; do not mistake linear mode dynamics for nonlinear circuit formation. See [the full study protocol](15_matched_linear_topology_study.md) and [transfer measurement](16_functional_learning_and_transfer_measurement.md).
+
+## A. Narrow follow-on family (after the matched linear study)
 
 Fix $L$ learned transformations $F_1,\ldots,F_L$ mapping $\mathbb R^d\to\mathbb R^d$. Each $F_i$ contains the *same internal number/type of learned layers and activations* for every topology; no parameter sharing unless explicitly part of the fixed design.
 
@@ -28,6 +45,8 @@ Example $L=4$:
 - **Mixed:** $(0,1,0,2)$: $F_3$ receives raw $x$, $F_4$ receives $h_2$.
 
 The parent-selected source is **not** itself a separate learned gate; source edge is fixed within a run.
+
+**Interpretation guardrail:** parent-selected raw-input and sequential versions generally have different finite-width *nonlinear function classes*, even though they share parameter budgets. Better training on an interaction task might be a plain **expressivity** effect. Before claiming different learning dynamics, give evidence that the *selected target* is realizable by both (e.g. constructive weights or controlled fit/approximation comparison), and report unavoidable differences in effective nonlinear depth.
 
 ### What this grammar cannot answer
 
@@ -119,7 +138,9 @@ Keep a manifest of exactly what was matched; don't claim all gradient singular v
 
 ## G. Search strategy: explanation before automation
 
-**Step 1:** enumerate all small narrow-family configurations, compute exact invariants, prune only provably equivalent graphs, select representative contrasts and mutants.
+**Step 0:** verify and train the analytically matched two-matrix graph pair, then characterize higher-order functional learning differences. This is a prerequisite for any claim that a routing effect extends beyond initial tangent geometry.
+
+**Step 1:** *after Step 0*, enumerate small narrow-family configurations, compute exact invariants, prune only provably equivalent graphs, select representative contrasts and mutants.
 
 **Step 2:** compare multiple seeds with complete checkpoint histories, collecting interpretable dynamics. Do not early-stop based solely on early CE.
 
@@ -136,3 +157,19 @@ A DARTS-like supernet/continuous edge-weight relaxation is not a clean primary e
 In a residual DAG, a single learned operator or parameter may lie on many effective paths of different lengths. You cannot in general assign a unique short-path parameter group. The narrow grammar permits classifying modules by **source ancestry**, but even that can overlap.
 
 Use path-intervention analyses to estimate output contributions/necessity; where decomposition is ambiguous, report bounds or a multi-attribution set rather than inventing a unique assignment.
+
+
+## I. Interpretability granularity is an explicit nuisance variable
+
+A “path of depth 3” is only defined relative to our declared operator boundaries: a 2-layer MLP can count as one macro-operator or two constituent trainable layers. Do not turn that bookkeeping choice into a causal claim. Store both macro-op and primitive-op graphs when measuring learned-operation depth, and where conclusions depend on granularity report the dependence rather than inventing an intrinsic depth.
+
+The first graph-pair experiment deliberately avoids causal-depth scores. It measures **full function change and single-example transfer**. A later circuit experiment should only be launched in response to a discovered, reproducible function-level phenomenon; use [causal guidelines](06_mechanistic_measurement.md) and [decision gates](17_decision_gates_and_novelty.md).
+
+## J. Make expressivity and optimization distinct outputs
+
+Every topology contrast must state one of:
+1. **Expressivity contrast:** target function-class/approximation differences are the object; no claim of isolated learning dynamics.
+2. **Optimization contrast:** compared architectures can express the tested target adequately; functional learning changes are measured under matched data/optimizer and with initialization/capacity controls.
+3. **Mechanism contrast:** a discovered *functional* mode is traced to causally important graph operations, with inference and acquisition separated.
+
+Parameter count matching is necessary for all three but sufficient for none.
