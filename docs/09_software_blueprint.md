@@ -1,27 +1,29 @@
 # Software blueprint for research agents (minimal, test-driven)
 
+**19 October 2026 implementation revision:** first deliver a tiny exact parallel/composed matrix-graph study with softmax CE, time-resolved learned functions and one-example update-transfer. Do **not** build a general causal subgraph searcher before this yields useful observations. The previous architecture inventory remains a future modular target, not an initial scaffold. See [AGENTS.md](../AGENTS.md), [study](15_matched_linear_topology_study.md) and [gates](17_decision_gates_and_novelty.md).
+
 This is a design sketch for the first codebase, not a request to implement all parts immediately. Prefer a small Python/PyTorch core plus offline analysis modules, typed configs, tests and immutable experiment artifacts. Avoid a generalized plugin framework or complex dashboard before scientific validity is demonstrated.
 
 ## 1. Architectural boundaries
 
 Separate five responsibilities:
 - **Graph:** declare/validate/compile fixed-operator DAGs, enumerate/hash and audit them.
-- **Data:** generate deterministic synthetic programs, shortcuts, exceptions and probe partitions; store private generator truth for *post hoc* auditing.
+- **Data:** start with deterministic **linear conditional-token teachers and fixed probe distributions**, then extend to synthetic programs, shortcuts, exceptions and latent-truth auditing.
 - **Train:** softmax CE loop with paired seeds and checkpoints. Ordinary training does not include causal intervention or extra auxiliary loss.
-- **Observe:** offline function/representation/gradient measurements on checkpoint+probe artifacts.
-- **Intervene:** reproducible edge/activation/gradient interventions and subgraph search, with baseline and budget metadata.
+- **Observe:** start with exact centered-logit function/mode histories and per-example cloned-update transfer; add representation/gradient/influence instruments selectively.
+- **Intervene (later):** targeted edge/activation/gradient interventions and subgraph search only for a discovered, replicable function-level phenomenon, with baseline and budget metadata.
 
 This separation prevents instrumentation choices from accidentally becoming part of the learned model.
 
 ## 2. Suggested package structure (adapt only with a reason)
 
-- src/topology_design/graphs/ — schemas, validators, DAG executors, parent-selection family, path enumerator, static cost/parameter auditor.
+- src/topology_design/graphs/ — first a strict parallel/composed matrix-graph executor and matching auditor; later DAG schemas, parent-selection family, path enumerator and resource auditor.
 - src/topology_design/models/ — fixed learned operator templates, output heads, initialization modes, optimizer factories.
-- src/topology_design/data/ — rule generators, exceptions, shortcuts, deterministic splits and finite-domain enumerators.
+- src/topology_design/data/ — first linear softmax teacher with known modes, deterministic splits/probes; later rule generators, exceptions, shortcuts and finite-domain enumerators.
 - src/topology_design/training/ — runner, snapshots, paired-run orchestrator, checkpoint metadata.
-- src/topology_design/analysis/function/ — canonical logits, Boolean Walsh transform, empirical interaction atlas, functional similarity.
-- src/topology_design/analysis/gradients/ — autograd Jacobian-vector probes, single-example paired update analysis, accessibility and conditioning estimates.
-- src/topology_design/analysis/causal/ — edge patches, subgraph generation, intervention baselines, reproducibility/utility profiles.
+- src/topology_design/analysis/function/ — first centered logits, linear logit-map and teacher-mode/unsupervised mode histories; later Boolean Walsh transform, categorical interaction atlas and functional similarity.
+- src/topology_design/analysis/gradients/ — analytic Jacobian/Hessian checks and **actual cloned single-example update-transfer matrix** first; later randomized Jacobian projections, accessibility and conditioning estimates.
+- src/topology_design/analysis/causal/ — **deferred until a function-level phenomenon is established**: edge patches, retained-subgraph analysis, intervention baselines, reproduction and utility profiles.
 - src/topology_design/analysis/representations/ — covariance spectra, CKA/subspace metrics and later controlled SAE experiments.
 - src/topology_design/reports/ — validated result serialization and plots/tables with uncertainty.
 - configs/, experiments/, tests/, notebooks/ (optional), artifacts/ (ignored large local outputs), docs/ (scientific documents).
@@ -30,11 +32,11 @@ Do **not** generate an empty class for every imagined future feature. Build modu
 
 ## 3. Minimal API contracts
 
-**GraphSpec**: version, ordered learned operator specs, node IDs/kinds, named ports/edges, fixed ops, output/readout spec, dtype/dimension, annotations. Must support stable hash, serialization, topological validation, stats, and deterministic compilation.
+**GraphSpec**: begin with a strictly validated parallel_matrix_v1/composed_matrix_v1 family with identical dimensions/matrices and fixed output readout; later generalize to versioned ordered learned operator specs, node IDs/kinds, named ports/edges and fixed ops. Must support stable hash, serialization, topological validation, stats, and deterministic compilation.
 
 **MatchedPairAudit**: graph hashes, editable edge diff, learned parameter total, per-operation shapes and weight seeds, learned evals, activation type counts, fixed operation counts, total estimate of FLOPs/activation storage, initialization signal stats. Fail loudly if an asserted primary matched pair diverges on required properties.
 
-**TaskSpec**: generator version, latent program ID and parameters, shortcut reliability, exception ID/label sampling policy, train/test/probe seeds, split sizes, complete data checksum, ground-truth blinding flag.
+**TaskSpec**: begin with linear_softmax_teacher_v1: $M_*$, readout $R$, temperature, input covariance, class probabilities, train/test/probe seeds and dataset hash. Later extend to latent program IDs, shortcut reliability, exception IDs/labels and blinding of generator truth.
 
 **RunSpec**: graph/task/optimizer specs, steps, batch size, LR, weight decay, seeds (model/data/order/probes), framework version/commit, deterministic settings, logging and checkpoint cadence.
 
@@ -58,60 +60,39 @@ Use a content-addressed experiment directory or stable run ID from a canonical J
 
 If a random generator or framework kernel is nondeterministic, record it and avoid claiming bit-for-bit reproducibility. A later analysis version should be able to reproduce a published metric from stored checkpoint+probe data.
 
-## 5. Common run pipeline
+## 5. Initial minimal pipeline (no mechanism extractor)
 
-1. Instantiate TaskSpec and all fixed split/probe sets.
-2. Instantiate a graph pair from GraphSpec; run matching audit.
-3. Draw one initialization state for named learned modules and clone identically across topologies. Resolve topology-dependent calibrated initialization separately.
-4. Train paired models with same example order, objective and budget; capture checkpoints.
-5. Run light per-checkpoint CE/accuracy/calibration and function-probe logits.
-6. Run offline atlas and representation metrics.
-7. At chosen checkpoints, run optional per-example cloned-gradient-update analyses.
-8. Use functional changes (not expected mechanism templates) to generate behavioral contrasts.
-9. Search and validate causal subgraphs, recording intervention baseline, exact/approximate search status and fidelity.
-10. Aggregate paired-run effects and write a research report; keep raw data and nulls.
+1. Generate fixed linear softmax teacher dataset, train/test samples, and complete/stratified probe set with recorded seeds.
+2. Compile the parallel and composed matrix graph with **identical matrix parameter tensors and fixed readout**.
+3. Assert same initial outputs, Jacobians, NTK and first SGD gradient at $A=B=0$. Verify second-order $BAx$ divergence and the CE Hessian distinction using tiny numerical fixtures.
+4. Train with softmax CE, identical data order and optimizer states; checkpoint on a dense enough schedule to observe changes.
+5. Save centered logits/probabilities on fixed probes, learned linear logit maps and teacher-aligned plus unsupervised mode spectra.
+6. For selected checkpoints, clone model/optimizer state and compute actual single-example SGD effects on a small balanced grid of probes; check the $\eta g_j^\top g_i$ limit.
+7. Aggregate paired seeds, target-mode orientations and initialization/scale/optimizer sensitivity; report differences and counterexamples.
+8. Apply [Gate 1](17_decision_gates_and_novelty.md). Only then build nonlinear rules, more general DAG enumeration or targeted causal analysis.
 
-## 6. Suggested configuration (illustrative fields)
+## 6. Suggested first configuration (illustrative, not a calibrated recipe)
 
-Graph:
-- family: parent_residual_v1
-- operator_count: 4
-- width: 32
-- operator_template: 2layer_relu_mlp
-- parents: [0,1,0,2]
-- readout: shared_vocab_linear
-- vocabulary_size: 2
+- graph.family: linear_residual_pair_v1
+- graph.dim: 8
+- graph.candidates: parallel, composed
+- graph.learned_ops: two untied $8\times8$ matrices A, B, evaluated once each
+- graph.init: exact_zero_control
+- head.type: fixed_common_linear_readout
+- head.vocab: 2
+- task.family: linear_softmax_teacher_v1
+- task.teacher_matrix: matrix with recorded singular/eigen modes
+- task.input_covariance: controlled mean-zero Gaussian or discrete finite-mode inputs
+- task.temperature: controlled scalar
+- task.data_seed / train_size / probe_seed: explicit
+- train.loss: softmax_ce
+- train.optimizer: sgd (later AdamW replication)
+- train.steps / batch_size / learning_rate / weight_decay: explicit, tuned in pilot not asserted here
+- analysis: centered logit functions, teacher/unsupervised mode histories, exact cloned update-transfer
+- analysis.baselines: duplicate graph, frozen $B=0$, small nonzero init, controlled mode orientations.
 
-Task:
-- family: rule_shortcut_exception_v1
-- generator_seed: 0
-- program_family: boolean_composition
-- shortcut_train_probability: 0.9
-- shortcut_shift_probability: 0.5
-- exception_fraction: 0.05
-- latent_feature_count: 6
-- latent_activity_probability: 0.5
+A width of eight or two tokens is illustrative; capacity and readout rank must be audited for the chosen teacher. No implementation of a nonlinear operator, generic graph compiler, SAE training or full circuit search is needed to verify the **first empirical scientific question**.
 
-Train:
-- loss: softmax_ce
-- optimizer: sgd
-- batch_size: 64
-- steps: 20000
-- weight_decay: 0.0
-- checkpoint_schedule: log_and_transition_dense
-- model_init_seed: 17
-- data_order_seed: 19
-
-Analysis:
-- canonical_logits: center_vocabulary
-- probe_distribution: balanced_factorial
-- functional_atlas: walsh_exact_if_enumerable
-- intervention_baselines: [zero, conditional_mean, resample]
-- causal_subgraph_search: exact_if_small
-- feature_analysis: spectral_first
-- blind_mechanism_discovery: true
-
-These are **example settings, not recommended hyperparameters**. Never assume $20k$ steps, width 32 or 5% exceptions suffice; calibrate.
 
 ## 7. Computational scaling
 
@@ -131,7 +112,7 @@ Exhaustive subgraphs scale as $2^E$ (worse for multi-edge interventions); do not
 - train: one GraphSpec/TaskSpec/RunSpec.
 - train-paired: matched topology mutation, cloned initialization and common order.
 - analyze-functions: output atlas and unanticipated structure candidate list.
-- analyze-causality: directed interventions and small-subgraph search on selected checkpoint+probe distribution.
+- analyze-causality (**later**): directed interventions and small-subgraph search on selected checkpoint+probe distribution.
 - report: markdown/plots/machine-readable summary, with source run references.
 
 These names are illustrative; a simple script is acceptable at Phase 0.
@@ -144,7 +125,7 @@ These names are illustrative; a simple script is acceptable at Phase 0.
 - Model-side learned gating, recurrence, grouped token heads or multiple training losses.
 - A polished visualization app before metric reliability and causality are established.
 
-The agent should deliver running, tested scientific primitives rather than scaffolding every future phase.
+The agent should deliver running, tested scientific primitives rather than scaffolding every future phase. **A robust linear-function/transfer experiment with explicit negative regimes beats a large unvalidated graph-interpreter framework.**
 
 ## 10. Repository governance
 
