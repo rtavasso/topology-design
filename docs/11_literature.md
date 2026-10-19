@@ -1,10 +1,37 @@
 # Annotated literature map: evidence, methods, and limitations
 
+**Expanded after critical review, 19 October 2026.** The [critical review](14_critical_review_and_revised_scope.md) identified closer prior art in multiple-pathway deep-linear learning, spurious/core feature complexity, training-data origins of circuits and formal limitations of circuit fidelity. Read these **before** asserting our broad conceptual motivation is novel. References link to primary conference/author/preprint sources when available.
+
 **Checked against primary paper/author or conference pages in October 2026.** This is a focused reading list, not a claim of exhaustive scholarship or endorsement. Distinguish reported results in a paper from our proposed applications. Full model, code and metric behavior can change across implementations.
 
 ## Reading route for a new research agent
 
-Start with (1) residual path behavior, (2) gradient starvation + grokking dynamics, (3) mechanism discovery + causal patching, (4) superposition/SAE critique, and only then (5) architecture search. Papers in the NAS group mostly optimize benchmark performance and should **not** define the project's objective.
+**Revised priority:** (1) Saxe/Shi/Xu on exact and parallel-path learning dynamics, (2) Qiu/Pezeshki on feature and shortcut competition, (3) empirical functional change and training-data origins of circuits, (4) limitations of mechanistic intervention, (5) representational crowding/superposition, and only then (6) NAS. See [first matched study](15_matched_linear_topology_study.md) and [decision gates](17_decision_gates_and_novelty.md). Papers in the NAS group mostly optimize benchmark performance and should **not** define the project's objective.
+
+## 0. Critical closest prior art: pathway competition, finite-width modes and learning origins
+
+**Saxe, McClelland & Ganguli (2014), Exact Solutions to the Nonlinear Dynamics of Learning in Deep Linear Neural Networks.** [arXiv](https://arxiv.org/abs/1312.6120). Mathematically shows nontrivial plateau/learning-time and mode dynamics despite input-output linearity; depth and initialization alter optimization. **For this project:** essential analytic baseline and justification for a linear first experiment. **Limit:** their exact results rest on particular linear models/objectives and do not imply generalization circuits in a language model.
+
+**Shi, Shea-Brown & Buice (NeurIPS 2022), Learning Dynamics of Deep Linear Networks with Multiple Pathways.** [NeurIPS](https://proceedings.neurips.cc/paper_files/paper/2022/hash/dc3ca8bcd613e43ce540352b58d55d6d-Abstract-Conference.html). Analyzes shared-objective parallel pathways, finding that data correlation modes can specialize into competing pathways, with depth and finite-width initialization influencing symmetry breaking. **For this project:** closest baseline for shared-loss pathway specialization. Replicate relevant phenomena before declaring competition itself novel. **Limit:** their exact theory uses specific wide deep-linear assumptions; our edge-only pair and softmax CE require distinct analysis.
+
+**Qiu, Kuang & Goel (ICML 2024), Complexity Matters: Feature Learning in the Presence of Spurious Correlations.** [PMLR](https://proceedings.mlr.press/v235/qiu24e.html). Controls Boolean spurious/core feature complexity and correlation; shows stronger/simpler shortcuts slow core-feature learning, subnetworks can specialize, phases can overlap and spurious features persist. **For this project:** direct prior art on the 'productive frustration' intuition and an experimental generator/calibration precedent. **Limit:** doesn't establish a general fixed-routing design law; do not reproduce the phenomenon then claim it as new.
+
+**Xu & Ziyin (ICLR 2025), Three Mechanisms of Feature Learning in a Linear Network.** [ICLR](https://proceedings.iclr.cc/paper_files/paper/2025/hash/9941833e8327910ef25daeb9005e4748-Abstract-Conference.html). Exact finite-width linear learning trajectories and distinct alignment, disalignment and rescaling regimes across width/learning-rate/initialization. **For this project:** warns that width and optimizer regime can explain a supposed topology effect; motivates phase maps. **Limit:** tightly specified solvable one-hidden-layer setting.
+
+**Chen, Luo & Pan (ICML 2026), Mechanistic Data Attribution: Tracing the Training Origins of Interpretable LLM Units.** [PMLR](https://proceedings.mlr.press/v306/chen26cv.html). Uses influence-based training-data attribution and targeted example interventions to change emergence of interpretable heads in Pythia models. **For this project:** concrete methodology/novelty baseline for connecting *acquisition* of mechanisms to training-time causes. **Limit:** interpreting influence functions and head-based units does not directly prove our parameter-free edge hypothesis.
+
+## 0b. Negative evidence / formal tools for circuit claims
+
+**Miller, Chughtai & Saunders (2024), Transformer Circuit Faithfulness Metrics are not Robust.** [arXiv](https://arxiv.org/abs/2407.08734). Shows circuit faithfulness scores are highly sensitive to choices of ablation method; an extracted circuit is relative to the task and intervention. **For this project:** reason to make $D_k,U_k$ secondary, use multiple baselines and never call one retained subgraph *the* algorithm.
+
+**Anani et al. (ICML 2026), Certified Circuits: Stability Guarantees for Mechanistic Circuits.** [PMLR](https://proceedings.mlr.press/v306/anani26a.html), [code](https://github.com/AlaaAnani/certified-circuits). Certifies stability of circuit component inclusion under bounded perturbations of the concept dataset using randomized subsampling. **For this project:** inspire an abstention/uncertainty protocol and sensitivity checks. **Limit:** guarantees concern a specified discovery procedure and dataset edits, not universal semantic completeness.
+
+**Hadad, Katz & Bassan (ICLR 2026), Formal Mechanistic Interpretability: Automated Circuit Discovery with Provable Guarantees.** [ICLR](https://proceedings.iclr.cc/paper_files/paper/2026/hash/b5afe13494c825089b1e3944fdaba212-Abstract-Conference.html). Uses neural verification to provide input-domain robustness, patching and minimality guarantees in selected continuous-input circuit settings. **For this project:** rigorous calibration for small tractable graphs and a warning against casual 'minimal circuit' language. **Limit:** verifying a specified property is not unrestricted source-agnostic mechanism discovery.
+
+**Dinh, Pascanu, Bengio & Bengio (2017), Sharp Minima Can Generalize For Deep Nets.** [arXiv](https://arxiv.org/abs/1703.04933). Parameter-space sharpness can change dramatically under equivalent reparameterizations. **For this project:** do not mistake a sharper/flatter Hessian for an invariant causal property of learned functions or circuit reuse.
+
+**Anthropic (2023), Superposition, Memorization, and Double Descent.** [Transformer Circuits](https://transformer-circuits.pub/2023/toy-double-descent/index.html). In toy models with finite data, a small-data regime packs instance-specific points in superposition, whereas larger-data regimes pack generalizing features. **For this project:** memorization and generalization are not necessarily neuron/path labels; feature load, sample support and sparsity are hidden scaling covariates. **Limit:** toy reconstruction setting, not universal claim about transformers or CE learning.
+
 
 ## I. Residual paths and numerical optimization
 
@@ -68,15 +95,15 @@ Start with (1) residual path behavior, (2) gradient starvation + grokking dynami
 
 ## What literature *doesn't* establish for our project
 
-No listed work proves that long paths intrinsically generalize, that shallow paths intrinsically memorize, that maximizing branch disagreement helps learning, that topology alone explains human one-shot learning, or that an SAE/attribution graph exposes every computational circuit. These are open, falsifiable questions.
+No listed work proves that long paths intrinsically generalize, that shallow paths intrinsically memorize, that maximizing branch disagreement helps learning, that topology alone explains human one-shot learning, or that an SAE/attribution graph exposes every computational circuit. **Several do demonstrate specific forms of pathway competition, specialized subnetworks, delayed circuit learning and sensitivity to intervention**—these general concepts are prior art, not our novelty claim. These are open, falsifiable questions.
 
 ## Reading-to-implementation map
 
-- Exact scalar math/path oracle → Veit + Tarnowski; our docs/03.
-- Softmax CE and residual learning dynamics → Jacot + Pezeshki + Kumar; our docs/04.
+- Initial matched linear-pair experiments and prior-art checks → Saxe + Shi + Xu; [study](15_matched_linear_topology_study.md), [math](03_first_principles_math.md).
+- Softmax CE and shortcut learning dynamics → Jacot + Pezeshki + Qiu + Kumar; [dynamics](04_gradient_dynamics.md), [function/transfer](16_functional_learning_and_transfer_measurement.md).
 - Time-resolved mechanism progress → Power + Nanda + Olsson.
-- Circuit extraction and causal validation → Conmy + Marks + Bricken + Geiger + Zhang/Nanda.
-- Representational packing and measurement bias → Elhage + Kornblith + Leask + Chanin (2025/2026).
+- Later causal extraction, origin and validation → Conmy + Marks + Bricken + Geiger + Zhang/Nanda + Miller + Chen + Anani + Hadad.
+- Representational packing and measurement bias → Elhage + Anthropic toy-double-descent + Kornblith + Leask + Chanin (2025/2026).
 - Future controlled topology search → Li/Talwalkar + Mellor + BANANAS + NAS-Bench-201.
 
 Never let a method's convenience determine which scientific phenomenon is declared to exist.
