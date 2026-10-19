@@ -134,3 +134,51 @@ The earliest valuable discovery is **a reproducible mapping from a specific grap
 - What genuinely transfers from tiny DAGs to attention and LLMs?
 
 **Never reduce this trajectory to “train many ResNets and choose the best generalization score.”**
+
+
+## Pivot 12 (19 Oct 2026): adversarial critique narrowed the first scientific claim
+
+After a complete documentation handoff, the researcher asked for constructive critique of the entire research thrust. This revealed a critical confound: **the same count of learned operations with different routing need not imply equal nonlinear expressive power**. Parallel $x+F_1(x)+F_2(x)$ and sequential $x+F_1(x)+F_2(x+F_1(x))$ differ in the *available function class*, not just gradient flow. A model's ability to learn compositional rules can be a representational difference rather than a new insight about its tendency to form reusable mechanisms.
+
+Three claim types were separated: **expressivity**, **optimization given accessible functions**, and **formation of causally useful computations**. Later nonlinear comparisons should establish target competence for both architectures or openly call the result expressivity.
+
+The critique also found that relevant published results already demonstrate **competition and feature specialization in shared-objective parallel deep-linear networks** (Shi et al., NeurIPS 2022), **spurious/core feature complexity effects** (Qiu et al., ICML 2024), **nontrivial deep-linear mode learning** (Saxe et al.), and **attribution of interpretable circuit emergence to training data** (Chen et al., ICML 2026). The project can extend these lines but cannot claim pathway competition itself as new. See [revised literature](11_literature.md).
+
+### Why this did not abandon the original north star
+
+The original question about preserving, destroying and constructing information remains the motivation. What changed was the **first falsifiable experiment**. The earlier flagship raw-input-vs-sequential nonlinear DAG comparison moved later, because it is too easy to interpret a simple expressive-class advantage as 'deep circuit formation'.
+
+## Pivot 13 (19 Oct 2026): identical first-order geometry, different higher-order parameter interactions
+
+A cleaner baseline uses **two identical learned matrices** $A,B$ with only one fixed routing difference:
+
+$$h_P=(I+A+B)x,\qquad h_C=(I+B)(I+A)x=(I+A+B+BA)x.$$
+
+These have the **same attainable class of linear input-output functions**. With $A=B=0$ and a common fixed readout, they also have the **same initial function, parameter Jacobian, CE gradient, and empirical tangent kernel**. The composed graph uniquely has a bilinear term $BAx$, so its **mixed second derivatives and full CE Hessian need not match**. An identical initial SGD update then produces an $O(\eta^2)$ logit divergence.
+
+This isolates an informative second-order *learning dynamics* question. It does **not** prove useful circuit formation; the outputs are linear in inputs, and composition may help or hurt depending on task labels. The intended experiment is detailed in [matched linear study](15_matched_linear_topology_study.md).
+
+The reason for leading with it: before interpreting a trained circuit, demonstrate a topology-dependent numerical learning phenomenon not reducible to initial first-order gradient accessibility or an unequal linear function class. If no robust phenomenon survives controls, that is valuable evidence limiting this thrust.
+
+## Pivot 14 (19 Oct 2026): observe functions and example-specific updates before identifying mechanisms
+
+Our initial documentation overinvested in fully automatic circuit discovery and causal-depth $D_k,U_k$. These are meaningful *conditional descriptors*, but depend on graph/operator granularity, redundancy, patching baselines, and the distinction between inference-time **expression** and training-time **acquisition**.
+
+The revised sequence is:
+1. characterize the learned input-output function over time, including unexpected components;
+2. measure **actual one-example update-transfer** to related, unrelated, and contradictory examples;
+3. for *selected robust functional changes*, investigate graph paths causally, comparing inference lesions and training-time replay;
+4. vary width, latent feature demand, task complexity, data support and optimizer separately;
+5. only then search graph families or introduce larger attention models.
+
+This also sharpened the memorization/generalization critique: these are **behavioral distinctions** depending on the data distribution, not necessarily disjoint mechanisms or circuits. The more foundational mechanistic targets may be **reuse, sharing and interference**. A general rule can process an arbitrarily memorized key; superposition can pack instances or reusable features in the same hidden dimensions.
+
+### Why the original interpretability work is retained
+
+Causal-depth profiles, source-agnostic discovery, SAEs, superposition measurements and rule+exception datasets are not deleted. They're **deferred tools**, to be used after a real function-level phenomenon justifies their cost. The inability to extract a unique circuit cannot invalidate an independently verified functional learning effect; it only limits a *mechanistic explanation* claim.
+
+## Pivot 15 (19 Oct 2026): explicit gates and conditions for stopping
+
+The critique warned that the broad "preserve/destroy/construct" framing could rationalize any outcome. The revised program now uses study gates and stopping rules: algebra/implementation checks, matched linear learning, nonlinear acquisition with competence checks, targeted causality, scaling/feature load, and only then search/attention. See [decision gates](17_decision_gates_and_novelty.md).
+
+**Success need not mean a better architecture.** A robust causal topology–learning principle, a replication that clarifies a known effect, or a well-controlled negative finding that limits a proposed principle all advance the science. The documentation should continue preserving both productive and abandoned hypotheses rather than rewriting the path of reasoning as inevitable.
