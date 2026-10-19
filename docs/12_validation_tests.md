@@ -1,5 +1,7 @@
 # Validation cases, falsification tests, and scientific acceptance checks
 
+**Active M0–M1 priority (19 October 2026):** the first validation gate is an exactly matched **parallel vs composed linear CE graph pair**, then reliable full-function and per-example update-transfer measurements. Unrestricted causal search and SAE reliability remain later tests. See [matched study](15_matched_linear_topology_study.md), [measurement](16_functional_learning_and_transfer_measurement.md) and [decision gates](17_decision_gates_and_novelty.md).
+
 A mechanistic experiment is only as good as its instrumentation. Every failure below is a reason **not** to launch a topology search yet. Many tests are exact and inexpensive.
 
 ## 1. Graph integrity and matching
@@ -50,6 +52,23 @@ A mechanistic experiment is only as good as its instrumentation. Every failure b
 
 **M15. Conditional-softmax identity:** diagnostic only. Fixed partition $z_{gi}=s_g+t_{gi}-\mathrm{LSE}(t_g)$ yields factorized $P(g,i)$, CE separated; this is NOT a candidate architecture. Mean-centered approximation differs off uniform logits.
 
+**M16. Matched matrix function classes:** with $d\times d$ matrices $A,B$, define $h_P=(I+A+B)x$ and $h_C=(I+B)(I+A)x$. Verify both can realize arbitrary linear maps $Mx$ by $A=M-I,B=0$; with shared fixed readout they have the same projected logit-map family.
+
+**M17. Matched initial outputs/Jacobians:** at exact $A=B=0$, both produce $h=x$ and share parameter-to-logit Jacobian for arbitrary $\Delta A,\Delta B$; compare complete Jacobians across multiple probe inputs and check identical empirical NTK under same parameter coordinate metric.
+
+**M18. Same first CE update:** with fixed common readout $R$ and vocabulary-wide softmax CE, compute same loss gradient for each model on a batch from the same zero init. Confirm one SGD step gives identical $\Delta A,\Delta B$ and (for small scalar demonstration) $a_1=b_1=-\eta r x$ as appropriate for the chosen logits.
+
+**M19. Correct second-order divergence:** after matched first SGD step, logit difference equals $R(\Delta B)(\Delta A)x$ exactly; under step scaling it is $O(\eta^2)$ for fixed nonzero gradients. Verify for multiple $\eta$ and random examples.
+
+**M20. CE Hessian difference:** despite equal initial tangent kernels, mixed second derivatives differ by $R\Delta B\Delta A x$. Autograd/fd CE Hessian checks must confirm difference is the residual-weighted output second-derivative term, not the $J^\top C J$ term.
+
+**M21. CE sign counterexample:** for scalar logits $(1+a+b,0)$ vs $((1+a)(1+b),0)$ on $x=1$, target token 1 gives positive $ab$ after first SGD, while target token 0 produces the *same positive* $ab$ that opposes decreasing target-incorrect margin. This is an important guard against claiming composition universally improves learning.
+
+**M22. Small nonzero initialization:** show the initial tangent kernels need not match once $A,B\ne0$; report discrepancy as a controlled factor, not an implementation failure. Compare random seeds and operator permutations where applicable.
+
+**M23. Fixed arithmetic / compute:** audit equal learned matrix count, learned eval count, and exactly two vector residual additions, but allow different critical path and activation storage. Report real costs, not only parameters.
+
+
 ## 3. Functional discovery and generalization tests
 
 **F1. Full-domain Walsh inversion:** exhaustive Boolean function recovered to numerical precision from coefficients; Parseval/orthogonality hold under uniform input distribution.
@@ -67,6 +86,17 @@ A mechanistic experiment is only as good as its instrumentation. Every failure b
 **F7. Dataset leakage:** no accidental shared keys/program instances between disjoint partitions when declared; generator truth not supplied to source-agnostic analysis stage.
 
 **F8. One-example transfer:** for tiny model and small learning rate, actual $\Delta L_j$ matches $-\eta g_j^\top g_i$ to first order; deviation grows with step size. Test multiple related and unrelated inputs.
+
+**F9. Actual counterfactual transfer:** $T_t(i,j)=L_j(\theta_t)-L_j(\theta_t-\eta g_i)$ from cloned weights is correctly computed, including positive/negative results; compare with $\eta g_i^\top g_j$ for small SGD steps, test that finite-step $T$ need not be symmetric.
+
+**F10. Optimizer correctness:** cloning both weights and optimizer state reproduces a single AdamW/SGD update and distinguishes their finite-step transfer. Do not assume SGD dot-product formula holds for AdamW.
+
+**F11. Mode discovery without template leakage:** for linearly generated teacher distributions, extract SVD/modes from student functions with the teacher mode IDs hidden. Only after extraction align modes against generator truth on held-out probes and report missed ones.
+
+**F12. Train CE versus functional reuse:** construct equal or near-equal train-CE models whose predictions or example-update transfer on held-out probes differ. This prevents benchmark loss from being a surrogate for the research endpoint.
+
+**F13. Same expressive competence requirement:** for nonlinear paired graphs, demonstrate selected task is constructively realizable in both or flag inability to fit it as an expressivity confound. The test must **not** equate broad function-class equivalence with success of fitting one task.
+
 
 ## 4. Mechanistic extraction and causal depth
 
@@ -120,13 +150,31 @@ A mechanistic experiment is only as good as its instrumentation. Every failure b
 
 **S6. Null baseline:** identical graphs under different IDs should have no systematic difference except stochastic/numerical noise.
 
-## 7. First milestone done when...
+## 7. Revised milestone gates
 
-- Graph family works, $L!$ enumeration and graph auditing reproducible.
-- All applicable mathematical fixture tests above pass.
-- A two-token softmax CE toy can train from a stored config and produce immutable checkpoints/probes.
-- An exact small-domain output atlas detects an unknown planted interaction.
-- One inference-time subgraph intervention demonstrates the expected causal effect and records its baseline.
-- The repo can output a run manifest and basic report that another developer reproduces.
+### M0 complete (mathematical and engineering)
 
-Until those gates pass, do not claim a discovered rule about architectural topology. Add tests in small coherent increments as the corresponding features are implemented.
+- The parallel/composed matrix graphs are instantiated from reproducible configuration with exact same trainable matrices, fixed readout, operator eval count and fixed add count.
+- M1–M23 fixtures applicable to this graph class pass, particularly M16–M21: initial function/Jacobian/NTK equality, same first CE gradient, exact $BAx$ output divergence, different mixed curvature, and a negative-benefit counterexample.
+- A softmax CE trainer runs with reproducible data/initialization/manifests/checkpoints.
+- Graph hash and paired-run configuration matching are verified.
+
+**Not required for M0:** a general arbitrary-DAG compiler, exhaustive Boolean function atlas, causal graph search, SAE framework, or any claimed network improvement.
+
+### M1 complete (first empirical functional study)
+
+- A fixed linear softmax teacher task with known modes and separate train/probe distribution works; teacher/readout competence and softmax gauge are audited.
+- Multiple paired seeds produce time-resolved centered-logit functions and mode evolution.
+- Actual finite-step example-transfer matrices are computed at selected checkpoints and compared with first-order approximations.
+- There are controls for init scale, example/data seeds, optimizer/LR and task-mode strength, including at least one regime that does not favor composed routing.
+- The resulting report classifies a graph difference as **optimization**, with confidence bounds and limitations, or records a reproducible null.
+
+**Not required for M1:** automatic identification of the unique neural circuit or finding a generalization advantage.
+
+### M2/M3 after verified functional effect
+
+Implement finite-domain nonlinear interaction discovery and *then* causal tests C1–C11 if a stable function-level phenomenon warrants them. A large interpretability suite is not a precondition for M0–M1.
+
+### Search gating
+
+Architecture search is only legitimate after function-level and, where claimed, mechanistic descriptors have held-out predictive validity across graphs, seeds and task families. See [decision gates](17_decision_gates_and_novelty.md).
