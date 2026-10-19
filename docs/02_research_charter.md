@@ -74,17 +74,19 @@ The same experiment may show several types, but its report must distinguish them
 
 **Tier 4 — generalizable design principle:** effect replicates across widths, feature loads, data regimes, task families and optimizers, with interpretable boundary conditions.
 
-No tier can be skipped in a published claim. Tier 4 requires reporting negative regimes.
+The **claimed tier cannot exceed the evidence collected**: Tier 2 is enough for a bounded optimization/function-level empirical result, while a *mechanistic causal* claim requires Tier 3 and a *general design principle* requires Tier 4. This is **not** a demand that every published finding contain a unique extracted circuit. Tier 4 requires negative regimes and evidence of transfer beyond the discovery task family.
 
 ## Primary scientific measurements
 
 **Sequence matters:** earliest studies emphasize function/mode changes and actual cloned per-example updates; causal graph extraction is secondary until a repeatable functional phenomenon exists. We cannot assume the interpretability instrument can discover all mechanisms. See [functional measurement](16_functional_learning_and_transfer_measurement.md).
 
-1. **Residual accessibility:** CE residual alignment with shallow and deep local trainable directions, with realistic parameter-step/conditioning regularization; access is not creation or utility.
-2. **One-example transfer/interference:** actual loss/logit changes on labeled, semantically related/unrelated and shortcut-conflicting probes after one update; paired with gradient approximations.
-3. **Functional emergence first; causal implementation later:** time-varying learned functions, unexpected input relationships, rule-vs-exception changes; then subgraph necessity/sufficiency/redundancy for selected findings. Causal-depth $D_k,U_k$ are intervention- and granularity-dependent **secondary** descriptors.
-4. **Representation geometry:** spectra, effective dimensionality, sharing, interference, basis-robust comparison and SAE resolution sensitivity where appropriate.
-5. **Resource and scale relationships:** data/compute to acquire known mechanisms, model width and feature load, nonlinear complexity, shortcut reliability, training time.
+1. **Function/mode evolution:** complete or controlled-probe centered-logit/probability trajectories, independently discovered input-output changes and (where known) alignment to teacher modes.
+2. **One-example transfer/interference:** actual finite-step cloned optimizer updates measured across related, unrelated, contradictory and previously learned examples, plus first-order approximation checks.
+3. **Residual accessibility and optimization geometry:** CE residual alignment with trainable directions, higher-order parameter interactions, Hessian and tangent-kernel changes, as *explanations* of observed function changes rather than success metrics alone.
+4. **Later causal implementation:** necessity/sufficiency/redundancy and acquisition-vs-expression tests for **selected observed functional changes**. Causal-depth $D_k,U_k$ are intervention- and granularity-dependent **secondary** descriptors.
+5. **Representation geometry:** spectra, effective dimensionality, sharing, interference and basis-robust comparison; SAE-resolution sensitivity where appropriate after validation.
+6. **Resources and scale relationships:** width, latent feature load, composition complexity, sparsity, data support and training/compute efficiency, varying these factors independently.
+
 
 Aggregate CE/accuracy are mandatory validity signals but cannot substitute for the mechanistic outcomes.
 
