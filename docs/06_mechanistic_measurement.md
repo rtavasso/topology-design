@@ -1,6 +1,19 @@
 # Mechanistic measurement framework: discover first, explain causally second
 
-This is the central scientific instrumentation specification. **The measured outcome is not chiefly CE or accuracy.** Those are training signals and validity checks. We seek topology-dependent differences in emergent computations, memorization, generalization, interference, and circuit acquisition.
+**Scope clarification, 19 October 2026:** this document defines the advanced mechanistic tools for **later** experiments. It is **not** the first implementation milestone, nor a claim that computational paths admit a canonical circuit decomposition. Read [functional learning / one-example transfer](16_functional_learning_and_transfer_measurement.md) first and [critical review](14_critical_review_and_revised_scope.md).
+
+This is the **later-stage** scientific instrumentation specification. **The measured outcome is not chiefly CE or accuracy.** Those are training signals and validity checks. We seek topology-dependent differences in emergent computations, memorization, generalization, interference, and circuit acquisition. Early studies can and should establish reliable function-level findings without full circuit identification.
+
+## 0. Escalation from what the network computes to how it acquired it
+
+1. **Level A — observable function:** measure centered-logit/probability changes on fixed/exhaustive probes, without an expected algorithm template.
+2. **Level B — training transfer:** perform exact one-example optimizer interventions; track which other inputs improve/degrade, the emergence of reusable learned modes, and retained examples.
+3. **Level C — inference-time causality:** investigate the causal implementation of *selected observed changes* with multi-baseline edge/subgraph interventions.
+4. **Level D — training-time acquisition:** replay from a checkpoint with an edge/gradient intervention to ask which routes were necessary for learning, not only later expression.
+
+Level C–D are **not prerequisites for Level A–B**. A graph can show real topology-dependent learned-function differences even if its mechanism is not yet identifiable. See [study order](13_first_experiment_scenarios.md) and [gating](17_decision_gates_and_novelty.md).
+
+**A depth-limited retained subgraph is not a universal measure of long-path learning.** Definition of depth depends on operator granularity; masking alters activations; a route that mattered during acquisition may be redundant during expression. See [Miller et al. (2024)](https://arxiv.org/abs/2407.08734) on ablation-method sensitivity and [Anani et al. (2026)](https://proceedings.mlr.press/v306/anani26a.html) on certified stability under specific dataset edits.
 
 ## 1. Observe multiple levels, rather than insisting on a neuron-level ontology
 
@@ -49,7 +62,7 @@ Instead of preselecting 'parity circuit at depth 2':
 
 This is not fully assumption-free: input representation, intervention operations, selected distributions and contrast metrics define what can be discovered. Include an 'unknown/underexplained' category, and never equate detector failure to absence of computation.
 
-## 4. Long-path learning: exact and operational profiles
+## 4. Secondary: path-degree and intervention-dependent causal-depth profiles
 
 ### A. Exact linear expansion
 
@@ -66,7 +79,7 @@ For probe distribution $Q$, define:
 $$D_k^{(Q)}(G)=\min_{C\in\mathcal C_k(G)}
 \mathbb E_{x\sim Q} D_{\rm KL}\!\left(p_G(\cdot|x)\|p_C(\cdot|x)\right).$$
 
-This measures approximate depth needed to **reproduce the trained function**, not correctness or the unique true circuit. Separately define
+This measures approximate depth needed to **reproduce the trained function under a specified intervention and operator granularity**, not correctness, acquisition history or the unique true circuit. **This is an optional secondary descriptor**, not a gate for running functional studies. Separately define
 
 $$U_k^{(Q)}(G)=
 \min_{C\in\mathcal C_k(G)}\mathbb E_{(x,y)\sim Q}[-\log p_C(y|x)]
@@ -132,7 +145,7 @@ Crucial: a new high-order functional interaction need not have arisen from a new
 
 ## 8. Residual access and one-example measurements
 
-See docs/04_gradient_dynamics.md. Include in longitudinal record:
+These are **primary early measurements**; see [gradient dynamics](04_gradient_dynamics.md) and the more specific [function/transfer protocol](16_functional_learning_and_transfer_measurement.md). Include in longitudinal record:
 - shallow functional projection of CE residual and separately deep incremental projection, regularized for finite update magnitude;
 - actual one-example SGD update effects on identical inputs, semantically related unseen inputs, contradictory shortcut cases and previously memorized exceptions;
 - change in train/test functional atlas coefficients after cloned update;
@@ -140,7 +153,7 @@ See docs/04_gradient_dynamics.md. Include in longitudinal record:
 
 **Watch for pathological overparameterization:** Jacobian columns may span all train-logit residual directions yet not yield a useful finite update or generalize. Use ridge/bounded-step estimates and OOD probes.
 
-## 9. Validation of the *instrument* before interpreting new graphs
+## 9. Validation of the *instrument* before making circuit claims
 
 Build a calibration suite with planted:
 - a linear known depth-$k$ path;
@@ -155,11 +168,11 @@ Build a calibration suite with planted:
 
 Measure recall/precision of discovered behaviors or subgraphs where ground truth is available; false positives and unidentifiable cases matter. Assess sensitivity to probe distribution, checkpoint selection, ablation baseline, graph search budget, SAE size and random seed.
 
-Only promote a causal-depth or circuit count trend to an architectural claim if the instrument succeeds on relevant calibration cases.
+Only promote a causal-depth or circuit count trend to an architectural claim if the instrument succeeds on relevant calibration cases. **Do not delay mathematically or functionally validated topology results solely because full mechanism discovery isn't yet available.**
 
 ## 10. Reporting templates
 
-For every topology × seed × task × scale, produce:
+For *advanced mechanistic* topology × seed × task × scale reports, produce the following as applicable; early studies should report function/transfer trajectories without pretending to supply all circuit analyses:
 1. **Functional evolution:** logit-contrast spectra, newly appearing interactions, rule/exception changes.
 2. **Causal-depth reproduction/utility:** $D_k$ and $U_k$ by evaluation distribution, plus searches/baselines/coverage.
 3. **Mechanism atlas:** candidate subgraphs, causal fingerprint, necessity/sufficiency/redundancy with uncertainty.
@@ -169,3 +182,8 @@ For every topology × seed × task × scale, produce:
 7. **Unexplained behavior fraction:** where extracted circuits do not adequately reproduce the trained model.
 
 Do not compress all of this to a single weighted score. The goal is a *mechanistic history linked to the topology mutation*.
+
+
+## 11. Constraining novelty and mechanistic claims
+
+The aim is not to re-establish known pathway specialization or shortcut-feature competition. [Shi et al. 2022](https://proceedings.neurips.cc/paper_files/paper/2022/hash/dc3ca8bcd613e43ce540352b58d55d6d-Abstract-Conference.html) and [Qiu et al. 2024](https://proceedings.mlr.press/v235/qiu24e.html) provide important baselines. [Chen et al. 2026](https://proceedings.mlr.press/v306/chen26cv.html) is a close precedent for identifying which *training examples* contributed causally to interpretable units. Study 3 should test whether a controlled edge mutation affects acquisition beyond these already-known effects. A proposed discovery must explicitly state which part is new.
