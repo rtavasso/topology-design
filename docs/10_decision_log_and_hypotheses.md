@@ -1,5 +1,7 @@
 # Decision record, rejected approaches, live hypotheses, and unresolved tensions
 
+**19 October 2026 note:** A constructive adversarial review changed the active *sequence*, not the core motivation. [Critical review](14_critical_review_and_revised_scope.md), [matched linear study](15_matched_linear_topology_study.md), and [decision gates](17_decision_gates_and_novelty.md) supersede older suggestions to begin with generalized circuit discovery or broad topology enumeration. Retain previous decisions as history.
+
 This record complements the chronological intellectual history. It is written so a new agent can recover **why** each choice was made, not merely follow a frozen checklist.
 
 ## Non-negotiable orienting statements
@@ -54,6 +56,38 @@ This record complements the chronological intellectual history. It is written so
 ### D09 — Preserve negative and ambiguous outcomes
 - **Reason:** ambiguous circuit identity, no causal significance, or scale reversals identify the boundary of the proposed science. Re-running until a positive figure appears defeats our goal.
 
+### D10 — Separate expressivity, optimization and mechanism formation (19 Oct 2026)
+- **Critique:** changing fixed connections can increase nonlinear composition and hence finite-width expressive capacity; one graph's better generalization need not imply different gradient dynamics.
+- **Decision:** first compare graphs with the *same representable linear map class* and exactly matched initial function and parameter-to-logit Jacobian. For nonlinear tasks establish selected-target competence in both graphs or explicitly call the difference representational.
+- **Falsification:** topology advantages disappear once function-class and scale differences are controlled.
+- **Retain:** raw-input versus sequential nonlinear graphs as a later *expressivity-plus-learning* study, not the initial causal test.
+
+### D11 — Initial network pair: same NTK, different second-order parameter interaction
+- **Decision:** parallel $x+Ax+Bx$ versus composed $x+Ax+B(x+Ax)$, with common fixed readout and ordinary CE.
+- **Why:** same trainable matrices, learned operation and fixed addition counts, function class, initialization output and Jacobian at $A=B=0$; difference $BAx$ changes higher-order derivatives and subsequent updates.
+- **Important limit:** this is not equal full CE curvature, identical implicit bias or a measure of nonlinear circuit formation.
+- **Next:** analytic fixtures → time-resolved linear mode learning and per-example transfer → nonlinear tests.
+- **Details:** [matched study](15_matched_linear_topology_study.md).
+
+### D12 — Primary metric: learned function and actual single-example transfer
+- **Critique:** path-depth KL/utility cannot unambiguously measure circuit development; intervention baselines and operator granularity make it noncanonical, while acquisition and expression can use different routes.
+- **Decision:** first observe the full centered-logit function and its unexpected temporal changes, then exact cloned one-example update effects $T(i,j)$, with related/contradictory/unrelated probes. Causal-depth and feature-level analyses are secondary, later.
+- **Control:** perform actual finite-step effects; dot-products are only small-SGD-step approximations.
+
+### D13 — Targeted causal interpretability after a demonstrated function-level effect
+- **Critique:** building a source-agnostic mechanistic framework is itself an ambitious research program that could consume the project before any topology effect is known.
+- **Decision:** validate partial measurements early; once function/transfer differences replicate, investigate *that behavior* using baselined patching, redundancy checks, and separate training-time interventions. Don't make solving all mech interp a prerequisite.
+
+### D14 — Treat reuse / interference as more foundational than 'memory circuits'
+- **Critique:** arbitrary facts and general rules can share computations, and features/instances can be represented in superposition.
+- **Decision:** label memorization and generalization via specified distributions; measure shared functional dependencies and update locality. Never declare short=memorization or deep=generalization based on wiring alone.
+
+### D15 — Explicit gates and stopping conditions
+- **Critique:** the broad motivational question could explain any result after the fact.
+- **Decision:** each hypothesis requires a null/negative control, plausible alternative explanation, reproducible functional signal, and continue/pivot/stop criterion. Search/large-scale work only after predictive out-of-sample topology–mechanism links.
+- **Details:** [decision gates](17_decision_gates_and_novelty.md), [experiment sequence](13_first_experiment_scenarios.md).
+
+
 ## Live hypotheses, explicitly unproven
 
 **H01: Local trainability via short paths.** Parameter-free routing alters low-order parameter dependence and Jacobian conditioning, potentially enabling faster updates without more learnable capacity. Prediction: source-parent mutations change first-order functional accessibility near matched initialization. Exact linear examples support possibility; nonlinear generalization untested.
@@ -71,6 +105,15 @@ This record complements the chronological intellectual history. It is written so
 **H07: Memorization and generalization need not occupy disjoint subgraphs.** Shared feature extractors can process both arbitrary stored facts and compositional rules. Prediction: discovered mechanisms show shared components, with separation possibly in stored instance-specific states or readout. Counter: some task families do show strong disjointness; characterize when.
 
 **H08: Topological mechanism signatures may transfer across sizes.** Certain graph descriptors might predict causal-depth utility or circuit-emergence times on unseen widths/task families. Prediction: held-out graph and task validation beats null/random. Counter: no stable predictor; graph effect dominated by operator capacity and data geometry.
+
+**H09 (NEW): second-order routing may change linear CE mode learning beyond a matched initial tangent kernel.** Parallel and composed $A/B$ networks have identical initial function/parameter Jacobian but different $BAx$ interaction. Prediction: in some mode/data regimes a reproducible difference in full function and one-example transfer emerges at finite updates. A universal positive effect is **not** predicted. Clear boundary: no effect after controls or only trivial initialization/implicit-regularization explanation.
+
+**H10 (NEW): graph-induced nonlinear function acquisition is distinguishable from expressivity if targets are accessible in both graphs.** Prediction: for selected same-task-realizable target, one-edge routing mutation changes when a new functional dependency emerges and how it transfers; if one graph cannot fit, classify as expressive capacity instead.
+
+**H11 (NEW): causal path depth is not a stable independent scientific target without fixed granularity and intervention protocol.** Prediction: $D_k,U_k$ vary under reasonable ablation baselines, while some broader functional transfer effects remain robust. If they do not vary, that's a positive robustness finding—not a requirement.
+
+**H12 (NEW): reuse/interference patterns may predict downstream scaling better than 'memory neuron' counts.** Prediction: topology effects on actual related/unrelated example-update transfer persist or change systematically with feature demand and width, even as neuron-level interpretations shift. Requires independent data/seed/basis controls.
+
 
 ## What about humans learning from few examples?
 
