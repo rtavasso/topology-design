@@ -156,3 +156,20 @@ This distinction is central to studying "hidden" learning versus failure to gene
 On a small stable probe set, compute logits/probabilities, loss gradients, per-example cross-loss deltas after cloned single-example updates, Jacobian spectra/estimated rank, groupwise projected-gradient residuals, and actual finite-step versus first-order predictions. Intersect these with *causally identified* mechanisms from the measurement framework. Avoid relying on high-dimensional full Hessians for the first implementation. Use Hessian-vector and Jacobian-vector products when scale requires.
 
 No result from this document by itself identifies a specific memorization or generalization circuit.
+
+
+## 11. Revised research target: measured functional updates before inferred circuits (19 Oct 2026)
+
+The original discussion correctly emphasized CE competition, product-path trainability and useful unresolved error. But a constructive review identified a risk: **better compositional task performance may simply follow from greater expressive capacity**, and **path-depth lesions are not a canonical measure of circuit acquisition**.
+
+We now start with the matched linear graph pair $h_P=(I+A+B)x$ and $h_C=(I+B)(I+A)x$. These have equal linear function classes and equal initial parameter-to-logit Jacobians at $A=B=0$, but the latter has a mixed $BAx$ term. Under a common fixed readout and softmax CE, their initial CE gradient and empirical NTK are the same; their full Hessians need not be. An identical first SGD update yields a *second-order* difference in logits. This lets us ask exactly what **higher-order numerical dynamics of parameter interactions** add beyond initial gradient smoothness.
+
+The primary empirical outcome is no longer raw error accessibility alone. It is:
+$$T_t(i,j;\eta)=L_j(\theta_t)-L_j(\theta_t-\eta\nabla L_i(\theta_t)),$$
+the **actual** one-example loss improvement or interference on context $j$, tracked over training and combined with complete functions/unsupervised learned-mode trajectories. For small SGD steps:
+$$T_t(i,j;\eta)=\eta\,g_i^\top g_j+O(\eta^2).$$
+At finite step $T(i,j)$ need not be symmetric; with AdamW the true state-dependent update replaces $-\eta g_i$.
+
+The useful question is not whether gradients are large, or whether short and long logits disagree. It is **how information acquired from an example becomes reusable, how other behaviors are overwritten, and which computational dependencies are formed**. The short/long framing is not a unique decomposition when routes share parameters. A causal circuit analysis becomes appropriate *only once* a real function-level phenomenon has been established and replicated.
+
+See [critical review](14_critical_review_and_revised_scope.md), [matched study](15_matched_linear_topology_study.md), and [measurement priorities](16_functional_learning_and_transfer_measurement.md). Prior CE grouping derivations remain historical demonstrations of coupling, **not** an approved token-partition architecture.
