@@ -1,6 +1,6 @@
 # Instructions for coding agents
 
-Read [README](README.md), [intellectual history](docs/01_intellectual_history.md), [charter](docs/02_research_charter.md), and [measurement framework](docs/06_mechanistic_measurement.md) **before proposing an implementation**. This repository captures an evolving *research program*, not a performance-driven NAS challenge.
+Read [README](README.md), [researcher's original questions](docs/00_questions_in_original_words.md), [intellectual history](docs/01_intellectual_history.md), [charter](docs/02_research_charter.md), [measurement framework](docs/06_mechanistic_measurement.md), and [first experiments](docs/13_first_experiment_scenarios.md) **before proposing an implementation**. This repository captures an evolving *research program*, not a performance-driven NAS challenge.
 
 ## Mission and epistemic discipline
 
