@@ -1,8 +1,12 @@
 # Research charter: scope, object, and standards of evidence
 
+**19 October 2026 active amendment:** the long-horizon motivation remains, but [critical review](14_critical_review_and_revised_scope.md) narrows the first scientific claim. See [matched linear first study](15_matched_linear_topology_study.md), [functional measurement](16_functional_learning_and_transfer_measurement.md), and [decision gates](17_decision_gates_and_novelty.md). Prior sections should be read as research ambition, not a requirement to build a complete circuit extractor first.
+
 ## Core research question
 
-Can **parameter-free information routing in feed-forward computational graphs** favor stable preservation of useful representations, controlled destruction of inadequate ones, and construction of novel reusable mechanisms, **while keeping unresolved errors accessible to the computations capable of resolving them**?
+**Primary falsifiable direction:** how does fixed parameter-free DAG connectivity affect the acquisition, reuse, interference and persistence of learned functions when the learned operators, task support and optimizer are controlled? Which effects can be separated from expressive capacity and first-order gradient geometry, and which persist at another scale?
+
+**Motivating north star (not a single falsifiable hypothesis):** Can **parameter-free information routing in feed-forward computational graphs** favor preservation of useful representations, controlled destruction of inadequate ones, and construction of novel reusable mechanisms while leaving errors accessible to the computations capable of resolving them?
 
 Our ultimate goal is a predictive understanding of how topology controls:
 - which mechanisms form during learning;
@@ -26,7 +30,7 @@ Our ultimate goal is a predictive understanding of how topology controls:
 
 **Circuit:** an operationally defined causally involved subgraph or subspace of computations with explicit intervention boundaries and tolerance for behavior reproduction. An extracted circuit need not be unique, semantic, neuron aligned or consistent across inputs.
 
-**Circuit formation:** detectable emergence/evolution of causally relevant computations during training, distinct from merely decoding features that were already present or observing lower CE. Must connect longitudinal functional changes to interventions when feasible.
+**Circuit formation:** detectable emergence/evolution of causally relevant computations during training, distinct from merely decoding features that were already present or observing lower CE. Must connect longitudinal functional changes to interventions when feasible. **A new functional mode is not automatically a new circuit.**
 
 **Utility:** causal contribution to a *specified* behavior and evaluation distribution, not activation magnitude, gradient size, or output contribution alone.
 
@@ -48,6 +52,16 @@ Our ultimate goal is a predictive understanding of how topology controls:
 ### Diagnostic/secondary controls
 May include: plain networks, learned gates, branch-specific supervision, artificially fixed features, grouped conditional CE, gradient detach, synthetic planted circuits, or retrained pruned models. Label these as interventions outside the pure-topology comparison. They can test causal hypotheses, not establish a strictly parameter-free architectural advantage.
 
+## Three distinct causal-claim types (do not collapse)
+
+**Representational:** topology changes which functions are expressible or efficiently approximated at fixed learned capacity.
+
+**Optimization:** architectures can both fit the selected target, but their gradient descent trajectories, mode learning, and example-transfer effects differ. Identical initial function/parameter Jacobian (when possible) is a strong control, but **does not imply equal Hessians**.
+
+**Mechanism formation:** reproducibly different functions are acquired, and interventions identify which computational subgraphs acquire and express the useful changes; inference-time ablation alone does not establish acquisition.
+
+The same experiment may show several types, but its report must distinguish them. A parameter-matched raw-input versus sequential nonlinear graph **does not** automatically isolate learning dynamics, because composition changes the function class.
+
 ## Evidence hierarchy
 
 **Tier 0 — algebraic invariant:** exact for graph class; show derivation and assumptions, symbolic/numeric tests.
@@ -64,9 +78,11 @@ No tier can be skipped in a published claim. Tier 4 requires reporting negative 
 
 ## Primary scientific measurements
 
+**Sequence matters:** earliest studies emphasize function/mode changes and actual cloned per-example updates; causal graph extraction is secondary until a repeatable functional phenomenon exists. We cannot assume the interpretability instrument can discover all mechanisms. See [functional measurement](16_functional_learning_and_transfer_measurement.md).
+
 1. **Residual accessibility:** CE residual alignment with shallow and deep local trainable directions, with realistic parameter-step/conditioning regularization; access is not creation or utility.
 2. **One-example transfer/interference:** actual loss/logit changes on labeled, semantically related/unrelated and shortcut-conflicting probes after one update; paired with gradient approximations.
-3. **Mechanistic emergence/utility:** time-varying functional atlas, discovered subgraphs, causal depth/necessity/sufficiency/redundancy, rule-vs-exception distributions.
+3. **Functional emergence first; causal implementation later:** time-varying learned functions, unexpected input relationships, rule-vs-exception changes; then subgraph necessity/sufficiency/redundancy for selected findings. Causal-depth $D_k,U_k$ are intervention- and granularity-dependent **secondary** descriptors.
 4. **Representation geometry:** spectra, effective dimensionality, sharing, interference, basis-robust comparison and SAE resolution sensitivity where appropriate.
 5. **Resource and scale relationships:** data/compute to acquire known mechanisms, model width and feature load, nonlinear complexity, shortcut reliability, training time.
 
@@ -94,6 +110,8 @@ Aggregate CE/accuracy are mandatory validity signals but cannot substitute for t
 
 ## Deliverables for an eventual scientific report
 
-A credible result should supply: an explicit graph mutation and matched control; formal predicted consequence; independent measured dynamics; a causally confirmed behavior-related mechanism; per-example and OOD distribution effects; conditioning and measurement-confound controls; a scale/task regime map; negative cases; and reproducible configs/raw data.
+A mature *mechanism* result should supply: an explicit graph mutation and matched control; formal predicted consequence; independent measured functional dynamics; a causally confirmed behavior-related mechanism; per-example and OOD distribution effects; conditioning and measurement-confound controls; a scale/task regime map; negative cases; and reproducible configs/raw data.
 
-**Preferred first result:** demonstrate a reliable, causally validated link between one parameter-free routing choice and emergence/utility of a computation, even on a toy model. That is more valuable than any initial benchmark win.
+An early **optimization/functional learning** result can be valuable without a causal circuit claim if the function classes and initial geometry are well controlled, the learned modes and example-transfer differences replicate, and the limitations are explicit.
+
+**Preferred first result (revised):** characterize whether two graphs with the same linear function class and initial tangent dynamics diverge in mode acquisition and one-example transfer because of higher-order parameter interactions; establish mathematical fixtures and empirical boundaries. Follow with a nonlinear function-formation study and *then* targeted causal circuit tests. A reliable null identifying the limits of fixed routing is also valuable.
