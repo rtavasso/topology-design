@@ -1,126 +1,130 @@
-# First discriminating experiments: precise, minimal scenarios
+# First discriminating experiments — revised active sequence (19 October 2026)
 
-This document is an execution order for a coding agent *after* Phase 0 mathematical and graph tests. These are examples of falsifying experiments, not empirically confirmed benefits. They deliberately start with small networks where behavior can be measured exactly.
+**This document replaces the initial priority order, not its scientific motivations.** Previously proposed shortcut/frustration, arbitrary exception, causal-depth, and scaling experiments remain below at later stages. The initial priority is now a topology effect that can be separated from **expressive function class and initial first-order learning geometry**.
 
-## E0 — Scalar topology algebra and gradient access
+See [critical review](14_critical_review_and_revised_scope.md), [matched pair](15_matched_linear_topology_study.md), [measurement](16_functional_learning_and_transfer_measurement.md), and [decision gates](17_decision_gates_and_novelty.md). **No data or results exist yet.**
 
-**Question:** Can an edge-only rewire change the order at which learned parameters influence predictions without changing the attainable scalar linear functions?
+## S0 — Exact mathematics and measurement oracles (before training)
 
-Construct graphs A/B from docs/03:
-- A: $u=x+ax;\ v=bu;\ w=cv;\ y=x+w=(1+bc+abc)x$.
-- B: $u=ax;\ v=bu;\ w=x+v;\ y=x+cw=(1+c+abc)x$.
+**Question:** Can we produce graph rewires whose effects on numerical forward computation, gradients and Hessians are exactly predicted?
 
-**Analytic predictions:** at $a=b=c=0$, output identity for both; first-order parameter Jacobian vanishes in A and contains $x$ through $c$ in B. B has $O(|\epsilon|)$ local parameter displacement for output correction while A's simple two-weight route has $O(\sqrt{|\epsilon|})$.
+Fixtures:
+1. Identity-origin of scalar residual vs nonresidual; ReLU half-line and finite expressivity; bottleneck rank and spectral bound.
+2. Scalar polynomial DAGs $(1+bc+abc)x$ vs $(1+c+abc)x$, at exact zero and small nonzero starts.
+3. **New flagship pair**: $h_P=x+Ax+Bx$ and $h_C=x+Ax+B(x+Ax)$.
+4. Softmax CE gradient and Hessian decomposition, and first SGD update equality for the flagship pair at $A=B=0$.
+5. Centered-logit gauge invariance and finite-step $T(i,j)$ compared with $\eta g_i^\top g_j$.
+6. A duplicate-graph null and an intervention that sets $B=0$, yielding identical predictions.
 
-**Tests:** symbolic expansion, finite differences, autograd; train both with a two-logit CE head on a deterministic binary token function (include exact zero and small random starts as separate conditions). Do **not** assert CE training convergence is mathematically guaranteed or generalizable from this scalar example.
+**Expected exact result:** the matched pair has same function, parameter Jacobian, initial empirical tangent kernel and initial SGD update, but different mixed second derivatives; after the same first update their logits differ by $R(\Delta B)(\Delta A)x$. These are mathematical *unit tests*, not evidence for beneficial learning.
 
-**Outputs:** weights/gradient norms over time, function slopes, optimizer dependence, latency and parameter matching. **Falsification of broad conjecture:** if nonlinear practical effects disappear under calibrated random init, local zero behavior is not a strong general topology predictor.
+**Gate:** all numerical implementations match the derivations before proceeding.
 
-## E1 — Strict narrow-family topology vs cheap vs compositional solutions
+## S1 — Matched linear topology under softmax CE (first empirical experiment)
 
-**Question:** Does choosing earlier versus later inputs to the same learned operations change whether compositional input interactions emerge?
+**Question:** At fixed linear input-output function class and identical initial first-order geometry, does a graph rewire change how learned input-output modes develop?
 
-Use $h_i=h_{i-1}+F_i(h_{k_i})$, $L=4$ with identical $F_i$ (e.g. tiny 2-layer ReLU width $d$), and at least:
-- sequential $(0,1,2,3)$;
-- all raw-input $(0,0,0,0)$;
-- mixed $(0,1,0,2)$;
-- one-edge neighbor of sequential.
+**Architecture:** two matrices $A,B\in\mathbb R^{d\times d}$, a fixed common readout $R$ and the parallel/compositional expressions in [matched study](15_matched_linear_topology_study.md). Each learned matrix applies once; no extra gate, recurrence, normalization trick or branch-specific loss.
 
-**Data:** balanced small Boolean $x$, rules sampled from an undisclosed mixture of low- and higher-order Boolean interactions. Use two-logit CE. Enumerate full input domain for output atlas. If an operator $F_i$ can independently realize the full task at chosen width, acknowledge that as alternative explanation; do not equate all-raw topology with 'cannot solve XOR' without checking module capacity.
+**Data:** controlled linear conditional token teacher $p_*(y|x)=\mathrm{softmax}(RM_*x/\tau)$; vary teacher mode spectra, feature covariance, class balance and finite-sample budget. Use two-logit softmax for the smallest demonstration and later $V>2$ with explicitly controlled readout rank.
 
-**Observation:** tracked Fourier interaction components (all subsets), representation spectra, training CE, graph perturbation effects, source-agnostic behavior cluster, causal-depth profile under several baselines.
+**Measurements (primary):**
+- the learned conditional probability function and centered-logit map on fixed probes, not just train CE;
+- acquisition trajectories of projected teacher modes and unsupervised output modes;
+- actual cloned one-example update transfer $T_t(i,j)$ with related/unrelated probes, benchmarked against first-order estimate;
+- per-example interference/retention across a continued training stream;
+- difference in full CE Hessian mixed terms and higher-order $BA$ contribution as a mechanistic *parameterization* explanation.
 
-**Controls:** equal learned operations, exact params, module seeds and updates, matched fixed merges, calibrated signal, training steps, graph label permutations. Blind the mechanism detector to generator interaction order.
+**Controls:** exact-zero init; small matched nonzero init; LR sweep; batch/seed pairing; fixed param/head/addition/learned-op count; output norm and activation scales; optimizer (SGD then AdamW); target mode orientation; identical-graph null; explicit case where composed routing is *not* better.
 
-**Success:** reproducible difference in **emerging functional interactions and causally implicated paths** linked to one edge, not merely mean loss. **Failure:** one graph performs better but the interpreter cannot identify a mechanism → improve instrumentation before expanding search.
+**Interpretation:** a repeatable effect is an **optimization / learned-linear-mode** finding. It is *not* yet a nonlinear circuit-generalization discovery. Failure to find robust differences after controls is valid and should trigger [Gate 1](17_decision_gates_and_novelty.md).
 
-## E2 — Productive unresolved error and circuit acquisition
+## S1R — Replication of multiple-pathway learning results
 
-**Question:** When an easy shortcut reaches its CE optimum, can routing determine whether a new reusable rule emerges, and whether remaining errors can train it?
+**Question:** Do our function and transfer instruments recover the pathway specialization phenomena already reported for deep linear networks under a shared objective?
 
-Start with the distribution in docs/04: $y=x_1x_2$ and $P(x_2=1)=.9$. Short margin $ax_1$ has optimum $a=\log9$, while a supplied term $d x_1x_2$ has negative loss gradient at $d=0$. Confirm mathematically (fixture only).
+Use a compatible miniature version of the setting in [Shi, Shea-Brown & Buice (2022)](https://proceedings.neurips.cc/paper_files/paper/2022/hash/dc3ca8bcd613e43ce540352b58d55d6d-Abstract-Conference.html); state deviations from their assumptions and loss (our primary training remains softmax CE; exact reproduction under the paper's original objective is a **separate diagnostic**).
 
-Then replace the *supplied interaction* with a nonlinear trainable DAG that must learn an equivalent compositional rule from $(x_1,x_2)$, without exposing $x_1x_2$ as an input.
+**Purpose:** literature-grounded calibration and novelty boundary, not new results. Saxe (2014) provides an additional analytic comparator. Do not use this as an excuse to expand the project before S1 measures are reliable.
 
-**Measurements:** time when shortcut reaches plateau; residual gradient alignment with shallow/deep directions; actual development of previously absent input interaction; later ability to predict contradictory $x_2=-1$ cases and balanced OOD cases; causal route utility. Contrast routing parent vectors and independent random seeds.
+## S2 — Nonlinear feature acquisition with expressive-competence controls
 
-**Controls:** ensure training distribution has enough contradictory examples to identify the true rule; vary contradiction rate (0.1, 0.01, etc. as *sweep examples*, not calibrated defaults), initialization and optimizer. An absent rule with zero contradictory evidence is not circuit failure but informational nonidentifiability.
+**Question:** When two DAGs can demonstrably represent the same specified target task, does a fixed rewire change which input-output functions they *learn* and how updates generalize?
 
-**What this can rule out:** 'strong shallow CE feature necessarily kills long learning' is false if rule circuits reliably develop. Conversely long gradients can exist without helpful feature creation; separate access from acquisition.
+**Architecture:** parent-selected family $h_i=h_{i-1}+F_i(h_{k_i})$ with identical, single-evaluation 2-layer ReLU blocks; start with sequential, raw-input and **one-edge** variants. Note that these have different function classes in general. For each chosen task, establish target realizability for *both* topologies (constructive weights, favorable full-data fit, or strong controlled approximation evidence). If this fails, classify the result as expressivity, not learning dynamics.
 
-## E3 — Rule+exception memorization and distinct evaluation populations
+**Data:** small complete Boolean domain with multiple latent rules of various interaction orders. Train on a subset; hold out structured combinations; analyze complete centered-logit Walsh spectra and cross-example update transfer. A discovered coefficient is a **functional interaction**, not automatically a graph route or new circuit.
 
-**Question:** Does a topology create different dependencies for arbitrary memorization and reusable rule behavior?
+**Measurements:** emergence/persistence of unexpected functional components, loss and transfer on held-out rule cases, matched-CE comparison, gradients and learned modes, optional representation spectra. A circuit investigator should not be handed the generator's latent rule labels until after discovery auditing.
 
-Generator from docs/07: latent symbolic rule over small finite domain, persistent random labels on selected training keys, plus optional shortcut that changes correlation at test. **No manually allocated memory path**, no exception-aware training loss.
+**Falsifiers:** only one network can represent the target; apparent differences are explained by output temperature/scale; effects disappear across seeds or upon equalizing effective approximation competence.
 
-At every checkpoint:
-- measure exact recall of seen exception keys (retention);
-- rule correctness on unseen combinations;
-- shortcut-broken CE;
-- actual one-example update influence on old exceptions and unseen rule examples;
-- functional atlas changes and causal route utility for each population.
+## S3 — Productive unresolved error, shortcuts and arbitrary exceptions
 
-**Discovery procedure:** generate behavior contrasts from the observed function and influence matrix *without passing exception masks/program truth* to the circuit search. Subsequently reveal the generator truth to audit the discovered mechanisms.
+**Question:** Does routing systematically change whether useful unresolved CE error produces reusable functions, instance-specific storage, or harmful interference?
 
-**Controls:** rule-only (no exceptions), exception-only (random lookup), shortcut-only, correlated and independent keys, fixed params/compute. Beware a unique-key embedding table dominating the model budget.
+**Toy calibration:** $y=x_1x_2$, $P(x_2=1)=.9$; the short margin $ax_1$ is stationary at $a=\log9$, while a *provided* compositional term $d x_1x_2$ has $\partial_dL=-.18$. This only demonstrates error availability. Do not feed the term directly in the main learning experiment: have the nonlinear modules construct it.
 
-**Success:** identify whether topology changes causal sharing/overlap or disruption of learned computations, including cases where both behaviors use shared circuits. **Failure:** if extractor presupposes memorization=short path, invalidate method.
+**Primary task:** program-generated token rule, correlated shortcut, persistent random-label exceptions on some training keys, with explicit seen exceptions, unseen rule combinations and shifted shortcut distributions.
 
-## E4 — Redundancy and measurement calibration
+**Measurements:** function atlas and transfer for (i) original train examples, (ii) unseen rule contexts, (iii) shortcut-contradicting contexts, and (iv) other stored exceptions. Separate **acquisition**, **expression**, **retention** and **transfer**. No pre-assigned memorization layer or group-specific CE.
 
-**Question:** Can the instrument detect mechanisms that single-component ablation misses?
+**Pushback to test:** a memorized fact can be processed by a general algorithm; memorization/generalization are not guaranteed to have disjoint circuits. Measure dependence and update locality rather than count 'memory neurons'.
 
-Construct a model with **two independent trained or analytically planted equivalent routes** producing the same needed output. On chosen probe domain, removing one should have small utility loss but removing both substantial loss. Include a neutral high-activation operation and a negative-utility operation on an OOD distribution.
+## S4 — Targeted mechanism tests for *observed* functional changes
 
-Run:
-- exact all-subgraph enumeration with zero baseline;
-- alternative mean/resampled baselines;
-- sufficiency and necessity separately;
-- compare discovered graph to known planted computation;
-- test $D_k,U_k$ monotonicity under nested exact subgraph classes.
+**Prerequisite:** S2 or S3 yields a reproducible novel function/transfer pattern that matters on held-out probes. Do **not** build full automatic circuit discovery to make S1 possible.
 
-**Success:** flags redundant circuit multiplicity, neutral route and sensitivity to baseline; reports ambiguity as needed. If fails, do not make mechanistic claims on E1–E3.
+Build planted calibration cases first:
+- a known short route and a known nonlinear composition;
+- two redundant routes (single-edge lesion small, joint lesion large);
+- large-activation but causally inert node;
+- representation basis changes at exactly valid linear interfaces;
+- known superposed sparse features and an unknown-to-detector functional interaction.
 
-## E5 — Width × feature load × sparsity regimes
+For selected observed changes:
+- perform inference-time edge/node ablations with multiple replacement baselines;
+- test necessity, sufficiency and redundancy;
+- match mechanism fingerprints through checkpoints;
+- try controlled training-time gradient stop/edge rewires with cloned optimizer state to distinguish **acquisition** from expression.
 
-**Question:** Is a topology effect intrinsic to wiring or an artifact of crowded representations?
+**Important:** retained-subgraph causal-depth $D_k,U_k$ remains a *secondary operational profile*, not the primary discovered object. A positive causal finding must survive reasonable intervention changes; report ambiguity and unexplained behavior.
 
-For selected E3 graphs, compare:
-- width $d$ increasing with fixed generator factors;
-- factor count increasing with fixed width;
-- both increasing together;
-- activation sparsity/co-occurrence independently varied;
-- rule compositional depth varied at fixed factor count.
+## S5 — Capacity, feature-demand, sparsity and task-complexity regime map
 
-Use multiple seeds and enough training duration to observe delayed effects. Collect representation effective dimension, learned functional interactions, circuit sharing/redundancy, exception retention and unseen-rule utility. Avoid making 'monosemantic neurons' the axis; topology may change feature geometry without changing count.
+**Question:** Is a graph effect intrinsic to fixed routing or conditional on representational crowding / data support?
 
-**Success:** a phase map and boundary cases, even if effects reverse. Correlate outcomes with design load and measured covariance spectra but never assume a universal ratio that explains everything.
+Independently vary:
+- width with task latent features fixed;
+- latent feature demand with width fixed;
+- both together at approximately constant designed feature load;
+- feature sparsity/co-occurrence and importance;
+- nonlinear composition order at fixed feature count;
+- distinct-example count, shortcut contradiction frequency and training duration.
 
-## E6 — Held-out program generalization of design principles
+Record function/transfer metrics as primary and causal measurements for selected regimes. Do not equate width with number of atomic features or declare an SAE count canonical.
 
-Only after a metric reliably predicts E1–E5 dynamics:
-- choose routing comparisons from earlier studies;
-- apply to held-out program family (e.g. modular addition or symbolic grammar);
-- keep learned operator budgets fixed;
-- compare whether predicted causal mechanism signature recurs, not only accuracy.
+**Success:** a reproducible boundary/phase map showing where graph effects occur, disappear or reverse. Two widths do not constitute a scaling law.
 
-If a property of topology ceases to predict learning in a novel family, report the new boundary. Do not introduce Bayesian search until predictions have out-of-sample validity.
+## S6 — Held-out program and small-attention transfer
 
-## Minimum report structure for each scenario
+Only after a stable topology-to-learning-mechanism relation emerges, test it on a new data-generating family: e.g. modular addition, symbolic grammars, small transformers/attention. This addresses whether the result is a broad design principle or a special property of one operator/task.
 
-- **Pre-registered hypothesis** including causal graph mutation and opposite outcome.
-- **Proof of matched controls** plus explicit differences in fixed arithmetic.
-- **Loss/train trajectory** for context.
-- **Blind functional discovery outputs**, including unanticipated patterns.
-- **Causal intervention/utility analyses** with uncertainty, baseline sensitivity and unexplained fraction.
-- **Behavioral partitions:** seen exceptions, unseen latent rule, shortcut-conflicting, broad probe.
-- **Training-time acquisition probes** when feasible.
-- **Multiple seed/task/width sensitivity**, explicit negative and contradictory cases.
-- **Conclusion bounded by measured regime**, next discriminating test and links to raw artifacts.
+Keep attention's **learned content-dependent routing** conceptually separate from the fixed edges being studied.
 
-## Precise work order for an agent
+## Study reporting (mandatory)
 
-Implement E0 mathematical fixtures and its graph interpreter first, then E4 measurement-calibration fixtures **before** trusting E1–E3 circuit outputs. Next run E1 small graph pair with complete-function probes, E2 and E3 to introduce nontrivial learning/memorization, finally E5–E6 for scaling and transfer.
+1. Precise question, candidate graph edge edit, comparator and classification as expressivity/optimization/mechanism.
+2. Algebraic proof or approximation competence control and topology/compute audit.
+3. Pre-registered predictions, falsifiers, raw initialization/scale and optimizer settings.
+4. Function trajectories and individual-example update transfer, including counterexamples and negative values.
+5. Generalization to new inputs **on clearly specified distributions**, distinct from arbitrary-exception recall.
+6. If mechanism claims: intervention fidelity, redundancy, alternate baseline and training-vs-inference distinction.
+7. Paired seeds, task seeds, confidence bounds, compute and checkpoint history.
+8. Whether [decision gate](17_decision_gates_and_novelty.md) passed, failed or was inconclusive, with next discriminating action.
 
-This order prioritizes *instrument validity and falsifiability* over a performance leaderboard.
+## Relationship to the original sequence
+
+Original E0 scalar polynomial fixtures remain as S0. Original E1 raw-vs-sequential residual study is now **S2**, after S1 controls expressive class. Original E2 frustration and E3 rule+exception studies are now **S3**. Original E4 causal calibration is now **S4**, not a precondition for measuring S1. Original E5/E6 become **S5/S6**. Those pivots are deliberate and recorded in [history](01_intellectual_history.md).
+
+**Do not optimize an architecture search objective until these studies establish which mechanistic measurements are reliable and predictive.**
