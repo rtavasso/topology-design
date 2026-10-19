@@ -1,76 +1,82 @@
-# Instructions for coding agents
+# Coding agent operating contract — topology-design
 
-Read [README](README.md), [researcher's original questions](docs/00_questions_in_original_words.md), [intellectual history](docs/01_intellectual_history.md), [charter](docs/02_research_charter.md), [measurement framework](docs/06_mechanistic_measurement.md), and [first experiments](docs/13_first_experiment_scenarios.md) **before proposing an implementation**. This repository captures an evolving *research program*, not a performance-driven NAS challenge.
+**Read in this order before modifying code:** [README](README.md), [critical review](docs/14_critical_review_and_revised_scope.md), [decision gates](docs/17_decision_gates_and_novelty.md), [matched linear study](docs/15_matched_linear_topology_study.md), [functional learning metrics](docs/16_functional_learning_and_transfer_measurement.md), [intellectual history](docs/01_intellectual_history.md), [research charter](docs/02_research_charter.md).
 
-## Mission and epistemic discipline
+This repository exists to investigate **how parameter-free feed-forward routing changes learning dynamics, functional reuse and interference, and the acquisition/expression of computations**. It is not a generic NAS benchmark or an attempt to build a complete mechanistic-interpretability package immediately.
 
-Build a reproducible environment for answering **how parameter-free information-routing topologies affect the development, expression, interference, memorization and generalization of learned computations**. Do not replace this with “find the best validation accuracy.” We want mathematical explanations and causal evidence that link a specific edge or routing choice to a specific learning dynamic and discovered computation.
+## Scientific priority and guardrails
 
-Maintain a distinction between (a) exact deductions, (b) hypotheses, (c) method assumptions, (d) observed results. Never describe synthetic sketches as measured results. Preserve null results and false leads.
+1. **Primary studies train with one vocabulary-wide softmax cross-entropy.** Binary toy tasks use two logits. CE is an optimizer objective and sanity check, not the primary scientific outcome.
+2. **Pure graph comparison:** use identical named learned operations, shapes, activation templates, parameter counts and learned-operation evaluations. No new learned gates, extra losses, predefined token groups, recurrence or extra inference passes as candidate designs. Diagnostic controls outside this family must be visibly labeled.
+3. **One graph change at a time**, with explicit proof of matching and output/gradient behavior where available. Track fixed additions, FLOPs, critical path, memory and activation/Jacobian scales.
+4. **Separate claims:** (a) changed expressive function class; (b) changed optimization path within similar expressive class; (c) changed emergence and causal utility of computations. A benchmark win proves none of these alone.
+5. **Memorization and generalization are outcome distributions**, not automatically separate neural circuits. Do not assume short=memorization, deep=abstraction or that increasing path length improves generalization.
+6. **Mechanistic discovery is inherently partial.** An SAE feature is not canonical, an ablation score depends on baseline, and an inference-time lesion does not prove a path was involved in acquisition.
+7. **Analyze function before a candidate mechanism.** Preserve source-agnostic discovery of unexpected changes, with held-out probes and late audit against task-generator truth.
+8. **Scaling confounders matter.** Width, feature demand, sparsity, task complexity, number of distinct training examples and measurement resolution vary independently.
+9. **No big framework before a falsifiable effect.** Stop/pivot decisions in [decision gates](docs/17_decision_gates_and_novelty.md) are binding on proposed next work.
 
-## Non-negotiable primary experiment constraints
+## Active milestone order
 
-- **Softmax cross-entropy** on tokens, including binary tasks represented by two logits. No MSE as the main training loss. MSE can appear in exact teaching examples and instrumentation calibration, explicitly identified as such.
-- **Feed-forward acyclic computation**; no recurrent inference/extra inference iterations in the primary architecture family.
-- **No added trainable gates, auxiliary parameters, or teacher networks** as architecture innovations. Diagnostic interpretability methods can train separate instruments only when their limitations and costs are explicit.
-- **No a priori semantic token groupings or path-specific supervised tasks.** One combined vocabulary distribution is the base condition.
-- Match parameter count, tensor shapes, learned modules and evaluations, activation functions, optimizer, data order, seeds, and budgets in controlled comparisons. Report arithmetic add counts and depth even if parameter-free edges increase FLOPs.
-- Treat initialization scale, residual scaling, LayerNorm/BatchNorm placement, parameter symmetry, weight decay, and output readout as first-class confounders.
-- **No assumed short=memorization / long=generalization conclusion**. Any such relationship is to be *measured*; length of path, order of parameter interactions, nonlinear compositional depth, causal importance and computational semantics are different notions.
-- No unverifiable claim that an extracted subgraph is *the* unique circuit. Report interventions and reconstruction fidelity.
-- Hold out whole task-generating families or parameter regimes; do not search and test on the same family then call it an architectural law.
+### M0 — math and executable controlled graph pair
 
-## Developer workflow
+Implement the explicit parallel/composed pair from [Study 1](docs/15_matched_linear_topology_study.md):
+$$h_P=x+Ax+Bx,\qquad h_C=x+Ax+B(x+Ax).$$
+Use a **fixed identical readout** for softmax CE and exact $A=B=0$ for the analytic initial control. Verify:
+- same reachable linear input-output maps and trainable matrix sizes;
+- same forward outputs, parameter-to-logit Jacobians and empirical NTK at exact zero;
+- same first SGD gradient and update;
+- exact output difference $RBAx$ and first-step discrepancy $R\Delta B\Delta A x$;
+- different mixed second derivatives and potentially different CE Hessians;
+- same learned multiply count and fixed merge count; record critical path and memory.
 
-1. Specify hypothesis, estimand, topology change, matched control, and anticipated falsification in a short experiment proposal.
-2. Build a tiny exact oracle or calibration case *before* optimizing performance.
-3. Implement deterministic graph compilation with graph validation and shape checks.
-4. Save full experiment provenance (config, git commit, environment, seed, data-generation seed, graph hash, matching controls).
-5. Log both model outputs and selected internal states at checkpoints. Store a stable probe-input set; analyses should be recomputable offline.
-6. Run light online metrics and defer expensive Jacobian, exhaustive functional atlas and causal-subgraph analysis to post hoc jobs.
-7. Report uncertainty across multiple paired seeds, effect sizes, and task/scale interactions, not only best runs.
-8. Record failure modes and surprising outcomes in docs/10_decision_log_and_hypotheses.md (or a timestamped successor). Update any mathematical definitions if implementation exposes ambiguity.
-9. Before generalizing a finding, attempt basis-robustness, intervention-baseline sensitivity, negative controls, and held-out task-family replication.
+Add all mathematical fixtures from [validation tests](docs/12_validation_tests.md) incrementally. No result about circuit formation should be claimed from the linear pair.
 
-## Initial build order (not a demand to build everything immediately)
+### M1 — first actual training result: function and example-transfer time series
 
-**Milestone 0: scientific infrastructure** 
-- Define schema for a DAG with named learned operations and parameter-free routing; deterministic compile/execute; graph isomorphism/dedup where tractable.
-- Exact linear-symbolic or numerical oracle for small graphs; finite-difference/autograd checks; matched-configuration auditor.
-- A two-logit CE toy trainer, deterministic data generator, checkpoint/probe API, reproducible run manifest.
-- Tests from docs/12_validation_tests.md.
+Small teacher-generated **linear conditional token tasks**, identical data/order and seed-paired runs. Track centered-logit/probability functions, teacher-mode and unsupervised learned-mode trajectories, $T_t(i,j)$ exact cloned single-example SGD effects and first-order approximation error. Replicate across data/model seeds; test output scale, small nonzero initialization, LR, weight decay and ultimately optimizer choice.
 
-**Milestone 1: observation before search**
-- Output-function atlas on small enumerated input domains; Fourier coefficients for balanced Boolean domains and canonicalized logit contrasts.
-- Single-example counterfactual training/update analysis, cross-example influence, Jacobian access diagnostics.
-- Small-subgraph intervention runner with selectable zero/mean/resampled baselines and fidelity reporting; record whether a subgraph is a subset of the trained graph and never retrain it for the main causal-depth metric.
+**Deliverable:** a bounded report on whether higher-order topology-specific parameter interactions alter function/mode learning beyond the identical initial tangent geometry. Include failures, counterexamples and uncertainties. Do not build auto-circuit discovery to do this.
 
-**Milestone 2: controlled mechanism study**
-- Synthetic rule+shortcut+arbitrary-exception dataset with controlled causal variables; train/holdout/shifted distributions and explicit data provenance.
-- Time-resolved curves of rule dependence, exception retention, interference, causal-depth utility and representation geometry.
-- Paired topology mutations; enough repetitions to observe noise. No Bayesian optimization until instrument reliability and scale controls have been demonstrated.
+### M2 — nonlinear functional acquisition and reuse
 
-## Never silently substitute
+Only after M1 is documented, compare small nonlinear graphs on tasks **both can demonstrably fit at comparable capacity**. Use a finite/full-domain functional atlas and one-example transfer on unseen cases and shortcuts. If one graph cannot express the task at fixed width, report it as **expressivity**, not a training-circuit advantage. Reuse graph generator/probes; do not immediately build a large NAS framework.
 
-- A linear probe for causal use.
-- A high-order input interaction for a long computational path.
-- Individual-neuron selectivity for absence of superposition.
-- An SAE dictionary count for number of real features.
-- Validation accuracy for mechanistic explanation.
-- Gradients of independent branches for independently supervised losses.
-- A decrease in loss on an example for that token becoming argmax.
-- Parameter count alone for capacity matching.
-- A trained replacement subnetwork for a pure inference-time intervention.
-- Path ablation as proof of absence when redundant paths can compensate.
+### M3 — targeted mechanistic validation
 
-## How to report findings
+For *observed* unanticipated functional changes, evaluate actual graph-edge interventions, behavior-specific necessity/sufficiency, redundancy, patch-baseline sensitivity, and when justified training-time gradient-route interventions. Only now should a limited automated circuit search be implemented; [causal-depth scores](docs/06_mechanistic_measurement.md) are secondary and operation-granularity-dependent.
 
-Each experimental report should contain: question; topology diagrams/formal edge lists; controlled variables; instrument calibration; task distribution and splits; pre-registered metrics; time-resolved plots; effect sizes and uncertainty; causal-intervention findings; checks against alternative explanations; failures; next discriminating experiment. Include machine-readable raw output and the full executable config.
+### M4 — scale and transfer, later search
 
-## Relationship to LLMs
+Vary width at fixed latent feature demand and vary width with demand together; control sparsity, correlations, data support, composition complexity and optimizer. Use held-out program families and new seeds. Architecture search and attention follow only if earlier measurements predict out-of-sample effects.
 
-LLMs are the **destination**, not the initial scale. Prefer simpler settings permitting exhaustive input enumeration, analytic checks and exact edge interventions. Scale one factor at a time: widths, latent feature demand, sparsity/correlation, required composition, data support, then attention/token context. Claims should state the domain where they hold.
+## Workflow for every experimental change
 
-## Agent kickoff instruction
+1. Write a concise hypothesis, graph difference, controlled variables and **what result would falsify the explanation**.
+2. Determine whether the effect could follow from expressive capacity, initialization/parameterization, target-data statistics, or genuine mechanism formation. Label the intended class.
+3. Build the smallest analytical or planted fixture; write tests *before* expensive training.
+4. Log exact run provenance: graph hashes, code commit, data-generator seed/split hashes, RNG state, operator template/initial weights, model and optimizer configs, checkpoint/probe manifests and compute.
+5. Report **actual finite-step updates** and functional outcomes; use tangent kernels and gradient projections as explanations, not replacements.
+6. Use paired runs and independent task seeds. Report effect sizes, uncertainties and negative/null regimes; avoid example-level pseudo-replication.
+7. Apply [research decision gates](docs/17_decision_gates_and_novelty.md) before broadening model/task size or adding instrumentation.
+8. Amend the [decision log](docs/10_decision_log_and_hypotheses.md), including the prior idea being superseded and why.
 
-Start by reading all documents and writing a **short implementation plan with explicit out-of-scope items**. Implement Milestone 0 only first. At every stage use the smallest program that can falsify a scientific claim. Don't scaffold a giant general-purpose mech-interp or NAS library until a validated measurement requires it.
+## Do not silently substitute
+
+- A faster CE curve for better learned computation.
+- A different representable function class for a purely optimization-driven effect.
+- Equality of parameter count for equality of critical-path compute or effective nonlinear depth.
+- Equality of initial NTK for equality of Hessian or later learning.
+- A high-order parameter product or input Fourier interaction for a semantic long-path circuit.
+- Short-path/long-path labels for a unique parameter decomposition in a shared DAG.
+- A trained replacement subnetwork for an inference-time intervention on the original fixed trained graph.
+- SAE feature counts or neuron selectivity for true circuit count.
+- A probe for a desired feature for discovery of unknown features.
+- A finite-step AdamW update for simple SGD gradient dot-product predictions.
+- An inference-time lesion for evidence that a route was needed **during learning**.
+
+## First deliverable contract
+
+The coding agent's first plan should be **M0 + the minimal M1 measurement pipeline**, with explicitly deferred auto-circuit search, SAE pipelines, Bayesian NAS and large transformers. The output is tested code, fully specified config and reproducible tiny results, plus a report that distinguishes algebraically certain predictions from observed learning effects.
+
+**Important:** historical docs preserve earlier proposed orders and doubts; [critical review](docs/14_critical_review_and_revised_scope.md), this AGENTS.md, and [decision gates](docs/17_decision_gates_and_novelty.md) describe the **current** priority. Do not erase intellectual history to harmonize it retroactively.
