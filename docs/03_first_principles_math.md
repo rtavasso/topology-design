@@ -137,3 +137,33 @@ When analyzing logits, be aware of **softmax gauge freedom**: adding the same sc
 7. Verify logit-shift invariance of CE/functional metrics.
 
 These examples are scientific fixtures; preserve them even after developing a larger framework.
+
+
+## VIII. New initial study: same linear function class and tangent geometry, different routing curvature (19 Oct 2026)
+
+The early scalar examples show that edges can *change initial first-order learnability*. Our revised first training study removes that explanatory shortcut: it pairs two graphs whose initial first-order geometry is **identical**, to ask whether higher-order parameter interactions alone have observable learning consequences.
+
+Let $A,B\in\mathbb R^{d\times d}$ be two learned matrices, $x\in\mathbb R^d$:
+
+$$h_P=(I+A+B)x,\qquad h_C=(I+B)(I+A)x=(I+A+B+BA)x.$$
+
+Both graphs use the same learned matrices once and two fixed additions, and can represent *every* linear map $Mx$ with $A=M-I,B=0$. Under common fixed readout $R$ and bias $c$, set logits $z=Rh+c$ and optimize the **same softmax CE**.
+
+At $A=B=0$:
+$$h_P=h_C=x;\quad
+Dz_P[\Delta A,\Delta B]=Dz_C[\Delta A,\Delta B]=R(\Delta A+\Delta B)x.$$
+
+Thus initial logits, parameter Jacobians, CE gradients and empirical tangent kernels match. But:
+
+$$z_C-z_P=RBAx,$$
+$$D^2_{BA}z_C[\Delta B,\Delta A]=R\Delta B\Delta A x,\qquad D^2_{BA}z_P=0.$$
+
+Therefore the **full CE Hessians generally differ** through $\sum_j(p_j-e_{y,j})H_\theta z_j$, even at identical initial logits/NTK. Same first SGD update from zero means post-step divergence $R(\Delta B)(\Delta A)x=O(\eta^2)$ for fixed first gradients.
+
+For a scalar toy ($x=1$, logits $(h,0)$):
+$$h_P=1+a+b,\quad h_C=1+a+b+ab.$$
+With target token 1, CE margin derivative at zero is $r=\sigma(1)-1<0$. SGD first step $a_1=b_1=-\eta r$ yields $h_C-h_P=\eta^2r^2>0$, further supporting target 1. With target token 0, $r=\sigma(1)>0$ and the same *positive* difference **opposes the desired reduction** of the incorrect logit margin. So the second-order effect is not universally good.
+
+**This is an optimization/parameterization experiment, not circuit discovery.** Function classes match *only for linear input-output maps*; these graphs cannot make XOR from raw independent inputs. Exact zero init is a deliberate analytic control that may behave differently from standard random init. Normalization, initialization scales, weight decay and optimizer choice remain confounds to study.
+
+Full protocol: [matched study](15_matched_linear_topology_study.md), [functional measurement](16_functional_learning_and_transfer_measurement.md), [validation tests](12_validation_tests.md). The original Section II scalar first-order-accessibility example remains a distinct diagnostic and should not be discarded.
