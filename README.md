@@ -12,14 +12,15 @@ This project began with a first-principles question about residual connections a
 
 ## Read this first (for coding agents)
 
-1. [AGENTS.md](AGENTS.md): working contract, implementation order, and guardrails.
-2. [Research charter](docs/02_research_charter.md): problem definition, constraints, and what constitutes a useful result.
-3. [Intellectual history](docs/01_intellectual_history.md): what led here, why priorities changed, and paths not to revive uncritically.
-4. [Mathematical foundations](docs/03_first_principles_math.md) and [gradient dynamics](docs/04_gradient_dynamics.md): exact examples, derived claims, and limitations.
-5. [Topology grammar](docs/05_topology_space.md): controlled family of graphs and confounders.
-6. [Mechanistic measurement](docs/06_mechanistic_measurement.md): discovering computations without pre-assuming a circuit.
-7. [Task and scale design](docs/07_datasets_and_scale.md), [protocol](docs/08_experimental_protocol.md), [software blueprint](docs/09_software_blueprint.md), [test plan](docs/12_validation_tests.md).
-8. [Decisions and hypotheses](docs/10_decision_log_and_hypotheses.md); [annotated literature](docs/11_literature.md).
+1. [Original research questions](docs/00_questions_in_original_words.md): the researcher's wording, retained to preserve intention and pivots.
+2. [AGENTS.md](AGENTS.md): working contract, implementation order, and guardrails.
+3. [Research charter](docs/02_research_charter.md): problem definition, constraints, and what constitutes a useful result.
+4. [Intellectual history](docs/01_intellectual_history.md): what led here, why priorities changed, and paths not to revive uncritically.
+5. [Mathematical foundations](docs/03_first_principles_math.md) and [gradient dynamics](docs/04_gradient_dynamics.md): exact examples, derived claims, and limitations.
+6. [Topology grammar](docs/05_topology_space.md): controlled family of graphs and confounders.
+7. [Mechanistic measurement](docs/06_mechanistic_measurement.md): discovering computations without pre-assuming a circuit.
+8. [Task and scale design](docs/07_datasets_and_scale.md), [protocol](docs/08_experimental_protocol.md), [software blueprint](docs/09_software_blueprint.md), [test plan](docs/12_validation_tests.md), and [first discriminating experiments](docs/13_first_experiment_scenarios.md).
+9. [Decisions and hypotheses](docs/10_decision_log_and_hypotheses.md); [annotated literature](docs/11_literature.md).
 
 ## The scientific object
 
