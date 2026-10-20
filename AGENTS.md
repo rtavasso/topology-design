@@ -5,7 +5,7 @@
 ## Current priority
 
 Finish **Phase 0** in this order (SPEC §4):
-1. **Prop. 7** — conservation laws and flow for mixed graphs, e.g. $k=(0,1,0,2)$. Explain the per-mode exceptions in `experiments/phase0/prop7_pathway_probe.py`.
+1. **Prop. 7** — analyse the coupled chain-plus-shortcut flow for mixed graphs, e.g. $k=(0,1,0,2)$ (the reduction is already proved). Explain the per-mode exceptions in `experiments/phase0/prop7_pathway_probe.py`.
 2. **Imbalanced (small random) initialization.**
 3. **Separable-data directional limits.**
 

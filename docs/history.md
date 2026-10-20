@@ -26,6 +26,7 @@ This is a condensed record. The full v0 reasoning, including every pivot in the 
 - The first single-example step of the composed graph is the parallel step times a scalar $1-\eta\kappa/2$. The $BAx$ term adds no new direction for a single example.
 - Both arms reach the same function on non-separable data, so differences are transient.
 - Identity initialization removes the Saxe-style plateaus v0 cited as motivation.
+- A sequential chain trained from identity keeps $\det W>0$: it can never fully erase a direction or reverse orientation. The parallel graph can (tested on a reversal task).
 - First-order equivalence at zero holds for **every** graph in the parent-selection family, not just the hand-built pair. Topology enters only at second order in branch weights.
 
 **Decisions:**

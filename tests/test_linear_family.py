@@ -84,8 +84,10 @@ def test_balancedness_drift_scales_with_eta(task):
         W = lf.train(lf.zeros(2, task.X.shape[1]), lf.sequential(2), task, steps=int(4.0 / eta), lr=eta)
         return lf.balancedness_residuals(W)[0].norm().item()
 
-    d1, d2 = drift(0.04), drift(0.01)
-    assert d2 < d1 / 2.5, (d1, d2)
+    d1, d2, d3 = drift(0.04), drift(0.02), drift(0.01)
+    assert d1 > d2 > d3 > 0
+    for a, b in [(d1, d2), (d2, d3)]:
+        assert 1.6 < a / b < 2.5, (d1, d2, d3)  # halving eta roughly halves the drift
 
 
 @pytest.mark.parametrize("L", [2, 3])
@@ -157,21 +159,29 @@ def test_first_step_is_scalar_rescale(task, L):
         torch.testing.assert_close(dz, ratio * dz_par, atol=1e-12, rtol=1e-10)
 
 
-@pytest.mark.parametrize("L", [2, 3, 4])
-def test_first_step_chain_ratio(task, L):
-    eta, i = 0.7, 3
-    d = task.X.shape[1]
-    x, y = task.X[i], task.Y[i]
-    p = torch.softmax(task.R @ x + task.c, dim=0)
+def _kappa(task, i):
+    p = torch.softmax(task.R @ task.X[i] + task.c, dim=0)
     r = p.clone()
-    r[y] -= 1.0
-    kappa = (r @ task.R @ x).item()
+    r[task.Y[i]] -= 1.0
+    return (r @ task.R @ task.X[i]).item()
+
+
+@pytest.mark.parametrize("L", [2, 3, 4])
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_first_step_chain_ratio(task, L, sign):
+    eta, d = 0.3, task.X.shape[1]
+    kappas = [_kappa(task, i) for i in range(len(task.Y))]
+    i = max(range(len(kappas)), key=lambda j: sign * kappas[j])  # most positive / most negative kappa
+    kappa = kappas[i]
+    assert sign * kappa > 0
     W_seq = _single_example_first_step(lf.sequential(L), task, eta, i)
     W_par = _single_example_first_step(lf.parallel(L), task, eta, i)
     z0 = lf.logits(torch.eye(d), task)
     dz_s, dz_p = lf.logits(W_seq, task) - z0, lf.logits(W_par, task) - z0
     ratio = ((dz_s * dz_p).sum() / (dz_p * dz_p).sum()).item()
     assert ratio == pytest.approx(lf.first_step_chain_ratio(L, eta, kappa), rel=1e-10)
+    # small-step reading: bigger step on already-favored examples (kappa<0), smaller on disfavored
+    assert (ratio > 1) == (kappa < 0)
 
 
 def test_minibatch_first_step_is_not_a_rescale(task):
@@ -253,3 +263,70 @@ def test_weight_decay_breaks_balancedness(task):
     r0 = lf.balancedness_residuals(no_wd)[0].norm()
     r1 = lf.balancedness_residuals(wd)[0].norm()
     assert r1 > 10 * r0, (r0.item(), r1.item())
+
+
+# --- Corollary 3a ---------------------------------------------------------------
+
+
+def _reversal_task(seed=0):
+    """V = d, R = I; teacher needs one direction flipped (det M* < 0)."""
+    g = torch.Generator().manual_seed(seed)
+    d = 4
+    X = torch.randn(600, d, generator=g)
+    M = torch.diag(torch.tensor([-3.0, 2.0, 2.0, 2.0]))
+    Y = torch.multinomial(torch.softmax(X @ M.T, 1), 1, generator=g).squeeze(1)
+    return lf.Task(X, Y, torch.eye(d), torch.zeros(d))
+
+
+def test_chain_stays_orientation_preserving():
+    task = _reversal_task()
+    for parents in (lf.sequential(2), lf.sequential(3), lf.parallel(2)):
+        dets = []
+        lf.train(lf.zeros(len(parents), 4), parents, task, steps=1500, lr=0.05,
+                 callback=lambda t, Ws: dets.append(torch.linalg.det(lf.end_to_end(Ws, parents)).item()))
+        if parents == lf.parallel(2):
+            assert min(dets) < 0  # the parallel graph does cross det = 0 on this task
+        else:
+            assert min(dets) > 0  # the chain never does (Corollary 3a)
+
+
+# --- Prop. 7 reduction -------------------------------------------------------------
+
+
+def test_mixed_graph_reduces_to_chain_plus_shortcut(task):
+    parents = (0, 1, 0, 2)
+    d = task.X.shape[1]
+    Ws = lf.train(lf.zeros(4, d), parents, task, steps=1500, lr=0.02)
+    chain = [Ws[0], Ws[1], Ws[3]]
+    P = lf.end_to_end(chain, lf.sequential(3))
+    W = lf.end_to_end(Ws, parents)
+    torch.testing.assert_close(W, P + Ws[2])  # exact decomposition
+    assert max(r.norm().item() for r in lf.balancedness_residuals(chain)) < 5e-3  # chain stays balanced
+    # P's velocity is the L=3 Arora flow driven by G(W); W3's velocity is -G(W)
+    eta = 1e-7
+    grads = lf.param_grads(Ws, parents, task)
+    nxt = [w - eta * g for w, g in zip(Ws, grads)]
+    P_vel = (lf.end_to_end([nxt[0], nxt[1], nxt[3]], lf.sequential(3)) - P) / eta
+    G = lf.grad_W(W, task)
+    pred = lf.arora_flow_direction(P, G, 3)
+    assert (P_vel - pred).norm() / pred.norm() < 5e-3
+    torch.testing.assert_close(grads[2], G)
+
+
+# --- §8.3 derivative -----------------------------------------------------------------
+
+
+def test_weight_decay_balancedness_derivative(task):
+    d, lam, eta = task.X.shape[1], 0.3, 1e-7
+    A, B = lf.small_random(2, d, 0.5, seed=11)
+    I = torch.eye(d)
+
+    def D(A, B):
+        return (I + B).T @ (I + B) - (I + A) @ (I + A).T
+
+    gA, gB = lf.param_grads([A, B], lf.sequential(2), task)
+    A1, B1 = A - eta * (gA + lam * A), B - eta * (gB + lam * B)  # coupled L2, as torch SGD weight_decay
+    rate = (D(A1, B1) - D(A, B)) / eta
+    F1, F2 = I + A, I + B
+    pred = lam * (F2 + F2.T - F1 - F1.T) - 2 * lam * D(A, B)
+    assert (rate - pred).norm() / pred.norm() < 1e-5

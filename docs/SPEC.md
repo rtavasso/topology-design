@@ -73,7 +73,7 @@ Advancing a phase requires the previous phase's prediction to be *tested*. It do
 - non-separable endpoint equivalence (numerical).
 
 **Open**, in priority order:
-1. **Prop. 7, mixed graphs.** Compute their conservation laws with the Marcotte–Gribonval–Peyré algorithm, derive the induced flow, and explain the per-mode exceptions seen in the [probe](../experiments/phase0/prop7_pathway_probe.py). This is the first candidate *novel* theory result. We found no published treatment of implicit bias for general linear residual DAGs; check further before claiming novelty.
+1. **Prop. 7, mixed graphs.** Chain-plus-shortcut graphs already reduce exactly to a coupled $(P,W_3)$ flow (proved and tested). Analyse that ODE and explain the per-mode exceptions seen in the [probe](../experiments/phase0/prop7_pathway_probe.py). For graphs that don't split into chains plus shortcuts, use the Marcotte–Gribonval–Peyré algorithm. This is the first candidate *novel* theory result. We found no published treatment of implicit bias for general linear residual DAGs; check further before claiming novelty.
 2. **Imbalanced (small random) initialization.** Compare against Kunin et al. 2024 and Dominé et al. 2025.
 3. **Separable-data directional limits** for parallel vs sequential with fixed readout.
 4. **Robustness only:** finite-step drift, Adam, weight decay toward identity (shown to break balancedness), minibatch cross-terms.

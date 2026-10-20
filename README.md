@@ -8,11 +8,12 @@
 
 ## Status (19 Oct 2026)
 
-- **Phase 0 (linear theory):** core results proved and tested (`pytest`, 45 tests). The headline consequences:
+- **Phase 0 (linear theory):** core results proved and tested (`pytest`, 51 tests). The headline consequences:
   - Every graph in the residual parent-selection family is identical to first order at zero branch weights. Topology acts only at second order, so its effect is gated by *richness* (how far training moves the branches).
   - The parallel graph $(I+A+B)$ is a single matrix.
-  - The composed graph $(I+B)(I+A)$ follows Arora et al.'s closed-form preconditioned flow. Its one-example transfer is a closed-form function of the learned map: it accelerates amplification and slows erasure.
-  - Open: mixed chain-plus-shortcut graphs (an exploratory probe shows the shortcut carrying more of the erasure), imbalanced initialization, separable-data implicit bias. See [docs/phase0_linear_theory.md](docs/phase0_linear_theory.md).
+  - The composed graph $(I+B)(I+A)$ follows Arora et al.'s closed-form preconditioned flow. Its one-example transfer is a closed-form function of the learned map: it accelerates amplification, slows shrinking, and can never fully erase a direction or flip orientation (det W > 0 throughout).
+  - Mixed chain-plus-shortcut graphs reduce exactly to a coupled (chain, shortcut) flow; an exploratory probe shows the shortcut carrying more of the shrinking.
+  - Open: analysis of that coupled flow, imbalanced initialization, separable-data implicit bias. See [docs/phase0_linear_theory.md](docs/phase0_linear_theory.md).
 - **Phases 1–5:** specified with directional predictions and kill criteria; not started.
 
 ## Study sequence
