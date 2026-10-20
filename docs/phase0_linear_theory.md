@@ -27,6 +27,8 @@ At $\theta=0$, every $h_i=x$. Perturbing one $W_i$ by $\Delta$ changes $h_i$ by 
 $$W(\theta)=I+\sum_{i=1}^L W_i+O(\|\theta\|^2).$$
 So all $L!$ graphs share, at $\theta=0$: the function, the parameter-to-logit Jacobian, the empirical NTK, and the first gradient step.
 
+**Relation to prior work.** This is the parent-selection phrasing of a known message. Residual blocks have the same conservation laws as the same blocks without the skip (Marcotte, Peyré & Gribonval, ICML 2025), so topology cannot act through local invariants. Cite that as corroboration. Our contribution is the family-wide statement and its use as an experimental control.
+
 **Consequences.**
 1. The v0 "carefully matched pair" is not a special construction. Matched first-order geometry holds for the whole family. Topology enters **only through the $O(\|\theta\|^2)$ terms.**
 2. If branch weights stay at scale $\epsilon$, topology-dependent effects are suppressed by a factor $\sim\epsilon$. The effect of topology is controlled by **how far training must move the branches** (initial scale, branch multiplier, and how far the target is from identity). This *richness* axis, not width, is the primary experimental variable (see [SPEC §3](SPEC.md)).
@@ -39,6 +41,8 @@ For $W=I+\sum_iW_i$, $\partial L/\partial W_i=G$ for every $i$ at all times. The
 - from equal initialization, the model is exactly one matrix $W$ trained with learning rate $L\eta$ (SGD).
 
 Weight decay $\lambda$ on each $W_i$ shrinks $W_i-W_j$ to zero. With $W_i=(W-I)/L$ it acts as the penalty $\tfrac{\lambda}{2L}\|W-I\|_F^2$: decay is **toward identity**, at $1/L$ the nominal strength.
+
+**Relation to prior work.** This is an exact linear instance of known results. Permutation symmetry drives identical branches toward homogeneous collapse (Ziyin, ICML 2024), and parallel or multi-branch networks convexify (Wang, Ergen & Pilanci, ICLR 2023; Zhang, Shao & Salakhutdinov, AISTATS 2019). Present it as a lemma, not a discovery.
 
 **Implication.** "Same learned-parameter budget" between parallel and composed graphs is nominal. The parallel graph has $d^2$ effective parameters and is a **convex** problem (linear softmax regression).
 
@@ -59,6 +63,10 @@ At $W=I$, $\gamma\equiv1$, consistent with Proposition 1. As learning proceeds, 
 - **Directions being shrunk ($s\to0$) are updated more slowly.**
 
 **Corollary 3a (no erasure in finite time; orientation is locked).** On the diagonal, $\dot s_a=-L\eta\,s_a^{2-2/L}\,(u_a^\top Gv_a)$ (Arora et al. 2018). With bounded $G$ (CE gradients are bounded for bounded data), $|\dot s_a|\le C\,s_a^{2-2/L}$ with exponent $\ge1$, so no singular value reaches 0 in finite time. Hence under gradient flow from $W=I$ the sequential chain's $W$ stays invertible and $\det W>0$ for all time. **The chain can never fully erase a direction or reverse orientation.** Logit maps that seem to need either can still be reached through the softmax gauge and $\mathrm{null}(R)$ when $V<d$. The parallel graph has no such constraint.
+
+**Relation to prior work.** This is anticipated by [Bartlett, Helmbold & Long (ICML 2018)](https://arxiv.org/abs/1802.06093): under squared loss, gradient descent with identity initialization fails to converge for symmetric targets with a negative eigenvalue, even with regularization toward identity. What may be new here:
+- the softmax-CE setting with a fixed readout, where the gauge and $\mathrm{null}(R)$ provide an escape;
+- the resulting division of labor in which shortcuts carry orientation (Prop. 7).
 
 This is the first concrete *preserve/destroy* statement the theory gives. In this family, composition makes amplification fast and makes deletion slow and never complete. It is a parameterization effect, not a circuit. It also gives a candidate mechanism for Prop. 7: directions the chain can't easily shrink or flip are left to a shortcut.
 

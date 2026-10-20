@@ -58,6 +58,39 @@ This is a condensed record. The full v0 reasoning, including every pivot in the 
 - the Phase 2 lag effect is absent at per-arm-tuned learning rate or does not scale with richness;
 - the GDLN race predictions do not transfer to ReLU networks.
 
+## Pivot 17 (19 Oct 2026): literature review tightens novelty and protocol
+
+**Premise.** A five-track literature review covered theory, empirical topology studies, measurement methods, inference methodology, and emergent-structure targets. It is in [literature_review.md](literature_review.md), with notes in [literature_review_notes/](literature_review_notes/).
+
+**Evidence that changed decisions:**
+- **Local invariants are ruled out.** Residual blocks share conservation laws with skip-free blocks (Marcotte et al. 2025). So topology acts through global composition, which reinforces D17–D18.
+- **Several Phase 0 results are anticipated by prior work:**
+  - Prop. 2 is an instance of permutation-symmetry collapse (Ziyin 2024).
+  - Corollary 3a is anticipated by Bartlett, Helmbold & Long 2018 (checked against the arXiv abstract).
+  - The weight-decay bias of residual chains is known (Boix-Adsera 2025).
+- **The Phase 2 parallel arm is one two-layer network of width $L\cdot m$ plus a skip.** The sample-complexity version of H2 is occupied (Nichani 2023; Allen-Zhu & Li).
+- **Structure metrics are fragile.** CKA can be manipulated and is biased; unrestricted causal-abstraction maps are vacuous; modularity metrics need topology-preserving nulls.
+- **Variance studies imply more seeds.** About 29 runs per arm are needed for headline claims (Bouthillier et al. 2021).
+
+**Decisions:**
+- **D24.** Phase 0 novelty bets are DAG implicit bias (including commuting liftings) and RLCT of residual/parallel parameterizations. Restatements of prior results are attributed in the theory doc.
+- **D25.** Phase 2 is reframed openly: the parallel arm is anchored to two-layer theory and its plateaus are predicted before training. Novelty is the lag dynamics, richness scaling and one-edge-mutant dose–response, plus induce/eliminate reversal.
+- **D26.** The inference protocol is upgraded (SPEC §3):
+  - rival-explanation table;
+  - pilot null, ≥10 paired seeds, ≈29 per arm for headlines with $P(A>B)$;
+  - richness phase diagram whose effect must vanish as $\alpha\to0$;
+  - three clocks;
+  - tuning-budget curves;
+  - preregistered primary endpoints with kill criteria;
+  - mask-preserving and density-matched nulls.
+- **D27.** The measurement stack is tiered by validity across topologies (SPEC §5), with function space first. Causal abstraction uses restricted maps and random-init baselines. Representation similarity is used only at symmetry-matched sites, with nulls.
+- **D28.** Emergent-structure targets are prioritized (SPEC §6). Phase 4 adds a fixed decaying identity coefficient and induction-head emergence in sequential vs parallel attention.
+
+**Expected falsifiers:**
+- the pilot shows structural endpoints too noisy to power at feasible seed counts;
+- the paired effect does not vanish as $\alpha\to0$, which would mean a confound;
+- the parallel arm deviates from its two-layer prediction, which would mean the anchor itself is wrong.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

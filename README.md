@@ -31,7 +31,8 @@
 
 - [docs/SPEC.md](docs/SPEC.md): active research spec (question, causal chain, rules, phases, instruments).
 - [docs/phase0_linear_theory.md](docs/phase0_linear_theory.md): derivations, with a test map.
-- [docs/literature.md](docs/literature.md): literature grouped by the link of the chain each work informs; novelty boundary.
+- [docs/literature_review.md](docs/literature_review.md): **literature review**: where the program sits in the field, niche map (occupied vs open), measurement validity across topologies, inference protocol, 13 predictions from prior theory. Source notes are in `docs/literature_review_notes/`.
+- [docs/literature.md](docs/literature.md): short curated index and novelty boundary.
 - [docs/history.md](docs/history.md): condensed history and decision log, including the v0 → v1 pivot.
 - [docs/00_questions_in_original_words.md](docs/00_questions_in_original_words.md): the motivating questions in the researcher's words.
 - [AGENTS.md](AGENTS.md): contract for coding agents.

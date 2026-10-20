@@ -1,5 +1,7 @@
 # Literature map
 
+> **For the full synthesis, read [literature_review.md](literature_review.md).** It covers where the program sits in the field, a niche map of occupied vs open claims, a measurement-validity ranking, the inference protocol, and 13 testable predictions from prior theory. Its source notes, about 360 unique source URLs and verification flags, are in [literature_review_notes/](literature_review_notes/). This file is the short curated index.
+
 Grouped by the link of the causal chain ([SPEC §2](SPEC.md)) each work informs, with what we use it for. Links marked † were checked against the publisher or arXiv page on 19 Oct 2026. Unlinked entries are standard references cited by title and venue; verify details before quoting them.
 
 The v0 literature map ([archive](../archive/v0/docs/11_literature.md)) is retained. Its entries are reused here, with one correction: the *Circuit Tracing* methods paper is **Ameisen et al. (2025)**, not Bricken et al.
@@ -64,16 +66,43 @@ These answer most of the v0 Study 1 in closed form. The v0 review did not cite a
 - **Elhage et al. (2021), *A Mathematical Framework for Transformer Circuits*.** The residual stream as a shared read/write channel; path expansion.
 - Retained from v0 with their caveats: Miller et al. 2024; Zhang & Nanda 2024; Conmy et al. 2023; Geiger et al. 2023; Ameisen et al. 2025 (Circuit Tracing); Anani et al. 2026; Hadad et al. 2026; Leask et al. 2025; Chanin 2025/2026; Elhage et al. 2022; Kornblith et al. 2019; Dinh et al. 2017.
 
-## Novelty boundary (current best understanding)
+## 7. Added after the literature review (highest relevance)
 
-**Known (do not claim):**
+- **Marcotte, Peyré & Gribonval (ICML 2025)**, [arXiv 2506.06194](https://arxiv.org/abs/2506.06194). Residual blocks have the same conservation laws as their skip-free versions, so topology acts through composition, not local invariants. **ICLR 2026**, [arXiv 2508.07370](https://arxiv.org/abs/2508.07370): intrinsic path-space dynamics, the main tool for Phase 0.
+- **Li, Wang, Lee & Arora (NeurIPS 2022)**, [arXiv 2207.04036](https://arxiv.org/abs/2207.04036): commuting reparameterizations are equivalent to mirror descent. **Azulay et al. (ICML 2021)**: initialization shape changes implicit bias.
+- **Boix-Adsera (2025)**, [arXiv 2501.19149](https://arxiv.org/abs/2501.19149): weight-decay representation cost of linear ResNets, between nuclear norm and rank. **Jacot & Kaiser (2025)**: leaky ResNets and an effective-depth bottleneck.
+- **Ziyin (ICML 2024)**, [arXiv 2309.16932](https://arxiv.org/abs/2309.16932): symmetry-induced collapse; permutation symmetry leads to homogeneous branches.
+- **Bartlett, Helmbold & Long (ICML 2018)**, [arXiv 1802.06093](https://arxiv.org/abs/1802.06093)†: identity-initialized residual gradient descent fails on negative-eigenvalue targets. This anticipates Corollary 3a.
+- **Pepin Lehalleur & Rimányi (2024)**: exact RLCT of deep linear networks. **Furman & Lau (2024)**: LLC estimator validated against it.
+- **Zhang, Saxe & Latham (ICLR 2026)**, [arXiv 2512.20607](https://arxiv.org/abs/2512.20607): saddle-to-saddle dynamics across architectures.
+- **Nichani, Damian & Lee (NeurIPS 2023); Allen-Zhu & Li (NeurIPS 2019, COLT 2023)**: 2- vs 3-layer separations and backward feature correction. These occupy the sample-complexity version of Phase 2.
+- **Cai et al. (ICML 2025)**, [arXiv 2502.16075](https://arxiv.org/abs/2502.16075): margin implicit bias for non-homogeneous residual networks.
+- **Chizat & Netrapalli (NeurIPS 2024)**: the feature-speed formula; residual nets keep the backward-feature angle at Θ(1).
+- **Empirical connectivity effects:** Residual Alignment (Li, Papyan et al., NeurIPS 2023); Jastrzębski et al. 2018 (iterative inference); Raghu et al. 2021 (single-skip removal splits CKA); Zhang et al. CVPR 2026 (decaying identity shortcut); Neural Redshift (Teney et al., CVPR 2024); Hyper-Connections / mHC / MUDDFormer; Sun et al. 2025 (Pre-LN vs Post-LN redundancy); Sanford, Hsu & Telgarsky 2024 (1- vs 2-layer induction heads).
+- **Measurement validity:** Ding et al. 2021; Davari et al. 2023; Gröger et al. 2026 (calibrated CKA); ReSi benchmark (ICLR 2025); Sutter et al. 2025 (unrestricted causal-abstraction maps are vacuous); Makelov et al. 2024; Lange et al. 2022 (modularity); Balogh & Jelasity 2025 (stitching).
+- **Inference methodology:** Bouthillier et al. 2021 (variance; P(A>B); about 29 runs per arm); Dodge et al. 2019; Google Tuning Playbook; Bell et al. 2022 (multiverse); Melis 2018, Lucic 2018, Narang 2021, Musgrave 2020 (replication failures); Kaddour et al. 2023; Schaeffer et al. 2023 (metric mirages).
+
+Full citations, URLs and verification status are in [literature_review_notes/](literature_review_notes/).
+
+## Novelty boundary (after the literature review)
+
+**Known (do not claim; cite as prior work or corroboration):**
 - deep linear flows and implicit bias for chains, diagonal, convolutional and gated-linear parameterizations;
+- topology cannot change local conservation laws (Marcotte 2025);
+- parallel-branch collapse (Ziyin 2024; multi-branch convexity);
+- identity-init orientation lock (Bartlett 2018);
+- weight-decay bias of residual chains (Boix-Adsera 2025);
+- lazy-regime kernel effects of connectivity;
+- expressive-efficiency gaps from added connections (Cohen, Tamari & Shashua);
 - pathway races in gated networks;
 - shortcut/core competition;
-- gradient coherence as an account of generalization.
+- gradient coherence;
+- the sample-complexity separation between 2- and 3-layer networks.
 
-**Candidate contributions (check further before claiming):**
-1. implicit bias and conserved quantities for **general linear residual DAGs** (Phase 0, Prop. 7);
-2. **richness-gated topology effects** across a residual family;
-3. **composition lowering effective leap** relative to learned intermediates (Phase 2);
-4. **topology-dependent erasure cost** (Phase 4).
+**Candidate contributions (open as far as the review searched):**
+1. gradient-flow implicit bias for **general linear residual DAGs**, including which path-liftings commute (Phase 0);
+2. **RLCT of residual and parallel parameterizations** of the same function class (Phase 0);
+3. **richness-gated topology effects**, shown as a phase boundary with a dose–response over one-edge mutants;
+4. **constituent→composite lag dynamics** across routing graphs (Phase 2);
+5. **matched-parameter sequential vs parallel transformer blocks** compared on internal structure and induction-head timing (Phase 4);
+6. **topology-dependent erasure cost**, separating the identity path from shortcuts (Phase 4).

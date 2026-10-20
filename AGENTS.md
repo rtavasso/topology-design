@@ -1,6 +1,6 @@
 # Coding-agent contract
 
-**Read first, in order:** [README](README.md) → [docs/SPEC.md](docs/SPEC.md) → [docs/phase0_linear_theory.md](docs/phase0_linear_theory.md). Consult [docs/literature.md](docs/literature.md) before claiming anything is new. `archive/v0/` is historical: useful for task generators and caveats, **not** for priorities.
+**Read first, in order:** [README](README.md) → [docs/SPEC.md](docs/SPEC.md) → [docs/phase0_linear_theory.md](docs/phase0_linear_theory.md). Consult the novelty boundary in [docs/literature.md](docs/literature.md) and the niche map in [docs/literature_review.md](docs/literature_review.md) before claiming anything is new. `archive/v0/` is historical: useful for task generators and caveats, **not** for priorities.
 
 ## Current priority
 
@@ -21,10 +21,12 @@ Then **Phase 1**: replicate the neural-race result for gated deep linear network
    - sweep richness (initialization scale, branch multiplier);
    - over-provision width so every arm fits every target, and report fit;
    - compare at matched steps *and* matched training loss;
-   - at least 5 paired seeds;
-   - include an identical-graph null and an operator-label permutation.
+   - seeds: run a pilot null distribution first, then ≥10 paired seeds for reported results and ≈29 per arm for headline claims, judged by run-level bootstrap $P(A>B)$;
+   - richness phase diagram, where the effect must vanish as $\alpha\to0$; dose–response over one-edge mutants; random-routing control;
+   - include an identical-graph null, an operator-label permutation, and mask-preserving nulls for any weight-graph statistic.
+   - Full protocol: [SPEC §3](docs/SPEC.md).
 5. **Label each claim** as expressivity, optimization, or mechanism. A faster loss curve is none of these by itself.
-6. **Use existing validated instruments** (Fourier atlas, LLC, gradient coherence/stiffness, hidden-progress measures, Tracr/InterpBench) before building new ones. Do not build SAE pipelines, causal-depth scores, or architecture search.
+6. **Use the tiered measurement stack** ([SPEC §5](docs/SPEC.md)). Primary endpoints come from function space. Representation comparisons are made only at symmetry-matched sites, with nulls. Never use raw CKA alone. A between-topology claim needs agreement across two tiers. Do not build SAE pipelines, causal-depth scores, or architecture search.
 7. **Tests first** for every new derivation or metric. The test suite must pass before any training result is reported.
 
 ## Workflow per change
