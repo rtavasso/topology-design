@@ -26,6 +26,14 @@ from topology_design import grokking as gk  # noqa: E402
 
 
 def expand(grid: dict) -> list[gk.RunConfig]:
+    if "grids" in grid:  # a list of sub-grids; duplicates (same run_id) are dropped
+        seen, out = set(), []
+        for g in grid["grids"]:
+            for c in expand(g):
+                if c.run_id not in seen:
+                    seen.add(c.run_id)
+                    out.append(c)
+        return out
     base, vary = grid.get("base", {}), grid.get("vary", {})
     keys = list(vary)
     cfgs = []

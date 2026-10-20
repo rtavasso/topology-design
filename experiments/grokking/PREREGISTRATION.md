@@ -109,3 +109,9 @@ This looks like an optimization pathology at this learning rate, not evidence ab
 3. **Add a stability diagnostic to every report:** the max over training of the largest single branch's share of direct logit energy. If an arm's median at its tuned LR exceeds 0.9, its comparisons are flagged as conditioning-dominated.
 
 No other change.
+
+**A2 (20 Oct 2026, before LR-tuning or main runs complete).** Two protocol details the original text left unspecified:
+- **LR tie-break** (`select_lr.py`): ties go to the lr closest to 1e-3. If every lr is censored for an arm, that arm uses 1e-3 and is flagged.
+- **H_depth learning rate:** the weight-decay-0 runs use each arm's lr tuned at weight decay 1.0. No separate tuning is done at weight decay 0.
+
+The pipeline is `experiments/grokking/run_all.sh`, run natively on the researcher's MacBook.
