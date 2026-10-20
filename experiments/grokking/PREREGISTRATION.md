@@ -115,3 +115,15 @@ No other change.
 - **H_depth learning rate:** the weight-decay-0 runs use each arm's lr tuned at weight decay 1.0. No separate tuning is done at weight decay 0.
 
 The pipeline is `experiments/grokking/run_all.sh`, run natively on the researcher's MacBook.
+
+**A3 (20 Oct 2026, after study 1 results, before any A3 runs).** Study 1 put every arm's lr optimum at the top of the grid (3e-3), and the independent review noted that the s-trend could be a tuning artifact, so the tuning is redone higher.
+- **Upper-LR tuning:** lr ∈ {2e-3, 3e-3, 6e-3, 1e-2}, 8 arms, 3 seeds with **independent data seeds** (paired model/data seeds 200–202), weight decay 1.0. 96 runs.
+- **Selection:** the same rule as A2 (smallest median t_grok; ties go to the lr closest to 1e-3, which in this grid means the lowest lr). `select_lr.py` records whether each chosen lr is at a grid boundary.
+- **Re-test:** the main study is rerun at the new per-arm lrs on seeds 0–9, weight decay 1.0 (`main_v2`, 80 runs). It is scored with the same endpoints and rules as before.
+- **Interpretation rules, fixed in advance:**
+  - If the s-trend (H_mono criterion 1) or par-faster-than-seq **disappears** at the new optima, the study-1 pattern is classified as a tuning artifact.
+  - If it **persists**, the persisting contrasts go to the 29-seed escalation (protocol step 4).
+  - If any arm's optimum is still at the upper boundary (1e-2), that arm's comparisons stay flagged.
+- **Diagnostic clarification (not a decision rule):** the A1 statistic as implemented in `analyze.py` already excludes step 0 and the embedding path. (The reviewer's 0.858 for `par` came from a version that included both.) Because chains route early blocks' effects through later blocks, the per-block **total-effect ablation table** (test accuracy with each block removed) is reported alongside A1 and is the one used to judge whether early blocks are inert.
+
+Pipeline: `experiments/grokking/run_lr_upper.sh`.

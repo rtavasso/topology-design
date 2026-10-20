@@ -1,0 +1,7 @@
+{"_note": "Amendment A3: upper-LR tuning with independent data seeds (paired model/data seeds 200-202).",
+ "base": {"p": 59, "train_frac": 0.4, "d": 128, "hidden": 256, "weight_decay": 1.0,
+          "steps": 20000, "eval_every": 250, "stop_after_grok": 1000, "tag": "lrup"},
+ "tie_data_seed": true,
+ "vary": {"arm": ["seq", "par", "sink_0", "sink_0.25", "sink_0.5", "sink_1", "sink_2", "sink_4"],
+          "lr": [0.002, 0.003, 0.006, 0.01],
+          "model_seed": [200, 201, 202]}}
