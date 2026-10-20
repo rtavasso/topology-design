@@ -1,0 +1,4 @@
+{"_note": "Study 3 calibration only (does anything grok within budget?). Not evidence about arms.",
+ "base": {"p": 13, "train_frac": 0.5, "d": 128, "hidden": 256, "lr": 0.003, "weight_decay": 1.0,
+          "steps": 15000, "eval_every": 100, "stop_after_grok": 1000, "tag": "cal"},
+ "vary": {"task": ["addmul", "add3"], "arm": ["pk012", "pk000"], "model_seed": [0]}}

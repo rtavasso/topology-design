@@ -22,7 +22,11 @@ import traceback
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 
+import importlib  # noqa: E402
+
 from topology_design import grokking as gk  # noqa: E402
+
+TASK = gk  # module providing RunConfig / train_run; switched by --module (e.g. composition)
 
 
 def expand(grid: dict) -> list[gk.RunConfig]:
@@ -41,7 +45,7 @@ def expand(grid: dict) -> list[gk.RunConfig]:
         kw = {**base, **dict(zip(keys, vals))}
         if grid.get("tie_data_seed"):  # paired design: data seed index = model seed
             kw["data_seed"] = kw["model_seed"]
-        cfgs.append(gk.RunConfig(**kw))
+        cfgs.append(TASK.RunConfig(**kw))
     return cfgs
 
 
@@ -80,11 +84,12 @@ def make_batches(cfgs, size):
 
 def _work(args):
     cfg, out = args
+    mod = importlib.import_module(f"topology_design.{type(cfg).__module__.split('.')[-1]}")
     path = os.path.join(out, cfg.run_id + ".json")
     if os.path.exists(path):
         return cfg.run_id, "skip", 0.0
     try:
-        res = gk.train_run(cfg)
+        res = mod.train_run(cfg)
         tmp = path + ".tmp"
         gk.save(res, tmp)
         os.replace(tmp, path)
@@ -104,7 +109,10 @@ def main():
     ap.add_argument("--dry", action="store_true", help="list runs and exit")
     ap.add_argument("--batch", type=int, default=1, help="runs per stacked batch (1 = unbatched trainer)")
     ap.add_argument("--device", default="cpu", help="cpu or mps (batched trainer only)")
+    ap.add_argument("--module", default="grokking", help="task module in topology_design (grokking | composition)")
     args = ap.parse_args()
+    global TASK
+    TASK = importlib.import_module(f"topology_design.{args.module}")
     with open(args.grid) as f:
         cfgs = expand(json.load(f))
     os.makedirs(args.out, exist_ok=True)
