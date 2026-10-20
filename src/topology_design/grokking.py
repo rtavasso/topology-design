@@ -42,11 +42,33 @@ def sink_arm(s: float) -> tuple[tuple[int, ...], tuple[float, ...]]:
 
 
 def arm_spec(arm: str) -> tuple[tuple[int, ...], tuple[float, ...]]:
+    """'seq', 'par', 'sink_<s>', or 'pk<digits>' = explicit parent vector with unit multipliers (e.g. 'pk0102')."""
     if arm in ARMS:
         return ARMS[arm]
     if arm.startswith("sink_"):
         return sink_arm(float(arm[len("sink_") :]))
+    if arm.startswith("pk") and arm[2:].isdigit():
+        parents = tuple(int(c) for c in arm[2:])
+        return parents, tuple(1.0 for _ in parents)
     raise ValueError(f"unknown arm {arm!r}")
+
+
+def block_depths(parents) -> list[int]:
+    """Composition depth of each block: d_i = 1 + d(parent), with the embedding h_0 at depth 0.
+    (Parent k >= 1 refers to the accumulated state h_k, whose deepest contributor is max(d_1..d_k).)"""
+    d: list[int] = []
+    for k in parents:
+        d.append(1 + (max(d[:k]) if k >= 1 else 0))
+    return d
+
+
+def longest_chain(parents) -> int:
+    return max(block_depths(parents))
+
+
+def root_readers(parents) -> int:
+    """Number of blocks that read the raw embedding h_0 directly."""
+    return sum(1 for k in parents if k == 0)
 
 
 @dataclass
@@ -265,10 +287,14 @@ def train_run(cfg: RunConfig, verbose: bool = False) -> dict:
     traj: list[dict] = []
     t0 = time.time()
     grok_step = None
+    diverged_at = None
     for step in range(cfg.steps + 1):
         opt.zero_grad(set_to_none=True)
         logits = model(atr, btr)
         loss = F.cross_entropy(logits, ytr)
+        if not torch.isfinite(loss):
+            diverged_at = step
+            break
         loss.backward()
         if step % cfg.eval_every == 0:
             rec = {"step": step, **measure(model, tr, te), **grad_stats(model, loss, logits.detach(), ytr)}
@@ -287,7 +313,7 @@ def train_run(cfg: RunConfig, verbose: bool = False) -> dict:
         "n_params": n_params(model),
         "seconds": time.time() - t0,
         "trajectory": traj,
-        "summary": summarize(traj, cfg),
+        "summary": {**summarize(traj, cfg), **stability_summary(traj, diverged_at)},
     }
 
 
@@ -316,6 +342,20 @@ def summarize(traj: list[dict], cfg: RunConfig) -> dict:
         "final_ablate": last["ablate"],
         "final_branches": last["branches"],
         "steps_run": last["step"],
+    }
+
+
+def stability_summary(traj: list[dict], diverged_at: int | None) -> dict:
+    """Study-2 endpoints: divergence, and collapse of training accuracy after the first fit (train acc >= 0.99)."""
+    t_fit = first_step(traj, "train_acc", 0.99)
+    if diverged_at is not None or t_fit is None:
+        post_min = 0.0
+    else:
+        post_min = min(r["train_acc"] for r in traj if r["step"] >= t_fit)
+    return {
+        "diverged_at": diverged_at,
+        "post_fit_min_train_acc": post_min,
+        "stable": diverged_at is None and t_fit is not None and post_min >= 0.9,
     }
 
 

@@ -1,0 +1,95 @@
+{
+ "_note": "Study 2 (stability ceiling). See experiments/stability/PREREGISTRATION.md",
+ "grids": [
+  {
+   "base": {
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "steps": 6000,
+    "eval_every": 50,
+    "stop_after_grok": 0,
+    "tag": "stab",
+    "weight_decay": 1.0
+   },
+   "tie_data_seed": true,
+   "vary": {
+    "arm": [
+     "pk0000",
+     "pk0001",
+     "pk0002",
+     "pk0003",
+     "pk0010",
+     "pk0011",
+     "pk0012",
+     "pk0013",
+     "pk0020",
+     "pk0021",
+     "pk0022",
+     "pk0023",
+     "pk0100",
+     "pk0101",
+     "pk0102",
+     "pk0103",
+     "pk0110",
+     "pk0111",
+     "pk0112",
+     "pk0113",
+     "pk0120",
+     "pk0121",
+     "pk0122",
+     "pk0123"
+    ],
+    "lr": [
+     0.0015,
+     0.003,
+     0.006,
+     0.012,
+     0.024,
+     0.048
+    ],
+    "model_seed": [
+     300,
+     301,
+     302
+    ]
+   }
+  },
+  {
+   "base": {
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "steps": 6000,
+    "eval_every": 50,
+    "stop_after_grok": 0,
+    "tag": "stab",
+    "weight_decay": 0.1
+   },
+   "tie_data_seed": true,
+   "vary": {
+    "arm": [
+     "pk0000",
+     "pk0101",
+     "pk0120",
+     "pk0123"
+    ],
+    "lr": [
+     0.0015,
+     0.003,
+     0.006,
+     0.012,
+     0.024,
+     0.048
+    ],
+    "model_seed": [
+     300,
+     301,
+     302
+    ]
+   }
+  }
+ ]
+}

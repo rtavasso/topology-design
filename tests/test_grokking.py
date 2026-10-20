@@ -81,3 +81,31 @@ def test_smoke_training_reduces_loss_and_records_measurements():
     assert set(rec["grad_norms"]) == {"embed", "unembed", "block1", "block2", "block3"}
     assert 0.0 <= rec["rule_frac"] <= 1.0
     assert set(res["summary"]) >= {"t_fit", "t_grok", "grok_delay", "peak_excluded_train_acc"}
+
+
+def test_parent_vector_arms_and_depths():
+    assert gk.arm_spec("pk0102") == ((0, 1, 0, 2), (1.0, 1.0, 1.0, 1.0))
+    assert gk.block_depths((0, 1, 2, 3)) == [1, 2, 3, 4]
+    assert gk.block_depths((0, 0, 0, 0)) == [1, 1, 1, 1]
+    assert gk.block_depths((0, 1, 0, 2)) == [1, 2, 1, 3]  # block 4 reads h_2, deepest contributor = block 2
+    assert gk.block_depths((0, 1, 1, 3)) == [1, 2, 2, 3]
+    assert gk.root_readers((0, 1, 0, 2)) == 2
+    from topology_design import linear_family as lf
+    chains = {gk.longest_chain(k) for k in lf.all_parent_vectors(4)}
+    assert chains == {1, 2, 3, 4}
+
+
+def test_divergence_is_caught_and_flagged():
+    cfg = gk.RunConfig(arm="pk0123", p=11, d=16, hidden=32, steps=200, eval_every=10, stop_after_grok=0,
+                       lr=50.0, weight_decay=0.0, init_scale=5.0)
+    res = gk.train_run(cfg)
+    s = res["summary"]
+    assert s["stable"] is False
+    assert s["diverged_at"] is not None or s["post_fit_min_train_acc"] < 0.9
+
+
+def test_stable_flag_on_benign_run():
+    cfg = gk.RunConfig(arm="pk0000", p=11, d=16, hidden=64, steps=400, eval_every=20, stop_after_grok=0,
+                       lr=3e-3, weight_decay=0.1, train_frac=0.8)
+    s = gk.train_run(cfg)["summary"]
+    assert s["diverged_at"] is None and s["post_fit_min_train_acc"] >= 0.0
