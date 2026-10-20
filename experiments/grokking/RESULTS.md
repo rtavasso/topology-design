@@ -8,7 +8,7 @@
 
 **Independent check.** The verdicts below were recomputed from the raw files by a separate reviewer using independent code. It reproduced every number and led to two downgrades; see the *Verification* section.
 
-> **Status under the preregistered rules: nothing here is claimable yet.** Every separable contrast awaits the 29-seed escalation, and the learning rates are at the grid boundary. Read the results below as preliminary.
+> **Status under the preregistered rules: nothing here is claimable yet** (see also the A3 follow-up below). Every separable contrast awaits the 29-seed escalation, and the learning rates are at the grid boundary. Read the results below as preliminary.
 
 ## Headline
 
@@ -109,12 +109,69 @@ This is a clean negative result for "static wiring can quarantine memorization."
 
 **The question still open** is whether a route that is *structurally* better suited to the generalizing circuit protects it. That requires a task whose generalizing solution needs composition (e.g. $(a+b+c) \bmod p$ or two-hop composition), so that the chain has a real structural advantage the sink lacks.
 
-## Next steps
+## Next steps (revised after A3)
 
-1. **Upper-LR check:** lr ∈ {2e-3, 6e-3, 1e-2} for all arms on 3 seeds, using independent data seeds, to find interior optima. This is the first step because it decides whether the s trend survives proper tuning.
-2. **29-seed escalation** of the separable contrasts (par vs seq, sink_4 vs sink_0, sink_4 vs seq), at interior optima. Run it on the batched GPU trainer once the GPU replication validates it.
-3. **Composition task** (new preregistration) where the generalizing circuit requires depth.
-4. **Amend the stability diagnostic** to use total-effect ablations rather than direct energy.
+1. ~~Upper-LR check~~ done (A3, below).
+2. **Before any escalation:** readouts every 25 steps, plus a 2-D lr × wd grid that extends lr to 3e-2 for the non-chain arms. This separates step size from regularization.
+3. **Stability-ceiling study** (cheap, predicted by Phase 0): the maximum stable lr vs. longest chain length across one-edge mutants.
+4. **Composition task** (new preregistration, with lessons 2–3 built in) where the generalizing circuit requires depth. This is still the real test of the research question.
+5. **29-seed escalation** of whatever survives step 2. Run it on the batched GPU trainer once the GPU replication validates it.
+
+## Amendment A3 follow-up: upper-LR re-tuning and re-test (20 Oct 2026)
+
+**Re-tuning.** lr ∈ {2e-3, 3e-3, 6e-3, 1e-2}, 3 seeds, independent data seeds 200–202. Median t_grok:
+
+| arm | 2e-3 | 3e-3 | 6e-3 | 1e-2 | chosen |
+|---|---|---|---|---|---|
+| seq | 11750 | **4500** | 20000 | 20000 | 3e-3 (**interior**) |
+| par | 3250 | 2000 | 1000 | **750** | 1e-2 (boundary) |
+| sink_0 | 8000 | 5750 | 2750 | **1250** | 1e-2 (boundary) |
+| sink_0.25 | 6750 | 6250 | 2250 | **1250** | 1e-2 (boundary) |
+| sink_0.5 | 8000 | 5500 | 2500 | **1000** | 1e-2 (boundary) |
+| sink_1 | 7000 | 4750 | 2500 | **1000** | 1e-2 (boundary) |
+| sink_2 | 5750 | 3000 | 1750 | **750** | 1e-2 (boundary) |
+| sink_4 | 3750 | 3000 | 1750 | **750** | 1e-2 (boundary) |
+
+**Re-test**, 10 seeds at the A3-tuned lrs, weight decay 1.0. Median delay, with censored runs in brackets:
+
+| arm | delay | localization index [95% CI] | test acc, blocks 1 / 2 / 3 removed |
+|---|---|---|---|
+| par @1e-2 | **500** (0) | −0.024 [−0.049, +0.003] | 0.88 / 0.88 / 0.90 |
+| seq @3e-3 | 6,500 (2) | n/a | 0.03 / 0.29 / 0.08 |
+| sink_0 @1e-2 | 1,250 (0) | 0.000 | 0.04 / 0.07 / 1.00 |
+| sink_0.25 | 1,000 (0) | −0.004 [−0.011, −0.000] | |
+| sink_0.5 | 1,000 (0) | −0.020 [−0.046, −0.000] | |
+| sink_1 | 875 (0) | −0.000 | 0.52 / 0.57 / 0.42 |
+| sink_2 | 750 (0) | +0.004 [−0.036, +0.058] | |
+| sink_4 | 500 (0) | **−0.059 [−0.092, −0.026]** | 0.20 / 0.23 / 0.67 |
+
+At s = 4 the sink's share of the final rule energy, per seed, is 1, 0, 0, .36, 0, .19, .20, 0, .03, .03 (mean 0.18).
+
+**Best-vs-best contrasts** (paired, each arm at its own tuned lr): P(par / sink_0 / sink_1 / sink_4 faster than seq) = **1.00 [1.00, 1.00]**.
+
+**Reproducibility check.** The `seq` re-test runs, with the same configuration as study 1 under a new tag, reproduced study 1's t_grok values exactly.
+
+### A3 verdicts, by the rules fixed in A3
+
+| Question | Verdict |
+|---|---|
+| Does the s-trend survive re-tuning? | **Yes, compressed.** Delays fall from 1,250 to 500 over s = 0 → 4; sink_4 is faster than sink_0 in 10/10 seeds. By the A3 rule it is **not** a tuning artifact and goes to escalation. But every sink arm is still at the upper lr boundary, so it **stays flagged**. |
+| Does par-faster-than-seq survive? | **Yes, and it is the most robust result.** `seq` now has an interior optimum and `par` is at the boundary, so any further tuning can only *widen* the gap. |
+| H_mono criterion 2 (sink holds most of the rule at the largest s) | **Fails at the new optima** (mean 0.18). H_mono as preregistered is therefore **not supported**. Only "larger s → faster" remains. |
+| H_U | **Still rejected.** The localization index is never positive, and at s = 4 it is significantly *negative*. |
+
+### New caveats from A3
+
+- **Readout resolution.** At these learning rates, delays of 500–1,250 steps are resolved at only 250-step granularity, and t_fit always equals the first readout. Comparisons in this regime need readouts every ~25 steps.
+- **The lr sweep also sweeps regularization.** In AdamW the decoupled decay is applied as (1 − lr·wd) per step, so raising lr from 3e-3 to 1e-2 also triples the effective weight-decay rate. This study cannot separate "larger steps" from "stronger regularization". A 2-D lr × wd tuning grid is needed.
+
+### Interpretation (not a preregistered claim)
+
+The most robust topology effect here is a **stability ceiling for the sequential chain**. `seq` fails to grok at lr ≥ 6e-3 and is erratic at 3e-3. Every graph whose generalizing route reads the embedding directly keeps improving up to 1e-2.
+
+Phase 0 predicts this direction. In a chain, the effective step on the end-to-end map is multiplied by the current singular values (Prop. 3: rich-get-richer), so the effective learning rate grows as the weights grow, and the stable lr is lower. The parallel graph has no such amplification.
+
+In this task, then, composition hurts grokking mainly through **conditioning/stability**. That limits access to the fast, strongly regularized regime. It does not do so through memorization interference. This is a testable, theory-linked lead: measure the **maximum stable lr as a function of longest chain length** across one-edge mutants.
 
 ## Verification
 
