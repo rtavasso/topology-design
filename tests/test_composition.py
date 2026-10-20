@@ -48,6 +48,12 @@ def test_ridge_decoder_recovers_planted_feature():
     H = torch.nn.functional.one_hot(s, p).float() + 0.01 * torch.randn(len(s), p)
     tr, te = cp.split(p, 0.5, 0)
     assert cp.ridge_decode_acc(H, s, p, tr, te) > 0.99
+    # scale-free: tiny-magnitude features (like real hidden states) must decode just as well
+    assert cp.ridge_decode_acc(1e-3 * H, s, p, tr, te) > 0.99
+    # Fourier-style encoding (cos/sin of a few frequencies of s, small scale, plus a distractor block)
+    w = 2 * torch.pi * torch.tensor([1.0, 3.0]) / p
+    four = torch.cat([torch.cos(s[:, None] * w), torch.sin(s[:, None] * w), 0.05 * torch.randn(len(s), 20)], 1)
+    assert cp.ridge_decode_acc(0.01 * four, s, p, tr, te) > 0.95
     H_noise = torch.randn(len(s), p)
     assert cp.ridge_decode_acc(H_noise, s, p, tr, te) < 0.4
 

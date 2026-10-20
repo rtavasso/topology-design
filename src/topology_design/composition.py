@@ -151,9 +151,11 @@ def group_projection(Z: torch.Tensor, key: torch.Tensor, n_keys: int) -> torch.T
     return (sums / counts)[key]
 
 
-def ridge_decode_acc(H: torch.Tensor, target: torch.Tensor, n_cls: int, tr: torch.Tensor, te: torch.Tensor, lam: float = 1e-2) -> float:
+def ridge_decode_acc(H: torch.Tensor, target: torch.Tensor, n_cls: int, tr: torch.Tensor, te: torch.Tensor, lam: float = 1e-3) -> float:
     """Held-out accuracy of a closed-form ridge one-vs-all linear readout of `target` from features H."""
-    X = torch.cat([H, torch.ones(len(H), 1)], 1).double()
+    H = H.double()
+    mu, sd = H[tr].mean(0), H[tr].std(0).clamp_min(1e-8)  # standardize with fit-split stats: scale-free ridge
+    X = torch.cat([(H - mu) / sd, torch.ones(len(H), 1, dtype=torch.float64)], 1)
     Y = F.one_hot(target, n_cls).double()
     A = X[tr].T @ X[tr] + lam * len(tr) * torch.eye(X.shape[1], dtype=torch.float64)
     Wt = torch.linalg.solve(A, X[tr].T @ Y[tr])
