@@ -25,7 +25,10 @@ if [ ! -x .venv/bin/python ]; then
   log "creating .venv"
   python3 -m venv .venv
   .venv/bin/pip install --quiet --upgrade pip
-  .venv/bin/pip install --quiet torch numpy matplotlib pytest
+  # torch 2.14.1 matches the version the test suite was developed and run with (macOS 14+ arm64 wheel on PyPI);
+  # fall back to the newest compatible version on older macOS.
+  .venv/bin/pip install --quiet "torch==2.14.1" || .venv/bin/pip install --quiet torch
+  .venv/bin/pip install --quiet numpy matplotlib pytest
 fi
 PY="$ROOT/.venv/bin/python"
 export PYTHONPATH="$ROOT/src"
