@@ -1,0 +1,6 @@
+{"_note": "lr per arm is filled in from lr_tune results (see PREREGISTRATION protocol step 1); seeds 0-9 paired as model_seed = data_seed",
+ "base": {"p": 59, "train_frac": 0.4, "d": 128, "hidden": 256, "weight_decay": 1.0,
+          "steps": 20000, "eval_every": 250, "stop_after_grok": 1000, "tag": "main"},
+ "tie_data_seed": true,
+ "vary": {"arm": ["seq", "par", "sink_0", "sink_0.25", "sink_0.5", "sink_1", "sink_2", "sink_4"],
+          "lr": [0.001], "model_seed": [0,1,2,3,4,5,6,7,8,9]}}

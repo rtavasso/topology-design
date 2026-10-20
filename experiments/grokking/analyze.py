@@ -53,6 +53,16 @@ def localization_index(r: dict) -> float:
     return float(rem[SINK] / max(rem.sum(), 1e-12) - rule[SINK] / max(rule.sum(), 1e-12))
 
 
+def max_branch_dominance(r: dict) -> float:
+    """Stability diagnostic (amendment A1): max over training of the largest block's share of direct logit energy."""
+    best = 0.0
+    for t in r["trajectory"][1:]:
+        e = np.array([b["rem_energy"] + b["rule_energy"] for b in t["branches"][1:]])
+        if e.sum() > 0:
+            best = max(best, float(e.max() / e.sum()))
+    return best
+
+
 def final_rule_share_in_sink(r: dict) -> float:
     br = r["trajectory"][-1]["branches"]
     rule = np.array([b["rule_energy"] for b in br])
@@ -97,19 +107,22 @@ def main():
         final_test = np.array([g[s]["summary"]["final_test_acc"] for s in seeds])
         sink_rule = np.array([final_rule_share_in_sink(g[s]) for s in seeds])
         peak_mem = np.array([g[s]["summary"]["peak_excluded_train_acc"] for s in seeds])
+        dom = np.array([max_branch_dominance(g[s]) for s in seeds])
         table[key] = dict(seeds=seeds, delay=d, censored=cens, loc=loc)
         lm, ll, lh = mean_ci(loc)
         rows.append(
             f"| {key[0]} | {key[1]:g} | {key[2]:g} | {len(seeds)} | {np.nanmedian(tfit):.0f} | {np.median(d):.0f} | "
             f"{int(cens.sum())} | {lm:+.3f} [{ll:+.3f}, {lh:+.3f}] | {np.mean(peak_mem):.2f} | "
-            f"{np.mean(final_test):.3f} | {np.mean(abl_test):.3f} | {np.mean(sink_rule):.2f} |"
+            f"{np.mean(final_test):.3f} | {np.mean(abl_test):.3f} | {np.mean(sink_rule):.2f} | "
+            f"{np.median(dom):.2f}{' ⚠' if np.median(dom) > 0.9 else ''} |"
         )
 
     md = ["# Grokking × topology — results summary", "",
           f"{len(runs)} runs. Endpoints as preregistered; delay = t_grok − t_fit (censored runs counted at budget).", "",
           "| arm | wd | lr | n | median t_fit | median delay | # censored | localization index [95% CI] | "
-          "peak memorization (excl. train acc) | final test acc | test acc, block 3 ablated | final rule share in block 3 |",
-          "|---|---|---|---|---|---|---|---|---|---|---|---|", *rows, ""]
+          "peak memorization (excl. train acc) | final test acc | test acc, block 3 ablated | final rule share in block 3 | "
+          "median max branch dominance (⚠ >0.9) |",
+          "|---|---|---|---|---|---|---|---|---|---|---|---|---|", *rows, ""]
 
     # paired contrasts on delay among arms sharing wd/lr settings and seeds
     md += ["## Paired contrasts on grokking delay", "", "P(row arm groks faster than column arm), paired over shared seeds [95% bootstrap CI].", ""]

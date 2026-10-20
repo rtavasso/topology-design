@@ -95,4 +95,17 @@ A high-$s$ sink is therefore both faster *and* cheaper. This study tests whether
 
 ## Amendments
 
-(none yet)
+**A1 (20 Oct 2026, after calibration, before any main or LR-tuning runs).** Calibration ran 1 seed of `seq` and `par`, with $p=59$, train fraction 0.4, lr 1e-3, weight decay 1.0, and 15k steps.
+
+**Results:**
+- **`par`:** fit the training set at step 250 and grokked at step 7,250. Rule fraction rose from 0.04 to 0.91, excluded-train accuracy fell from 1.00 to 0.18, and the top-5 Fourier share of the embeddings rose from 0.18 to 0.59.
+- **`seq`:** fit at step 250 but did not grok in 15k steps. Block 3's direct logit energy was about 100× larger than blocks 1–2, which collapsed to ≈0, and the training residual showed instability spikes.
+
+This looks like an optimization pathology at this learning rate, not evidence about topology, so it is not used as a result.
+
+**Changes made:**
+1. **Fix $p = 59$, 20,000 steps, readout every 250 steps.** About 10 CPU-minutes per run.
+2. **Extend the per-arm LR grid to {1e-4, 3e-4, 1e-3, 3e-3}.** The lowest value was added because of the `seq` instability.
+3. **Add a stability diagnostic to every report:** the max over training of the largest single branch's share of direct logit energy. If an arm's median at its tuned LR exceeds 0.9, its comparisons are flagged as conditioning-dominated.
+
+No other change.

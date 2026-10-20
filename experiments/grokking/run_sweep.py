@@ -30,7 +30,10 @@ def expand(grid: dict) -> list[gk.RunConfig]:
     keys = list(vary)
     cfgs = []
     for vals in itertools.product(*[vary[k] for k in keys]):
-        cfgs.append(gk.RunConfig(**{**base, **dict(zip(keys, vals))}))
+        kw = {**base, **dict(zip(keys, vals))}
+        if grid.get("tie_data_seed"):  # paired design: data seed index = model seed
+            kw["data_seed"] = kw["model_seed"]
+        cfgs.append(gk.RunConfig(**kw))
     return cfgs
 
 
