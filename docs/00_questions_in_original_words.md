@@ -1,5 +1,10 @@
 # Foundational questions, retained in the researcher's words
 
+> **Note (19 Oct 2026):** This file is unchanged from v0 apart from this note. Its references to `docs/03…`, `docs/04…` etc. now live in [`archive/v0/docs/`](../archive/v0/docs/). The current plan is in [SPEC.md](SPEC.md). Several questions here now have sharper formal homes:
+> - §5 "hidden learning" → hidden-progress measures (Phase 2);
+> - §6 "productive frustration" → saddle/plateau dynamics (SPEC §2);
+> - §7 "memorization vs generalization" → gradient coherence and localization (Phase 3).
+
 This document preserves selected **verbatim question fragments** from the originating discussion (October 2026). They are not commitments that the initial framing was correct: the rest of the documentation contains objections, derivations, and pivots. Their purpose is to preserve what the researcher was *trying to understand* before our working language became more formal.
 
 ## 1. The original conceptual puzzle: what does routing allow numerically?
