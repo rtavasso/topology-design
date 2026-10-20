@@ -128,7 +128,7 @@ def main():
     md += ["## Paired contrasts on grokking delay", "", "P(row arm groks faster than column arm), paired over shared seeds [95% bootstrap CI].", ""]
     by_setting = defaultdict(dict)
     for key, v in table.items():
-        by_setting[(key[1],) + key[3:]][key[0]] = (key, v)
+        by_setting[(key[1], key[2]) + key[3:]][key[0]] = (key, v)  # hold wd AND lr fixed within a contrast
     contrasts = {}
     for setting, arms in by_setting.items():
         names = sorted(arms)
@@ -142,8 +142,8 @@ def main():
                 da = np.array([va["delay"][va["seeds"].index(s)] for s in shared])
                 db = np.array([vb["delay"][vb["seeds"].index(s)] for s in shared])
                 pm, pl, ph = p_less(da, db)
-                contrasts[f"{A} vs {B} (wd={setting[0]:g})"] = (pm, pl, ph, len(shared))
-                md.append(f"- wd={setting[0]:g}: P({A} faster than {B}) = {pm:.2f} [{pl:.2f}, {ph:.2f}] (n={len(shared)})")
+                contrasts[f"{A} vs {B} (wd={setting[0]:g}, lr={setting[1]:g})"] = (pm, pl, ph, len(shared))
+                md.append(f"- wd={setting[0]:g}, lr={setting[1]:g}: P({A} faster than {B}) = {pm:.2f} [{pl:.2f}, {ph:.2f}] (n={len(shared)})")
     md.append("")
     with open(os.path.join(args.out, "summary.md"), "w") as f:
         f.write("\n".join(md))
@@ -151,6 +151,11 @@ def main():
         json.dump({"contrasts": contrasts}, f, indent=1)
     plot(groups, args.out)
     print("\n".join(md))
+
+
+def _ffill(traj, field, n):
+    v = [t[field] for t in traj]
+    return v + [v[-1]] * (n - len(v))  # runs stop early after grokking: carry the last value forward
 
 
 def plot(groups, out):
@@ -161,49 +166,67 @@ def plot(groups, out):
         import matplotlib.pyplot as plt
     except ImportError:
         return
-    # trajectories per arm (median over seeds), one figure per weight decay
-    by_wd = defaultdict(list)
+    cmap = plt.get_cmap("tab10")
+    # 1) median trajectories, one figure per (weight decay, lr)
+    by_set = defaultdict(list)
     for key, g in groups.items():
-        by_wd[key[1]].append((key, g))
-    for wd, items in by_wd.items():
+        by_set[(key[1], key[2])].append((key, g))
+    for (wd, lr), items in sorted(by_set.items()):
         fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True)
-        for key, g in sorted(items, key=lambda kv: kv[0][0]):
+        for ci, (key, g) in enumerate(sorted(items, key=lambda kv: kv[0][0])):
             seeds = sorted(g)
-            steps = [t["step"] for t in g[seeds[0]]["trajectory"]]
-            for ax, field in zip(axes.flat, ["train_acc", "test_acc", "excluded_train_acc", "rule_frac"]):
-                n = min(len(g[s]["trajectory"]) for s in seeds)
-                vals = np.array([[t[field] for t in g[s]["trajectory"][:n]] for s in seeds])
-                ax.plot(steps[:n], np.median(vals, 0), label=f"{key[0]} (lr {key[2]:g})")
+            n = max(len(g[s]["trajectory"]) for s in seeds)
+            ev = g[seeds[0]]["config"]["eval_every"]
+            steps = np.arange(n) * ev
+            for ax, field in zip(axes.flat, ["test_acc", "excluded_train_acc", "rule_frac", "embed_top5_freq_frac"]):
+                vals = np.array([_ffill(g[s]["trajectory"], field, n) for s in seeds])
+                ax.plot(steps, np.median(vals, 0), color=cmap(ci % 10), ls="-" if ci < 10 else "--", label=key[0])
                 ax.set_title(field)
-        axes[0, 0].legend(fontsize=7)
+        axes[0, 0].legend(fontsize=8)
         for ax in axes[1]:
             ax.set_xlabel("step")
-        fig.suptitle(f"Median trajectories, weight decay {wd:g}")
+        fig.suptitle(f"Median over seeds (stopped runs carried forward), weight decay {wd:g}, lr {lr:g}")
         fig.tight_layout()
-        fig.savefig(os.path.join(out, f"trajectories_wd{wd:g}.png"), dpi=110)
+        fig.savefig(os.path.join(out, f"trajectories_wd{wd:g}_lr{lr:g}.png"), dpi=110)
         plt.close(fig)
-    # sink dose-response
-    sink = sorted([(float(k[0].split("_")[1]), k, g) for k, g in groups.items() if k[0].startswith("sink_")], key=lambda x: (x[1][1], x[0]))
-    if sink:
-        fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-        for wd in sorted({k[1] for _, k, _ in sink}):
-            pts = [(s, g) for s, k, g in sink if k[1] == wd]
-            xs = [s for s, _ in pts]
-            dmed = [np.median([censored_delay(g[sd])[0] for sd in g]) for _, g in pts]
-            lmean = [np.mean([localization_index(g[sd]) for sd in g]) for _, g in pts]
-            axes[0].plot(xs, dmed, "o-", label=f"wd {wd:g}")
-            axes[1].plot(xs, lmean, "o-", label=f"wd {wd:g}")
-        axes[0].set_xscale("symlog", linthresh=0.25)
-        axes[1].set_xscale("symlog", linthresh=0.25)
-        axes[0].set_xlabel("sink multiplier s")
-        axes[1].set_xlabel("sink multiplier s")
-        axes[0].set_ylabel("median grokking delay (steps)")
-        axes[1].set_ylabel("localization index (mean)")
-        axes[1].axhline(0, color="k", lw=0.5)
-        axes[0].legend()
-        fig.tight_layout()
-        fig.savefig(os.path.join(out, "sink_dose_response.png"), dpi=110)
-        plt.close(fig)
+    # 2) sink dose-response per (wd, lr), with par / seq reference bands
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+    sets = sorted({(k[1], k[2]) for k in groups if k[0].startswith("sink_")})
+    for ci, (wd, lr) in enumerate(sets):
+        pts = sorted([(float(k[0].split("_")[1]), g) for k, g in groups.items()
+                      if k[0].startswith("sink_") and k[1] == wd and k[2] == lr], key=lambda x: x[0])
+        xs = np.array([s for s, _ in pts])
+        xplot = np.where(xs == 0, 0.125, xs)  # put s=0 at the left edge of the log axis
+        d = [np.array([censored_delay(g[sd])[0] for sd in g]) for _, g in pts]
+        med = np.array([np.median(v) for v in d])
+        lo = np.array([np.percentile(v, 25) for v in d])
+        hi = np.array([np.percentile(v, 75) for v in d])
+        col = cmap(ci)
+        axes[0].plot(xplot, med, "o-", color=col, label=f"sinks, wd {wd:g}, lr {lr:g}")
+        axes[0].fill_between(xplot, lo, hi, color=col, alpha=0.15)
+        for ref, ls in (("par", ":"), ("seq", "--")):
+            k = next((k for k in groups if k[0] == ref and k[1] == wd and k[2] == lr), None)
+            if k:
+                axes[0].axhline(np.median([censored_delay(groups[k][sd])[0] for sd in groups[k]]), color=col, ls=ls, lw=1,
+                                label=f"{ref}, wd {wd:g}, lr {lr:g}")
+        locs = [np.array([localization_index(g[sd]) for sd in g]) for _, g in pts]
+        m = np.array([v.mean() for v in locs])
+        ci_ = np.array([mean_ci(v)[1:] for v in locs])
+        axes[1].errorbar(xplot, m, yerr=[m - ci_[:, 0], ci_[:, 1] - m], fmt="o-", color=col, capsize=3,
+                         label=f"wd {wd:g}, lr {lr:g}")
+    for ax in axes:
+        ax.set_xscale("log", base=2)
+        ax.set_xticks([0.125, 0.25, 0.5, 1, 2, 4])
+        ax.set_xticklabels(["0", "0.25", "0.5", "1", "2", "4"])
+        ax.set_xlabel("sink multiplier s")
+    axes[0].set_ylabel("grokking delay, median & IQR (censored at budget)")
+    axes[1].set_ylabel("localization index (mean, 95% CI)")
+    axes[1].axhline(0, color="k", lw=0.6)
+    axes[0].legend(fontsize=7)
+    axes[1].legend(fontsize=7)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, "sink_dose_response.png"), dpi=110)
+    plt.close(fig)
 
 
 if __name__ == "__main__":
