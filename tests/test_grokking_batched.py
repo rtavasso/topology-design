@@ -84,3 +84,30 @@ def test_train_batch_output_matches_single_format_and_early_trajectory():
             assert rb["train_loss"] == pytest.approx(rs["train_loss"], rel=1e-3, abs=1e-5)
             assert rb["test_acc"] == pytest.approx(rs["test_acc"], abs=1e-6)
             assert rb["residual_norm"] == pytest.approx(rs["residual_norm"], rel=1e-3)
+
+
+@pytest.mark.skipif(not torch.backends.mps.is_available(), reason="needs Apple GPU (MPS)")
+def test_mps_batch_matches_cpu_single_runs():
+    cfgs = [
+        gk.RunConfig(arm="sink_0.5", model_seed=0, data_seed=0, lr=1e-3, weight_decay=1.0, **SMALL),
+        gk.RunConfig(arm="sink_2", model_seed=1, data_seed=3, lr=3e-3, weight_decay=0.0, **SMALL),
+    ]
+    steps = 25
+    bm = gb.BatchedRoutedMLP(cfgs, device="mps")
+    a, b, y = gk.full_grid(cfgs[0].p)
+    tr = torch.stack([gk.split(c.p, c.train_frac, c.data_seed)[0] for c in cfgs])
+    A, B, Y = a[tr].to("mps"), b[tr].to("mps"), y[tr].to("mps")
+    opt = gb.BatchedAdamW(bm.params, torch.tensor([c.lr for c in cfgs], device="mps"),
+                          torch.tensor([c.weight_decay for c in cfgs], device="mps"))
+    R, n = A.shape
+    for _ in range(steps):
+        opt.zero_grad()
+        lg = bm.forward(A, B)
+        torch.nn.functional.cross_entropy(lg.reshape(R * n, -1), Y.reshape(-1), reduction="none").view(R, n).mean(1).sum().backward()
+        opt.step()
+    for j, cfg in enumerate(cfgs):
+        single = _single_params_after(cfg, steps)
+        for (name, ps), pb in zip(single.named_parameters(), bm.single(j).parameters()):
+            torch.testing.assert_close(pb, ps, atol=2e-4, rtol=2e-3, msg=f"run {j} param {name}")
+    outs = gb.train_batch(cfgs, device="mps")  # full path, including measurements, runs on MPS
+    assert all(len(o["trajectory"]) == len(gk.train_run(c)["trajectory"]) for o, c in zip(outs, cfgs))

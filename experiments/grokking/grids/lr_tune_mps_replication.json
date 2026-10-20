@@ -1,0 +1,6 @@
+{"_note": "Non-confirmatory: re-runs the LR-tuning grid with the batched trainer on the Apple GPU to validate it against the CPU path before using it for the 29-seed escalation and follow-up studies. Results go to a separate directory and are never pooled with CPU runs.",
+ "base": {"p": 59, "train_frac": 0.4, "d": 128, "hidden": 256, "weight_decay": 1.0,
+          "steps": 20000, "eval_every": 250, "stop_after_grok": 1000, "tag": "lrtune"},
+ "vary": {"arm": ["seq", "par", "sink_0", "sink_0.25", "sink_0.5", "sink_1", "sink_2", "sink_4"],
+          "lr": [0.0001, 0.0003, 0.001, 0.003],
+          "model_seed": [100, 101, 102], "data_seed": [0]}}
