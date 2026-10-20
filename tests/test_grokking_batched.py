@@ -111,3 +111,14 @@ def test_mps_batch_matches_cpu_single_runs():
             torch.testing.assert_close(pb, ps, atol=2e-4, rtol=2e-3, msg=f"run {j} param {name}")
     outs = gb.train_batch(cfgs, device="mps")  # full path, including measurements, runs on MPS
     assert all(len(o["trajectory"]) == len(gk.train_run(c)["trajectory"]) for o, c in zip(outs, cfgs))
+
+
+def test_divergent_run_does_not_contaminate_batch():
+    small = dict(p=11, d=16, hidden=32, steps=60, eval_every=10, stop_after_grok=0)
+    cfgs = [gk.RunConfig(arm="pk0123", model_seed=0, data_seed=0, lr=3e-3, weight_decay=0.1, **small),
+            gk.RunConfig(arm="pk0123", model_seed=1, data_seed=1, lr=500.0, weight_decay=0.0, **small)]
+    outs = gb.train_batch(cfgs)
+    alone = gb.train_batch(cfgs[:1])
+    assert outs[1]["summary"]["stable"] is False
+    # the healthy run's trajectory is unaffected by its exploding neighbour
+    assert [r["train_loss"] for r in outs[0]["trajectory"]] == [r["train_loss"] for r in alone[0]["trajectory"]]

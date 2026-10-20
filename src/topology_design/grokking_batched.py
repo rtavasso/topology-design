@@ -140,13 +140,19 @@ def train_batch(cfgs: list[gk.RunConfig], device: str = "cpu", verbose: bool = F
     R, n = A.shape
     trajs: list[list[dict]] = [[] for _ in range(R)]
     grok_step: list[int | None] = [None] * R
+    diverged_at: list[int | None] = [None] * R
     done = [False] * R
     t0 = time.time()
     for step in range(c0.steps + 1):
         opt.zero_grad()
         logits = model.forward(A, B)  # (R, n, p)
         per_run = F.cross_entropy(logits.reshape(R * n, -1), Y.reshape(-1), reduction="none").view(R, n).mean(1)
-        per_run.sum().backward()
+        finite = torch.isfinite(per_run)
+        for j in torch.nonzero(~finite).flatten().tolist():
+            if diverged_at[j] is None and not done[j]:
+                diverged_at[j], done[j] = step, True  # same semantics as the unbatched trainer: stop recording
+        # a diverged run contributes 0 to the loss, so its NaNs cannot reach the other runs' gradients
+        torch.where(finite, per_run, torch.zeros_like(per_run)).sum().backward()
         if step % c0.eval_every == 0:
             with torch.no_grad():
                 pr = torch.softmax(logits.detach(), -1)
@@ -174,6 +180,7 @@ def train_batch(cfgs: list[gk.RunConfig], device: str = "cpu", verbose: bool = F
         out.append({
             "config": asdict(c), "run_id": c.run_id, "n_params": gk.n_params(model._template),
             "seconds": secs, "seconds_note": f"wall time of a batch of {R} runs on {device}",
-            "trajectory": trajs[j], "summary": gk.summarize(trajs[j], c), "batched": True,
+            "trajectory": trajs[j], "summary": {**gk.summarize(trajs[j], c), **gk.stability_summary(trajs[j], diverged_at[j])},
+            "batched": True,
         })
     return out
