@@ -195,6 +195,11 @@ def utility(run: dict, blocks: list[int], when: str = "t_end") -> float | None:
     return None if idx is None else utility_at(run["traj"][idx], blocks)
 
 
+def cmedian(v) -> float:
+    """Median with censored values (>= 1e9) treated as +inf, so a censored median prints as censored."""
+    return float(np.median([np.inf if x >= 1e9 else x for x in v]))
+
+
 def nanmean(v) -> float | None:
     v = [x for x in v if x is not None]
     return float(np.mean(v)) if v else None
@@ -261,7 +266,7 @@ def h3(runs: list[dict], graphs: list[str], normalized: bool = False, n_perm=N_P
         pick = RNG.integers(0, len(groups), len(groups))
         idx = np.concatenate([groups[i] for i in pick])
         boots.append(kendall_tau_b(C[idx], D[idx]))
-    med = {g: float(np.median([delay(r, normalized) for r in rs if r["arm"] == g])) for g in graphs
+    med = {g: cmedian([delay(r, normalized) for r in rs if r["arm"] == g]) for g in graphs
            if any(r["arm"] == g for r in rs)}
     return {"tau": tau, "p": (count + 1) / (n_perm + 1), "lo": float(np.quantile(boots, 0.025)),
             "hi": float(np.quantile(boots, 0.975)), "n": len(rs), "censored": int((D >= 1e9).sum()), "median_delay": med}
@@ -372,8 +377,8 @@ def exploratory(runs: list[dict]) -> dict:
                        "final_rule_frac": s["final_rule_frac"], "stable": s["stable"], "grokked": s["grokked"]})
         pers = [q["persistence"] for q in qc if q["persistence"] is not None]
         ex["qc"][g] = {"C": rs[0]["C"], "Q": rs[0]["Q"], "lr": rs[0]["lr"], "n": len(rs),
-                       "median_delay": float(np.median([q["delay"] for q in qc])),
-                       "median_delay_lr_wd_normalized": float(np.median([q["delay_norm"] for q in qc])),
+                       "median_delay": cmedian([q["delay"] for q in qc]),
+                       "median_delay_lr_wd_normalized": cmedian([q["delay_norm"] for q in qc]),
                        "median_peak_mem": float(np.median([q["peak_mem"] for q in qc])),
                        "median_persistence": float(np.median(pers)) if pers else None,
                        "median_final_rule_frac": float(np.median([q["final_rule_frac"] for q in qc])),
@@ -428,7 +433,7 @@ def compact(runs: list[dict]) -> list[dict]:
 def fmt(x, nd=3):
     if x is None:
         return "—"
-    if isinstance(x, (float, np.floating)) and x >= 1e9:
+    if isinstance(x, (float, np.floating)) and (x >= 1e9 or np.isinf(x)):
         return "cens."
     return f"{x:.{nd}f}" if isinstance(x, (float, np.floating)) else str(x)
 

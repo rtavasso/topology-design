@@ -104,6 +104,11 @@ def test_h2_pairs_by_seed_and_uses_the_right_ablation():
     assert res["ci_both_below_0"] and res["H2a"]["n"] == 5
 
 
+def test_censored_median():
+    assert an.cmedian([100.0, 200.0, 1e9]) == 200.0 and an.cmedian([100.0, 1e9]) == float("inf")
+    assert an.fmt(float("inf")) == "cens."
+
+
 def test_mask():
     assert an.mask([2, 3]) == "0110" and an.mask([1]) == "1000"
 

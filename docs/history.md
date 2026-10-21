@@ -122,6 +122,32 @@ The graph set grew to eight: `pk0110` and `pk0121` were added as clean H2 contro
 - H2 fails: an added short reader does not reduce the long blocks' utility.
 - H3 fails: Study 1's composition cost was produced by the shared lr.
 
+## Entry 19 (21 Oct 2026): Study 4 results — roles co-locate; learning rate decides which path carries the function
+
+**Premise.** Study 4 ([RESULTS](../experiments/paths/RESULTS.md)) asked the three motivating questions on 248 runs.
+
+**Evidence:**
+- The preregistered verdicts were H1 supported, H2 not supported, H3 supported. An independent recomputation reproduced them.
+- H1 rests on one unstable, grid-edge graph (`pk0120`). Elsewhere, D is 0.02–0.05.
+- The H2 contrasts were structurally flawed: sibling additivity, and an lr confound.
+- H3 is mostly the learning-rate assignment: τ(C, delay) ≈ τ(C, 1/lr).
+- **Robust (exploratory):** in 6 of 7 mixed graphs, memorization and generalization occupy the same blocks in the same proportions (cosine 0.98–0.999, against a permutation null of 0.27–0.76). The generalizing function grows in the path that memorized.
+- No path ever cancels another's memorization.
+- At high learning rates, function migrates onto independent short readers (`pk0120`: share 0.49 → 0.87).
+
+**Argument.** In this setting, topology does not separate memorization from generalization. It decides which path carries both, and the learning rate moves that choice.
+
+**Decisions:**
+- The next confirmatory studies are:
+  - co-location at a shared stable lr, plus a deep-rule task;
+  - migration dose–response, with per-path stability tracked;
+  - friction at matched lr (`pk0120` vs `pk0121`).
+- Lesson for designs: single-edge contrasts must not change sibling structure, and must be compared at a shared lr as well as tuned lrs.
+
+**Expected falsifiers:**
+- Co-location fails at a shared lr, or on a deep-rule task.
+- Migration does not track per-path instability.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
