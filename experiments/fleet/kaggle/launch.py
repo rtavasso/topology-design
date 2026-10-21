@@ -31,8 +31,14 @@ INCLUDE = ["src", "tests/test_fleet.py", "experiments/fleet", "experiments/paths
            "pyproject.toml"]
 
 
+def kaggle_exe() -> str:
+    """The kaggle CLI next to this Python (e.g. .venv/bin/kaggle), else whatever is on PATH."""
+    here = os.path.join(os.path.dirname(sys.executable), "kaggle")
+    return here if os.path.exists(here) else (shutil.which("kaggle") or "kaggle")
+
+
 def kaggle(*args, check=True):
-    cmd = ["kaggle", *args]
+    cmd = [kaggle_exe(), *args]
     print("$", " ".join(cmd), flush=True)
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     print(p.stdout.strip()[-2000:], flush=True)
