@@ -151,6 +151,25 @@ def group_projection(Z: torch.Tensor, key: torch.Tensor, n_keys: int) -> torch.T
     return (sums / counts)[key]
 
 
+def probe_split(p: int, seed: int = 12345):
+    """Fixed random halves of the FULL grid for fitting/evaluating linear probes (independent of the train/test split;
+    probe targets such as s are never training labels, so using all p^3 points is legitimate and keeps the probe
+    well-powered: fitting on a half of the test split alone left ~110 points for 129 features at train_frac 0.9)."""
+    g = torch.Generator().manual_seed(seed)
+    perm = torch.randperm(p ** 3, generator=g)
+    return perm[: p ** 3 // 2], perm[p ** 3 // 2 :]
+
+
+def s_energy_frac(Hc: torch.Tensor, s: torch.Tensor, c: torch.Tensor, p: int) -> float:
+    """Share of the (centered) energy of Hc that depends on s = a+b jointly with c beyond c alone:
+    (||P_(s,c) H||^2 - ||P_c H||^2) / ||H||^2.  Exactly 0 for the embedding sum h_0 = E_a[a] + E_b[b] + E_c[c] on the
+    full grid (the group mean over a with a+b fixed is constant), so a positive value means the sum has been computed."""
+    tot = Hc.pow(2).sum().clamp_min(1e-12)
+    Psc = group_projection(Hc, s * p + c, p * p)
+    Pc = group_projection(Hc, c, p)
+    return ((Psc.pow(2).sum() - Pc.pow(2).sum()) / tot).item()
+
+
 def ridge_decode_acc(H: torch.Tensor, target: torch.Tensor, n_cls: int, tr: torch.Tensor, te: torch.Tensor, lam: float = 1e-3) -> float:
     """Held-out accuracy of a closed-form ridge one-vs-all linear readout of `target` from features H."""
     H = H.double()
@@ -190,9 +209,12 @@ def measure(model: RoutedMLP3, tr, te, task: str) -> dict:
         br.append({"rule_energy": Rj.pow(2).mean().item(), "inter_energy": Ij.pow(2).mean().item(),
                    "rem_energy": (Pj - Ij).pow(2).mean().item()})
     out["branches"] = br
-    # where is the intermediate s linearly available? (held-out ridge decoding on the test split)
-    half = te[: len(te) // 2], te[len(te) // 2 :]
+    # where is the intermediate s available? (linear probe on fixed halves of the full grid; and the share of each
+    # state's energy that depends on s beyond c alone, which is exactly 0 for the embedding sum)
+    half = probe_split(p)
     out["decode_s"] = [ridge_decode_acc(h, s, p, half[0], half[1]) for h in hs]
+    out["state_s_frac"] = [s_energy_frac(h.double() - h.double().mean(0), s, c, p) for h in hs]
+    out["logit_s_frac"] = s_energy_frac(Zc.double(), s, c, p)
     abl = []
     for i in range(model.L):
         al = model.alphas.clone()
@@ -234,6 +256,7 @@ def train_run(cfg: CompConfig, verbose: bool = False) -> dict:
         opt.step()
     summ = {**gk.summarize(traj, cfg), **gk.stability_summary(traj, diverged_at)}
     summ["final_decode_s"] = traj[-1]["decode_s"] if traj else None
+    summ["final_state_s_frac"] = traj[-1]["state_s_frac"] if traj else None
     summ["peak_inter_frac"] = max((r["inter_frac"] for r in traj), default=None)
     return {"config": asdict(cfg), "run_id": cfg.run_id, "n_params": sum(q.numel() for q in model.parameters()),
             "seconds": time.time() - t0, "trajectory": traj, "summary": summ}

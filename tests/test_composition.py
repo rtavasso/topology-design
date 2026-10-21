@@ -65,4 +65,30 @@ def test_smoke_training_and_summary_keys():
     assert rec["train_loss"] < res["trajectory"][0]["train_loss"]
     assert len(rec["decode_s"]) == 4 and len(rec["branches"]) == 4 and len(rec["ablate"]) == 3
     assert 0 <= rec["inter_frac"] <= 1 and rec["rule_frac"] <= rec["inter_frac"] + 1e-6
-    assert {"stable", "grok_delay", "final_decode_s", "peak_inter_frac"} <= set(res["summary"])
+    assert {"stable", "grok_delay", "final_decode_s", "final_state_s_frac", "peak_inter_frac"} <= set(res["summary"])
+    assert len(rec["state_s_frac"]) == 4 and abs(rec["state_s_frac"][0]) < 1e-6
+
+
+def test_s_energy_frac_zero_for_embedding_sum_and_one_for_planted_sum():
+    p = 7
+    a, b, c, s, y = cp.full_grid(p, "addmul")
+    g = torch.Generator().manual_seed(1)
+    Ea, Eb, Ec = (torch.randn(p, 16, generator=g) for _ in range(3))
+    h0 = Ea[a] + Eb[b] + Ec[c]
+    assert abs(cp.s_energy_frac(h0 - h0.mean(0), s, c, p)) < 1e-6  # the embedding sum has not computed a+b
+    hs = torch.randn(p, 16, generator=g)[s]  # a pure function of s
+    assert cp.s_energy_frac(hs - hs.mean(0), s, c, p) > 0.999
+    hy = torch.randn(p, 16, generator=g)[y]  # a function of the target (s*c) also depends on s jointly with c
+    assert cp.s_energy_frac(hy - hy.mean(0), s, c, p) > 0.5
+
+
+def test_probe_split_covers_grid_and_decodes_planted_sum_at_high_train_frac():
+    p = 13
+    a, b, c, s, y = cp.full_grid(p, "addmul")
+    f, e = cp.probe_split(p)
+    assert len(set(f.tolist()) | set(e.tolist())) == p ** 3 and not set(f.tolist()) & set(e.tolist())
+    w = 2 * torch.pi * torch.tensor([1.0, 4.0]) / p
+    H = torch.cat([torch.cos(s[:, None] * w), torch.sin(s[:, None] * w), 0.3 * torch.randn(len(s), 124)], 1)
+    # least-squares one-vs-all readout of a circular code amid 124 distractor dims: well above chance (1/13), not perfect
+    assert cp.ridge_decode_acc(0.01 * H, s, p, f, e) > 0.6
+    assert cp.ridge_decode_acc(torch.randn(len(s), 128), s, p, f, e) < 0.15

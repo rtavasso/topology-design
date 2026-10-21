@@ -1,0 +1,5 @@
+{"_note": "Study 3 calibration round 4: can stronger weight decay make the chain (pk012) stable on addmul at train_frac 0.9, and does the fixed s-probe / state_s_frac show where a+b is computed? Not evidence about arms.",
+ "base": {"task": "addmul", "p": 13, "d": 128, "hidden": 256, "train_frac": 0.9, "lr": 0.001, "steps": 50000, "eval_every": 100,
+          "stop_after_grok": 1000, "tag": "cal4"},
+ "tie_data_seed": true,
+ "vary": {"arm": ["pk012", "pk000"], "weight_decay": [1.0, 3.0, 10.0], "model_seed": [0, 1]}}
