@@ -13,15 +13,20 @@ import os
 import statistics
 from collections import defaultdict
 
-LRS = [0.0005, 0.001, 0.002, 0.004, 0.008]
+LRS = [0.00025, 0.0005, 0.001, 0.002, 0.004, 0.008, 0.016]
 STAGE1_SEEDS = list(range(500, 510))
 STAGE1_BASE = {"p": 59, "train_frac": 0.4, "d": 128, "hidden": 256, "weight_decay": 1.0, "steps": 40000,
-               "eval_every": 100, "stop_after_grok": 5000, "measure_paths": True, "tag": "paths1"}
+               "eval_every": 100, "stop_after_grok": 5000, "measure_paths": True, "dense_early": True, "tag": "paths1"}
 INF = float("inf")
 
 
 def choose(cells: dict[float, list[dict]]) -> dict:
-    """cells: lr -> list of run summaries (keys t_grok, stable, final_test_acc). Returns the choice and its tier."""
+    """cells: lr -> list of run summaries (keys t_grok, stable, post_fit_min, final_test_acc). Returns choice and tier.
+
+    1. stable tier: lrs where >= 2/3 seeds grok and >= 2/3 are stable -> smallest median grok step (ties: smaller lr);
+    2. unstable tier: lrs where >= 2/3 grok -> highest median post-fit minimum train accuracy (the continuous
+       stability endpoint), then smallest median grok step, then smaller lr;
+    3. no-grok tier: highest median final test accuracy (ties: smaller lr)."""
     def med_grok(runs):
         return statistics.median([r["t_grok"] if r["t_grok"] is not None else INF for r in runs])
 
@@ -36,12 +41,16 @@ def choose(cells: dict[float, list[dict]]) -> dict:
         tier, pool = "unstable-at-best", grok_ok
     else:
         tier, pool = "no-grok", None
-    if pool is not None:
-        lr = min(pool, key=lambda l: (med_grok(pool[l]), l))  # smallest median grok step; ties -> smaller lr
+    if tier == "stable":
+        lr = min(pool, key=lambda l: (med_grok(pool[l]), l))
+    elif tier == "unstable-at-best":
+        lr = min(pool, key=lambda l: (-statistics.median([r["post_fit_min"] for r in pool[l]]), med_grok(pool[l]), l))
     else:
         lr = min(cells, key=lambda l: (-statistics.median([r["final_test_acc"] for r in cells[l]]), l))
     table = {str(l): {"median_t_grok": med_grok(rs), "grok_frac": frac(rs, lambda r: r["t_grok"] is not None),
-                      "stable_frac": frac(rs, lambda r: r["stable"]), "n": len(rs)} for l, rs in sorted(cells.items())}
+                      "stable_frac": frac(rs, lambda r: r["stable"]),
+                      "median_post_fit_min": statistics.median([r["post_fit_min"] for r in rs]),
+                      "n": len(rs)} for l, rs in sorted(cells.items())}
     return {"lr": lr, "tier": tier, "grid_edge": lr in (min(LRS), max(LRS)), "table": table}
 
 
@@ -49,12 +58,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--expect", type=int, default=0, help="refuse to select unless this many run files exist")
     args = ap.parse_args()
+    files = glob.glob(os.path.join(args.runs, "*.json"))
+    errs = glob.glob(os.path.join(args.runs, "*.err"))
+    if errs or (args.expect and len(files) != args.expect):
+        raise SystemExit(f"Stage 0 incomplete: {len(files)} result files (expected {args.expect}), {len(errs)} errors. "
+                         "Re-run the sweep (it resumes) before selecting.")
     cells = defaultdict(lambda: defaultdict(list))
-    for f in glob.glob(os.path.join(args.runs, "*.json")):
+    for f in files:
         r = json.load(open(f))
         c, s = r["config"], r["summary"]
-        cells[c["arm"]][c["lr"]].append({"t_grok": s["t_grok"], "stable": s["stable"], "final_test_acc": s["final_test_acc"]})
+        cells[c["arm"]][c["lr"]].append({"t_grok": s["t_grok"], "stable": s["stable"], "final_test_acc": s["final_test_acc"],
+                                         "post_fit_min": s["post_fit_min_train_acc"]})
     sel = {arm: choose(dict(cl)) for arm, cl in sorted(cells.items())}
     os.makedirs(args.out, exist_ok=True)
     json.dump(sel, open(os.path.join(args.out, "selection.json"), "w"), indent=1)

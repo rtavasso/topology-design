@@ -28,7 +28,8 @@ import torch.nn.functional as F
 from . import grokking as gk
 
 STRUCT_FIELDS = ("p", "d", "hidden", "beta", "out_scale", "train_frac", "steps", "eval_every", "init_scale",
-                 "grok_thresh", "stop_after_grok", "measure_paths")
+                 "grok_thresh", "stop_after_grok", "measure_paths",
+                 "dense_early")
 
 
 def struct_key(cfg: gk.RunConfig) -> tuple:
@@ -153,7 +154,7 @@ def train_batch(cfgs: list[gk.RunConfig], device: str = "cpu", verbose: bool = F
                 diverged_at[j], done[j] = step, True  # same semantics as the unbatched trainer: stop recording
         # a diverged run contributes 0 to the loss, so its NaNs cannot reach the other runs' gradients
         torch.where(finite, per_run, torch.zeros_like(per_run)).sum().backward()
-        if step % c0.eval_every == 0:
+        if gk.is_eval_step(step, c0):
             with torch.no_grad():
                 pr = torch.softmax(logits.detach(), -1)
                 pr.scatter_add_(-1, Y[..., None], -torch.ones_like(Y[..., None], dtype=pr.dtype))

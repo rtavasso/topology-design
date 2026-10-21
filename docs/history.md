@@ -103,12 +103,19 @@ This is a condensed record. The full v0 reasoning, including every pivot in the 
 
 **Decisions:**
 - **Study 4** ([experiments/paths/PREREGISTRATION.md](../experiments/paths/PREREGISTRATION.md)) asks the three original questions on one shared run set: path roles, long-path learning under short-path friction, and memorization vs generalization.
-- It uses modular addition, which already works, and six graphs linked by single-edge rewirings.
+- It uses modular addition, which already works, and eight graphs linked by single-edge rewirings.
 - Each graph gets its own learning rate in its stable range. No stabilizers.
 - All measurements are exact decompositions of the output function (`grokking.path_measure`): per-path support for the rule on unseen inputs and for train labels through non-rule structure, with signs giving construct, interfere, memorize or destroy; composition dependence by re-evaluating a block on the raw embedding; and total effects of any block subset.
 - The composition study (Study 3) is paused. Round 5 is shelved. Studies 1–2 stand as context: Study 2's ceiling motivates the per-graph lr.
 
 **Rejected alternative:** stabilizing long chains with normalization or clipping. That changes the model class the questions are about.
+
+**Pre-run review (same day).** An independent review found blocking problems, all fixed before any run:
+- `gen` leaked memorization through the full-grid rule projection; the same leak affects Study 1's rule quantities, so their caveat is updated;
+- the H2 contrasts had the predicted answer built in;
+- the lr rule would have chosen the most unstable lr.
+
+The graph set grew to eight: `pk0110` and `pk0121` were added as clean H2 controls. H1 must now hold under both direct and total-effect (Shapley) attribution. Details are in the preregistration's *Pre-run revision*.
 
 **Expected falsifiers:**
 - H1 fails: depth does not sort rule vs memorization.

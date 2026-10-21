@@ -31,6 +31,13 @@
 
 ## Caveats that bound these claims
 
+- **The rule quantities leak memorization (found 21 Oct 2026 in the Study 4 design review).**
+  - `rule_projection` averages logits over *all* pairs sharing a sum, training pairs included. So fitted train labels partly count as "rule".
+  - A train-only lookup table gets substantial rule energy, and its rule part alone scores perfect test accuracy.
+  - Affected: rule fractions, `restricted_test_acc`, per-branch rule energy, and therefore the localization index and the reading "the sink hosted more rule than memorization".
+  - Grokking times, delays and accuracies are unaffected.
+  - Study 4 uses leak-free definitions (`grokking.support`, `rule_projection_test`) and re-tests the role split as its H1.
+
 - **LR optima are at the grid boundary.** Every arm chose lr = 3e-3, the largest value tried. This violates the SPEC rule that optima be interior. The tuned comparisons are "best within the grid", not best-vs-best. The same ordering holds at the shared lr 1e-3 (see the tables), but a higher-lr check (6e-3, 1e-2) is needed before calling any ranking robust to tuning.
 - **Escalation pending.** Contrasts whose CI excludes 0.5 must be rerun at 29 seeds before being claimed (protocol step 4). All results here are at **n = 10**.
 - **The A1 stability flag fired for every chain-containing arm, but it is mis-specified for chains.**

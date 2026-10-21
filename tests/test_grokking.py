@@ -135,15 +135,40 @@ def test_path_measure_is_an_exact_additive_decomposition():
         pm = gk.path_measure(model, tr, te)
         a, b, y = gk.full_grid(model.p)
         Zc = gk.centered(model(a, b))
-        R = gk.rule_projection(Zc, model.p)
-        M = Zc - R
-        assert abs(sum(pm["gen"]) - R[te, y[te]].mean().item()) < 1e-4
-        assert abs(sum(pm["gen"]) - pm["gen_total"]) < 1e-4 and abs(sum(pm["mem"]) - pm["mem_total"]) < 1e-4
-        assert abs(sum(pm["mem"]) - M[tr, y[tr]].mean().item()) < 1e-4
-        # Shapley energies sum to the total energy
+        g = Zc[te, y[te]].mean().item()
+        assert abs(sum(pm["gen"]) - g) < 1e-4 and abs(pm["gen_total"] - g) < 1e-4
+        assert abs(sum(pm["mem"]) - (Zc[tr, y[tr]].mean().item() - g)) < 1e-4
         assert abs(sum(pm["shap_rule"]) - pm["rule_energy_total"]) < 1e-4 * max(1.0, pm["rule_energy_total"])
         assert abs(sum(pm["shap_mem"]) - pm["mem_energy_total"]) < 1e-4 * max(1.0, pm["mem_energy_total"])
+        # total-effect Shapley sums to (full network) - (embedding path only)
+        assert abs(sum(pm["gen_tshap"]) - (pm["gen_total"] - pm["abl_sets"]["1111"]["gen"])) < 1e-4
+        assert abs(sum(pm["mem_tshap"]) - (pm["mem_total"] - pm["abl_sets"]["1111"]["mem"])) < 1e-4
         assert len(pm["gen"]) == model.L + 1 and pm["depth"] == gk.block_depths(model.parents)
+
+
+def test_support_does_not_credit_memorization_as_generalization():
+    p = 11
+    a, b, y = gk.full_grid(p)
+    tr, te = gk.split(p, 0.4, 0)
+    lookup = torch.zeros(p * p, p)
+    lookup[tr, y[tr]] = 5.0  # boosts train labels only
+    g, m = gk.support(gk.centered(lookup), tr, te, y)
+    assert abs(g) < 1e-5 and m > 1.0
+    rule = torch.nn.functional.one_hot(y, p).float() * 3.0  # a pure function of the rule
+    g, m = gk.support(gk.centered(rule), tr, te, y)
+    assert g > 1.0 and abs(m) < 1e-5
+    assert gk.rule_projection_test(gk.centered(lookup), p, te)[te].abs().max() < 1e-5 + 5.0 / p
+
+
+def test_subset_shapley_additive_game():
+    v = {"".join(str(m >> i & 1) for i in range(3)): float(sum((m >> i & 1) * (i + 1) for i in range(3))) for m in range(8)}
+    assert gk.subset_shapley(v, 3) == pytest.approx([1.0, 2.0, 3.0])
+
+
+def test_dense_early_eval_schedule():
+    cfg = gk.RunConfig(dense_early=True, eval_every=100)
+    steps = [s for s in range(1200) if gk.is_eval_step(s, cfg)]
+    assert steps[:3] == [0, 10, 20] and 200 in steps and 225 in steps and 1100 in steps and 1050 not in steps
 
 
 def test_composition_dependence_zero_for_root_readers_and_positive_in_chain():
@@ -172,5 +197,5 @@ def test_group_ablation_matches_manual_alpha_zeroing():
     al[[1, 2]] = 0.0
     lg = model(a, b, alphas=al)
     Zc = gk.centered(lg)
-    assert abs(pm["abl_sets"]["0110"]["gen"] - gk.rule_projection(Zc, model.p)[te, y[te]].mean().item()) < 1e-5
+    assert abs(pm["abl_sets"]["0110"]["gen"] - Zc[te, y[te]].mean().item()) < 1e-5
     assert "paths" in gk.measure(model, tr, te)

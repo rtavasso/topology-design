@@ -89,7 +89,8 @@ class RunConfig:
     init_scale: float = 1.0  # multiplies default init of every parameter
     stop_after_grok: int = 2000  # keep training this many steps after test acc >= grok_thresh (0 = never stop early)
     grok_thresh: float = 0.95
-    measure_paths: bool = True  # record path_measure at each eval (Study 4); off for lr-selection runs
+    measure_paths: bool = True  # record path_measure at each eval (Study 4)
+    dense_early: bool = False  # extra evals early: every 10 steps below 200, every 25 below 1000 (Study 4)
     tag: str = ""
     extra: dict = field(default_factory=dict)
 
@@ -217,41 +218,80 @@ def _label_logit(Z: torch.Tensor, idx: torch.Tensor, y: torch.Tensor) -> float:
     return Z[idx, y[idx]].mean().item()
 
 
+def rule_projection_test(Z: torch.Tensor, p: int, te: torch.Tensor) -> torch.Tensor:
+    """Rule projection estimated from TEST points only: each grid point gets the mean of Z over the test points that
+    share its sum (a+b) mod p. Unlike `rule_projection`, a lookup table that only fits train labels has no rule part."""
+    a, b, s = full_grid(p)
+    sums = torch.zeros(p, Z.shape[-1], dtype=Z.dtype).index_add_(0, s[te], Z[te])
+    cnt = torch.bincount(s[te], minlength=p).clamp_min(1).to(Z.dtype)[:, None]
+    return (sums / cnt)[s]
+
+
+def support(Z: torch.Tensor, tr: torch.Tensor, te: torch.Tensor, y: torch.Tensor) -> tuple[float, float]:
+    """(gen, mem) of centered logits Z: gen = mean test-label logit; mem = mean train-label logit minus gen.
+    Both are linear in Z, so they decompose exactly over any additive split of the logits. A pure function of the rule
+    has mem = 0; a lookup table boosting only train labels has gen = 0."""
+    g = Z[te, y[te]].mean().item()
+    return g, Z[tr, y[tr]].mean().item() - g
+
+
+def subset_shapley(value: dict, L: int) -> list[float]:
+    """Exact Shapley values of the L blocks for a coalition game given as value[mask of PRESENT blocks] (string over
+    blocks 1..L, '1' = present). Sums to value['11..1'] - value['00..0']."""
+    from math import factorial
+    phi = [0.0] * L
+    for m in range(2 ** L):
+        present = [i for i in range(L) if m >> i & 1]
+        key = "".join("1" if i in present else "0" for i in range(L))
+        for j in range(L):
+            if j in present:
+                continue
+            k = len(present)
+            w = factorial(k) * factorial(L - k - 1) / factorial(L)
+            key_j = "".join("1" if (i in present or i == j) else "0" for i in range(L))
+            phi[j] += w * (value[key_j] - value[key])
+    return phi
+
+
 @torch.no_grad()
 def path_measure(model: RoutedMLP, tr: torch.Tensor, te: torch.Tensor) -> dict:
     """Exact function-space accounting of what each path does (experiments/paths/PREREGISTRATION.md).
 
-    Components j = 0 (embedding path U h_0) and j = 1..L (block j's direct write). Their centered logits sum exactly to
-    the centered output logits, and the rule projection R (functions of (a+b) mod p) and remainder M = Z - R are linear,
-    so every quantity below is an exact additive decomposition over components:
-      gen[j]  = mean over TEST points of R_j[i, y_i]   support for the correct answer on unseen inputs via the rule
-      mem[j]  = mean over TRAIN points of M_j[i, y_i]  support for the train label via non-rule structure (memorization)
-      noise[j]= mean over TEST points of M_j[i, y_i]   non-rule support on unseen inputs (should be ~0 or negative)
-    Signs carry roles: gen > 0 constructs the rule, gen < 0 interferes with it; mem > 0 memorizes, mem < 0 cancels
-    memorization written elsewhere (destroys). Energy accounting uses the Shapley value of the quadratic energy game,
-    phi_j = <v_j, sum_k v_k> (sums exactly to the total energy; negative = cancels other components).
+    Components j = 0 (embedding path U h_0) and j = 1..L (block j's direct write) sum exactly to the logits. For each:
+      gen[j] = mean over TEST points of the component's centered logit for the true label  (support on unseen inputs)
+      mem[j] = mean over TRAIN points of the same, minus gen[j]                       (train-specific support)
+    Both are linear, hence exact additive decompositions (direct-effect attribution). gen > 0 constructs generalizing
+    function, gen < 0 interferes; mem > 0 memorizes, mem < 0 cancels memorization written elsewhere (destroys).
 
-    Composition dependence of block j (parent k_j >= 1): how much of its write depends on upstream computation, by
-    re-evaluating the same block on the raw embedding: w_j(h_k) - w_j(h_0). Zero by definition for root readers.
+    Total-effect attribution: every subset of blocks is ablated (alpha = 0); the exact Shapley value of each block in
+    the coalition games v(T) = gen / mem of the network with only the blocks in T present (gen_tshap, mem_tshap).
 
-    Group ablations remove all depth-1 ("short") or all depth>=2 ("long") blocks from the forward pass (total effect).
+    Energy accounting (Shapley of the quadratic energy game, phi_j = <v_j, sum_k v_k>): rule energy uses the rule
+    projection estimated from test points only; memorization energy is the train-point remainder.
+
+    Composition dependence of block j (parent k_j >= 1): its write re-evaluated on the raw embedding,
+    w_j(h_k) - w_j(h_0) (state-space share, and its gen/mem). Zero by definition for root readers. Caveat: h_0 is an
+    input the block never sees in training.
     """
     p, L = model.p, model.L
     a, b, y = full_grid(p)
     logits, parts, hs = model(a, b, return_parts=True, return_states=True)
     depth = block_depths(model.parents)
     Zs = [centered(parts[j]) for j in range(L + 1)]
-    Rs = [rule_projection(Z, p) for Z in Zs]
+    sup = [support(Z, tr, te, y) for Z in Zs]
+    Zt = sum(Zs)
+    Rs = [rule_projection_test(Z, p, te) for Z in Zs]
+    Rt = sum(Rs)
     Ms = [Z - R for Z, R in zip(Zs, Rs)]
-    Rt, Mt = sum(Rs), sum(Ms)
+    Mt = Zt - Rt
     n = p * p
+    g_tot, m_tot = support(Zt, tr, te, y)
     out = {
         "depth": depth,
-        "gen": [_label_logit(R, te, y) for R in Rs],
-        "mem": [_label_logit(M, tr, y) for M in Ms],
-        "noise": [_label_logit(M, te, y) for M in Ms],
-        "gen_total": _label_logit(Rt, te, y),
-        "mem_total": _label_logit(Mt, tr, y),
+        "gen": [g for g, _ in sup],
+        "mem": [m for _, m in sup],
+        "gen_total": g_tot,
+        "mem_total": m_tot,
         "shap_rule": [float((R * Rt).sum() / n) for R in Rs],
         "shap_mem": [float((M[tr] * Mt[tr]).sum() / len(tr)) for M in Ms],
         "own_rule": [float(R.pow(2).sum() / n) for R in Rs],
@@ -259,7 +299,6 @@ def path_measure(model: RoutedMLP, tr: torch.Tensor, te: torch.Tensor) -> dict:
         "rule_energy_total": float(Rt.pow(2).sum() / n),
         "mem_energy_total": float(Mt[tr].pow(2).sum() / len(tr)),
     }
-    # composition dependence (state space and function space)
     cd_state, cd_gen, cd_mem = [], [], []
     for i, k in enumerate(model.parents):
         if k == 0:
@@ -269,34 +308,35 @@ def path_measure(model: RoutedMLP, tr: torch.Tensor, te: torch.Tensor) -> dict:
         w_0 = model.alphas[i] * model.block(i, hs[0])
         dw = w_k - w_0
         cd_state.append(float(dw.pow(2).sum() / w_k.pow(2).sum().clamp_min(1e-12)))
-        Zd = centered(model.out_scale * model.beta ** (L - 1 - i) * model.unembed(dw))
-        Rd = rule_projection(Zd, p)
-        cd_gen.append(_label_logit(Rd, te, y))
-        cd_mem.append(_label_logit(Zd - Rd, tr, y))
+        g, m = support(centered(model.out_scale * model.beta ** (L - 1 - i) * model.unembed(dw)), tr, te, y)
+        cd_gen.append(g), cd_mem.append(m)
     out["comp_dep_state"], out["comp_dep_gen"], out["comp_dep_mem"] = cd_state, cd_gen, cd_mem
-    # total-effect ablations in function space: single blocks, and the short (depth-1) / long (depth>=2) groups
-    def ablated(sel):
-        al = model.alphas.clone()
-        al[sel] = 0.0
-        lg = model(a, b, alphas=al)
-        Zc = centered(lg)
-        R = rule_projection(Zc, p)
-        return {"train_acc": acc(lg[tr], y[tr]), "test_acc": acc(lg[te], y[te]),
-                "gen": _label_logit(R, te, y), "mem": _label_logit(Zc - R, tr, y)}
-
-    # every non-empty subset of blocks, keyed by a mask string over blocks 1..L (e.g. "0110" = blocks 2 and 3 removed)
-    sets = {}
-    for mask in range(1, 2 ** L):
-        sel = [i for i in range(L) if mask >> i & 1]
-        sets["".join("1" if i in sel else "0" for i in range(L))] = ablated(sel)
-    out["abl_sets"] = sets
 
     def key(sel):
         return "".join("1" if i in sel else "0" for i in range(L))
 
+    def ablated(sel):
+        al = model.alphas.clone()
+        al[sel] = 0.0
+        lg = model(a, b, alphas=al)
+        g, m = support(centered(lg), tr, te, y)
+        return {"train_acc": acc(lg[tr], y[tr]), "test_acc": acc(lg[te], y[te]), "gen": g, "mem": m}
+
+    # every non-empty subset of blocks REMOVED, keyed by a mask over blocks 1..L (e.g. "0110" = blocks 2, 3 removed)
+    sets = {key([i for i in range(L) if mask >> i & 1]): ablated([i for i in range(L) if mask >> i & 1])
+            for mask in range(1, 2 ** L)}
+    out["abl_sets"] = sets
     out["abl_block"] = [sets[key([i])] for i in range(L)]
     for name, sel in (("short", [i for i in range(L) if depth[i] == 1]), ("long", [i for i in range(L) if depth[i] >= 2])):
         out[f"abl_{name}"] = sets[key(sel)] if sel else None
+    # total-effect Shapley: v(present T) = metric with the complement removed
+    flip = lambda present_key: "".join("0" if c == "1" else "1" for c in present_key)
+    for metric in ("gen", "mem"):
+        v = {}
+        for mask in range(2 ** L):
+            pk = key([i for i in range(L) if mask >> i & 1])
+            v[pk] = (g_tot if metric == "gen" else m_tot) if pk == "1" * L else sets[flip(pk)][metric]
+        out[f"{metric}_tshap"] = subset_shapley(v, L)
     return out
 
 
@@ -370,6 +410,12 @@ def grad_stats(model: RoutedMLP, loss: torch.Tensor, logits: torch.Tensor, y: to
 # ---------------------------------------------------------------------------
 
 
+def is_eval_step(step: int, cfg: RunConfig) -> bool:
+    if cfg.dense_early and step < 1000:
+        return step % (10 if step < 200 else 25) == 0
+    return step % cfg.eval_every == 0
+
+
 def train_run(cfg: RunConfig, verbose: bool = False) -> dict:
     torch.set_num_threads(1)
     model = build_model(cfg)
@@ -389,7 +435,7 @@ def train_run(cfg: RunConfig, verbose: bool = False) -> dict:
             diverged_at = step
             break
         loss.backward()
-        if step % cfg.eval_every == 0:
+        if is_eval_step(step, cfg):
             rec = {"step": step, **measure(model, tr, te, cfg.measure_paths), **grad_stats(model, loss, logits.detach(), ytr)}
             traj.append(rec)
             if verbose:

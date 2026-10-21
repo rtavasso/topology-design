@@ -1,7 +1,7 @@
 """Score Study 4 (what each path does) against experiments/paths/PREREGISTRATION.md.
 
 Usage:
-  PYTHONPATH=src python experiments/paths/analyze.py --runs results/paths/stage1 \
+  PYTHONPATH=src python experiments/paths/analyze.py --runs results/paths/stage1 --stage0 results/paths/stage0 \
       --selection results/paths/selection.json --out results/paths/report
 
 Writes <out>/summary.md, <out>/compact.json (per-run time-point snapshots + thinned trajectories, small enough to
@@ -21,16 +21,19 @@ import numpy as np
 
 from topology_design import grokking as gk
 
-MIXED = ["pk0100", "pk0111", "pk0120", "pk0122", "pk0123"]
-ALL = ["pk0000"] + MIXED
-H2_CONTRASTS = {"H2a": ("pk0120", "pk0123", [2, 3]), "H2b": ("pk0100", "pk0120", [2])}  # (A: extra short reader, B, blocks)
-BUDGET = 40000
+ALL = ["pk0000", "pk0100", "pk0110", "pk0111", "pk0120", "pk0121", "pk0122", "pk0123"]
+MIXED = ALL[1:]
+# (A: has the extra short reader, B: same graph with that block reading h_1 instead, S: blocks whose utility is compared)
+# In both A and B the rewired block does NOT read S, so removing S leaves its input unchanged in both.
+H2_CONTRASTS = {"H2a": ("pk0120", "pk0121", [2, 3]), "H2b": ("pk0100", "pk0110", [2])}
+N_END = 5  # t_end = mean over the last N_END evals
 N_BOOT, N_PERM = 10000, 10000
+CLIP = (-1.0, 2.0)  # share clipping for H1
 RNG = np.random.default_rng(20261021)
 
 
 # ---------------------------------------------------------------------------
-# loading and time points
+# loading, time points, end averages
 # ---------------------------------------------------------------------------
 
 
@@ -40,27 +43,39 @@ def load(runs_dir: str) -> list[dict]:
         r = json.load(open(f))
         c = r["config"]
         parents, _ = gk.arm_spec(c["arm"])
-        runs.append({"arm": c["arm"], "seed": c["model_seed"], "lr": c["lr"], "depth": gk.block_depths(parents),
-                     "C": gk.longest_chain(parents), "Q": gk.root_readers(parents),
+        runs.append({"arm": c["arm"], "seed": c["model_seed"], "lr": c["lr"], "wd": c["weight_decay"],
+                     "depth": gk.block_depths(parents), "C": gk.longest_chain(parents), "Q": gk.root_readers(parents),
                      "traj": r["trajectory"], "summary": r["summary"]})
     return runs
 
 
 def timepoints(traj: list[dict]) -> dict[str, int | None]:
-    """Indices into traj: t_fit, t_mem (first peak of excluded-train accuracy), t_grok, t_end."""
+    """Indices into traj: t_fit, t_mem (peak of total train-specific support mem_total), t_grok, t_end (last eval)."""
     def first(pred):
         return next((i for i, r in enumerate(traj) if pred(r)), None)
 
-    peak = max(r["excluded_train_acc"] for r in traj)
-    return {"t_fit": first(lambda r: r["train_acc"] >= 0.99),
-            "t_mem": first(lambda r: r["excluded_train_acc"] >= peak),
-            "t_grok": first(lambda r: r["test_acc"] >= 0.95),
-            "t_end": len(traj) - 1}
+    mems = [r["paths"]["mem_total"] for r in traj] if "paths" in traj[0] else [r["excluded_train_acc"] for r in traj]
+    return {"t_fit": first(lambda r: r["train_acc"] >= 0.99), "t_mem": int(np.argmax(mems)),
+            "t_grok": first(lambda r: r["test_acc"] >= 0.95), "t_end": len(traj) - 1}
+
+
+def endavg(run: dict, f) -> float | None:
+    vals = [f(r) for r in run["traj"][-N_END:]]
+    vals = [v for v in vals if v is not None]
+    return float(np.mean(vals)) if vals else None
+
+
+def endavg_vec(run: dict, key: str) -> list[float]:
+    return np.mean([r["paths"][key] for r in run["traj"][-N_END:]], 0).tolist()
 
 
 def mask(blocks: list[int], L: int = 4) -> str:
-    """Blocks numbered 1..L -> abl_sets key."""
+    """Blocks numbered 1..L -> abl_sets key (blocks removed)."""
     return "".join("1" if (i + 1) in blocks else "0" for i in range(L))
+
+
+def grokked(run: dict) -> bool:
+    return run["summary"]["t_grok"] is not None
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +92,10 @@ def bootstrap_mean(v, n=N_BOOT):
             "n": int(len(v)), "boot": boot}
 
 
+def strip(bm: dict) -> dict:
+    return {k: v for k, v in bm.items() if k != "boot"}
+
+
 def p_one_sided(boot, direction: str) -> float | None:
     if len(boot) == 0:
         return None
@@ -86,14 +105,12 @@ def p_one_sided(boot, direction: str) -> float | None:
 
 def kendall_tau_b(x, y) -> float:
     x, y = np.asarray(x, float), np.asarray(y, float)
-    dx = np.sign(x[:, None] - x[None, :])
-    dy = np.sign(y[:, None] - y[None, :])
     iu = np.triu_indices(len(x), 1)
-    dx, dy = dx[iu], dy[iu]
-    s = (dx * dy).sum()
+    dx = np.sign(x[:, None] - x[None, :])[iu]
+    dy = np.sign(y[:, None] - y[None, :])[iu]
     n0 = len(dx)
     denom = math.sqrt((n0 - (dx == 0).sum()) * (n0 - (dy == 0).sum()))
-    return float(s / denom) if denom > 0 else 0.0
+    return float((dx * dy).sum() / denom) if denom > 0 else 0.0
 
 
 def holm(pvals: dict[str, float | None]) -> dict[str, float | None]:
@@ -106,77 +123,76 @@ def holm(pvals: dict[str, float | None]) -> dict[str, float | None]:
 
 
 # ---------------------------------------------------------------------------
-# hypotheses
+# H1: roles split by depth, under direct and total-effect attribution
 # ---------------------------------------------------------------------------
 
 
-def h1_D(run: dict) -> float | None:
-    """Short-path share of block gen at t_end minus short-path share of block mem at t_mem (None if undefined)."""
+def shares(run: dict, attribution: str) -> tuple[float | None, float | None, float, float]:
+    """(short share of block gen at t_end [mean of last evals], short share of block mem at t_mem, denominators)."""
     tp = timepoints(run["traj"])
-    short = [j for j, d in enumerate(run["depth"], start=1) if d == 1]  # component index = block number
-    pe, pm = run["traj"][tp["t_end"]]["paths"], run["traj"][tp["t_mem"]]["paths"]
-    gen_blocks, mem_blocks = sum(pe["gen"][1:]), sum(pm["mem"][1:])
-    run["_h1_den"] = (gen_blocks, mem_blocks)
-    if gen_blocks == 0 or mem_blocks == 0:
-        return None
-    return sum(pe["gen"][j] for j in short) / gen_blocks - sum(pm["mem"][j] for j in short) / mem_blocks
+    short = [j for j, d in enumerate(run["depth"], start=1) if d == 1]  # block numbers
+    if attribution == "direct":
+        gen = endavg_vec(run, "gen")[1:]  # drop the embedding component -> index 0 = block 1
+        mem = run["traj"][tp["t_mem"]]["paths"]["mem"][1:]
+    else:
+        gen = endavg_vec(run, "gen_tshap")
+        mem = run["traj"][tp["t_mem"]]["paths"]["mem_tshap"]
+    gden, mden = sum(gen), sum(mem)
+    clip = lambda x: float(np.clip(x, *CLIP))
+    gs = clip(sum(gen[j - 1] for j in short) / gden) if gden != 0 else None
+    ms = clip(sum(mem[j - 1] for j in short) / mden) if mden != 0 else None
+    return gs, ms, gden, mden
 
 
-def h1(runs: list[dict], graphs: list[str]) -> dict:
-    per_graph, excluded = defaultdict(dict), defaultdict(int)
+def h1(runs: list[dict], graphs: list[str], attribution: str) -> dict:
+    per_graph, excluded, not_grokked = defaultdict(dict), defaultdict(int), defaultdict(int)
     for g in graphs:
         rs = [r for r in runs if r["arm"] == g]
-        vals = {r["seed"]: h1_D(r) for r in rs}
-        med_g = np.median([abs(r["_h1_den"][0]) for r in rs]) if rs else 0.0
-        med_m = np.median([abs(r["_h1_den"][1]) for r in rs]) if rs else 0.0
-        for r in rs:
-            gden, mden = r["_h1_den"]
-            if vals[r["seed"]] is None or abs(gden) < 0.05 * med_g or abs(mden) < 0.05 * med_m:
+        not_grokked[g] = sum(not grokked(r) for r in rs)
+        rs = [r for r in rs if grokked(r)]
+        if not rs:
+            continue
+        sh = {r["seed"]: shares(r, attribution) for r in rs}
+        med_g = np.median([abs(v[2]) for v in sh.values()])
+        med_m = np.median([abs(v[3]) for v in sh.values()])
+        for seed, (gs, ms, gden, mden) in sh.items():
+            if gs is None or ms is None or abs(gden) < 0.05 * med_g or abs(mden) < 0.05 * med_m:
                 excluded[g] += 1
                 continue
-            per_graph[g][r["seed"]] = vals[r["seed"]]
+            per_graph[g][seed] = gs - ms
     seeds = sorted({s for g in per_graph for s in per_graph[g]})
     per_seed = [np.mean([per_graph[g][s] for g in graphs if s in per_graph[g]]) for s in seeds]
     bm = bootstrap_mean(per_seed)
-    return {"pooled": {k: v for k, v in bm.items() if k != "boot"}, "p": p_one_sided(bm["boot"], ">"),
-            "per_graph": {g: {k: v for k, v in bootstrap_mean(list(per_graph[g].values())).items() if k != "boot"}
-                          for g in graphs},
-            "excluded": dict(excluded)}
+    return {"pooled": strip(bm), "p": p_one_sided(bm["boot"], ">"),
+            "per_graph": {g: strip(bootstrap_mean(list(per_graph[g].values()))) for g in graphs},
+            "excluded": dict(excluded), "not_grokked": dict(not_grokked)}
 
 
-def utility(run: dict, blocks: list[int], when: str = "t_end") -> float | None:
-    tp = timepoints(run["traj"])
-    idx = tp[when]
-    if idx is None:
-        return None
-    pa = run["traj"][idx]["paths"]
+def h1_both(runs, graphs):
+    d, t = h1(runs, graphs, "direct"), h1(runs, graphs, "total")
+    ok = all(x["pooled"]["lo"] is not None and x["pooled"]["lo"] > 0 for x in (d, t))
+    ps = [d["p"], t["p"]]
+    return {"direct": d, "total": t, "p": max(ps) if None not in ps else None, "ci_both_above_0": ok}
+
+
+# ---------------------------------------------------------------------------
+# H2: friction
+# ---------------------------------------------------------------------------
+
+
+def utility_at(rec: dict, blocks: list[int]) -> float | None:
+    pa = rec["paths"]
     g = pa["gen_total"]
     if g <= 0:
         return None
     return 1.0 - pa["abl_sets"][mask(blocks)]["gen"] / g
 
 
-def h2(runs: list[dict]) -> dict:
-    out = {}
-    by = {(r["arm"], r["seed"]): r for r in runs}
-    for name, (A, B, blocks) in H2_CONTRASTS.items():
-        seeds = sorted({s for (a, s) in by if a == A} & {s for (a, s) in by if a == B})
-        diffs, dropped = [], 0
-        for s in seeds:
-            ua, ub = utility(by[(A, s)], blocks), utility(by[(B, s)], blocks)
-            if ua is None or ub is None:
-                dropped += 1
-                continue
-            diffs.append(ua - ub)
-        bm = bootstrap_mean(diffs)
-        out[name] = {"A": A, "B": B, "blocks": blocks, **{k: v for k, v in bm.items() if k != "boot"},
-                     "p": p_one_sided(bm["boot"], "<"), "dropped": dropped,
-                     "U_A": nanmean([utility(by[(A, s)], blocks) for s in seeds]),
-                     "U_B": nanmean([utility(by[(B, s)], blocks) for s in seeds])}
-    ps = [out[k]["p"] for k in out]
-    out["p"] = max(ps) if all(p is not None for p in ps) else None  # intersection-union: both must hold
-    out["supported"] = all(out[k]["hi"] is not None and out[k]["hi"] < 0 for k in H2_CONTRASTS)
-    return out
+def utility(run: dict, blocks: list[int], when: str = "t_end") -> float | None:
+    if when == "t_end":
+        return endavg(run, lambda r: utility_at(r, blocks))
+    idx = timepoints(run["traj"])[when]
+    return None if idx is None else utility_at(run["traj"][idx], blocks)
 
 
 def nanmean(v) -> float | None:
@@ -184,29 +200,71 @@ def nanmean(v) -> float | None:
     return float(np.mean(v)) if v else None
 
 
-def delay(run: dict) -> float:
+def h2(runs: list[dict], contrasts=H2_CONTRASTS) -> dict:
+    out = {}
+    by = {(r["arm"], r["seed"]): r for r in runs}
+    for name, (A, B, blocks) in contrasts.items():
+        seeds = sorted({s for (a, s) in by if a == A} & {s for (a, s) in by if a == B})
+        diffs, not_grok, undefined = [], 0, 0
+        for s in seeds:
+            ra, rb = by[(A, s)], by[(B, s)]
+            if not (grokked(ra) and grokked(rb)):
+                not_grok += 1
+                continue
+            ua, ub = utility(ra, blocks), utility(rb, blocks)
+            if ua is None or ub is None:
+                undefined += 1
+                continue
+            diffs.append(ua - ub)
+        bm = bootstrap_mean(diffs)
+        used = [s for s in seeds if grokked(by[(A, s)]) and grokked(by[(B, s)])]
+        out[name] = {"A": A, "B": B, "blocks": blocks, **strip(bm), "p": p_one_sided(bm["boot"], "<"),
+                     "pairs_not_both_grokked": not_grok, "pairs_undefined": undefined,
+                     "U_A": nanmean([utility(by[(A, s)], blocks) for s in used]),
+                     "U_B": nanmean([utility(by[(B, s)], blocks) for s in used])}
+    ps = [out[k]["p"] for k in contrasts]
+    out["p"] = max(ps) if all(p is not None for p in ps) else None  # intersection-union: both must hold
+    out["ci_both_below_0"] = all(out[k]["hi"] is not None and out[k]["hi"] < 0 for k in contrasts)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# H3: composition delays generalization
+# ---------------------------------------------------------------------------
+
+
+def delay(run: dict, normalized: bool = False) -> float:
     s = run["summary"]
     if s["t_fit"] is None or s["t_grok"] is None:
         return 1e9  # censored: ties at the top
-    return float(s["t_grok"] - s["t_fit"])
+    d = float(s["t_grok"] - s["t_fit"])
+    return d * run["lr"] * run["wd"] if normalized else d
 
 
-def h3(runs: list[dict], graphs: list[str]) -> dict:
+def h3(runs: list[dict], graphs: list[str], normalized: bool = False, n_perm=N_PERM) -> dict | None:
     rs = [r for r in runs if r["arm"] in graphs]
+    if len({r["C"] for r in rs}) < 2:
+        return None
     C = np.array([r["C"] for r in rs], float)
-    D = np.array([delay(r) for r in rs], float)
-    tau = kendall_tau_b(C, D)
+    D = np.array([delay(r, normalized) for r in rs], float)
     seeds = np.array([r["seed"] for r in rs])
+    tau = kendall_tau_b(C, D)
     groups = [np.where(seeds == s)[0] for s in np.unique(seeds)]
     count = 0
-    for _ in range(N_PERM):
+    for _ in range(n_perm):
         Cp = C.copy()
         for g in groups:
             Cp[g] = C[g][RNG.permutation(len(g))]
         count += kendall_tau_b(Cp, D) >= tau
-    med = {g: float(np.median([delay(r) for r in rs if r["arm"] == g])) for g in graphs if any(r["arm"] == g for r in rs)}
-    return {"tau": tau, "p": (count + 1) / (N_PERM + 1), "n": len(rs),
-            "censored": int((D >= 1e9).sum()), "median_delay": med}
+    boots = []
+    for _ in range(1000):  # bootstrap over seeds (each seed keeps all its graphs)
+        pick = RNG.integers(0, len(groups), len(groups))
+        idx = np.concatenate([groups[i] for i in pick])
+        boots.append(kendall_tau_b(C[idx], D[idx]))
+    med = {g: float(np.median([delay(r, normalized) for r in rs if r["arm"] == g])) for g in graphs
+           if any(r["arm"] == g for r in rs)}
+    return {"tau": tau, "p": (count + 1) / (n_perm + 1), "lo": float(np.quantile(boots, 0.025)),
+            "hi": float(np.quantile(boots, 0.975)), "n": len(rs), "censored": int((D >= 1e9).sum()), "median_delay": med}
 
 
 # ---------------------------------------------------------------------------
@@ -214,22 +272,22 @@ def h3(runs: list[dict], graphs: list[str]) -> dict:
 # ---------------------------------------------------------------------------
 
 
+SNAP_KEYS = ("gen", "mem", "gen_total", "mem_total", "gen_tshap", "mem_tshap", "shap_rule", "shap_mem", "own_rule",
+             "own_mem", "comp_dep_state", "comp_dep_gen", "comp_dep_mem", "abl_short", "abl_long", "abl_sets")
+
+
 def snapshot(run: dict, idx: int | None) -> dict | None:
     if idx is None:
         return None
     r = run["traj"][idx]
-    pa = r["paths"]
     return {"step": r["step"], "train_acc": r["train_acc"], "test_acc": r["test_acc"], "train_loss": r["train_loss"],
             "rule_frac": r["rule_frac"], "excluded_train_acc": r["excluded_train_acc"],
             "grad_norms": r.get("grad_norms"), "residual_norm": r.get("residual_norm"),
-            **{k: pa[k] for k in ("gen", "mem", "noise", "gen_total", "mem_total", "shap_rule", "shap_mem", "own_rule",
-                                  "own_mem", "comp_dep_state", "comp_dep_gen", "comp_dep_mem", "abl_short", "abl_long",
-                                  "abl_sets")}}
+            **{k: r["paths"][k] for k in SNAP_KEYS}}
 
 
 def exploratory(runs: list[dict]) -> dict:
-    ex = {"role_map": {}, "destruction": {}, "effective_depth": {}, "post_fit_long": {}, "grad_at_loss": {},
-          "qc": {}, "preservation": {}}
+    ex = defaultdict(dict)
     for g in ALL:
         rs = [r for r in runs if r["arm"] == g]
         if not rs:
@@ -237,58 +295,56 @@ def exploratory(runs: list[dict]) -> dict:
         depth = rs[0]["depth"]
         long_b = [j for j, d in enumerate(depth, start=1) if d >= 2]
         short_b = [j for j, d in enumerate(depth, start=1) if d == 1]
-        # E1 role map
+        # E1 role map (direct components emb, b1..b4; total-effect blocks b1..b4)
         rm = {}
         for tpn in ("t_fit", "t_mem", "t_grok", "t_end"):
             snaps = [snapshot(r, timepoints(r["traj"])[tpn]) for r in rs]
             snaps = [s for s in snaps if s is not None]
             if snaps:
-                rm[tpn] = {k: np.mean([s[k] for s in snaps], 0).round(4).tolist() for k in ("gen", "mem", "noise")}
+                rm[tpn] = {k: np.mean([s[k] for s in snaps], 0).round(3).tolist()
+                           for k in ("gen", "mem", "gen_tshap", "mem_tshap")}
                 rm[tpn]["n"] = len(snaps)
         ex["role_map"][g] = rm
-        # E2 destruction
+        # E2 destruction: components with mem < -0.1 * peak |mem_total|
         dest, canc = [], defaultdict(list)
         for r in rs:
             tp = timepoints(r["traj"])
+            peak = max(abs(x["paths"]["mem_total"]) for x in r["traj"])
             for tpn in ("t_mem", "t_grok", "t_end"):
                 if tp[tpn] is not None:
                     pa = r["traj"][tp[tpn]]["paths"]
-                    if abs(pa["mem_total"]) > 1e-6:
-                        canc[tpn].append(sum(abs(m) for m in pa["mem"]) / abs(pa["mem_total"]))
-            pa = r["traj"][tp["t_end"]]["paths"]
-            neg = [j for j, m in enumerate(pa["mem"]) if m < -0.1 * abs(pa["mem_total"])]
-            dest.append(neg)
+                    canc[tpn].append(sum(abs(m) for m in pa["mem"]) / max(abs(pa["mem_total"]), 1e-3 * peak, 1e-9))
+            mem_end = endavg_vec(r, "mem")
+            dest.append([j for j, m in enumerate(mem_end) if m < -0.1 * peak])
         ex["destruction"][g] = {"frac_runs_with_destroyer_at_end": float(np.mean([len(d) > 0 for d in dest])),
                                 "destroyer_components_at_end": dest,
                                 "cancellation_ratio_median": {k: float(np.median(v)) for k, v in canc.items()}}
         # E3 effective depth
         if long_b:
-            ed = []
-            for r in rs:
-                pa = r["traj"][timepoints(r["traj"])["t_end"]]["paths"]
-                ed.append({"comp_dep_state": [pa["comp_dep_state"][j - 1] for j in long_b],
-                           "composed_share_of_gen": [pa["comp_dep_gen"][j - 1] / pa["gen"][j] if abs(pa["gen"][j]) > 1e-6
-                                                     else None for j in long_b]})
+            cds = [endavg_vec(r, "comp_dep_state") for r in rs]
             ex["effective_depth"][g] = {"long_blocks": long_b,
-                                        "comp_dep_state_mean": np.mean([e["comp_dep_state"] for e in ed], 0).round(3).tolist(),
-                                        "per_run": ed}
+                                        "comp_dep_state_mean": [round(float(np.mean([c[j - 1] for c in cds])), 3)
+                                                                for j in long_b]}
         # E4 post-fit long-path learning
         if long_b:
             rows = []
             for r in rs:
-                tp = timepoints(r["traj"])
                 row = {}
-                for tpn in ("t_fit", "t_grok", "t_end"):
-                    if tp[tpn] is None:
-                        continue
-                    pa = r["traj"][tp[tpn]]["paths"]
-                    gb = sum(pa["gen"][1:])
-                    row[f"long_gen_share@{tpn}"] = sum(pa["gen"][j] for j in long_b) / gb if abs(gb) > 1e-6 else None
+                for tpn in ("t_fit", "t_mem", "t_grok", "t_end"):
+                    if tpn == "t_end":
+                        gen = endavg_vec(r, "gen")
+                    else:
+                        idx = timepoints(r["traj"])[tpn]
+                        if idx is None:
+                            continue
+                        gen = r["traj"][idx]["paths"]["gen"]
+                    gb = sum(gen[1:])
+                    row[f"long_gen_share@{tpn}"] = sum(gen[j] for j in long_b) / gb if abs(gb) > 1e-6 else None
                     row[f"U_long@{tpn}"] = utility(r, long_b, tpn)
                 rows.append(row)
             keys = sorted({k for row in rows for k in row})
-            ex["post_fit_long"][g] = {k: float(np.nanmedian([row.get(k) if row.get(k) is not None else np.nan
-                                                             for row in rows])) for k in keys}
+            ex["post_fit_long"][g] = {k: float(np.nanmedian([row[k] if row.get(k) is not None else np.nan for row in rows]))
+                                      for k in keys}
         # E5 gradient allocation at matched train loss
         gal = {}
         for thr in (1.0, 0.1, 0.01):
@@ -301,35 +357,49 @@ def exploratory(runs: list[dict]) -> dict:
                 sh.append(np.mean([gn[f"block{j}"] for j in short_b]))
                 if long_b:
                     lo.append(np.mean([gn[f"block{j}"] for j in long_b]))
-            gal[str(thr)] = {"short_mean_grad": float(np.median(sh)) if sh else None,
-                             "long_mean_grad": float(np.median(lo)) if lo else None, "n": len(sh)}
+            gal[str(thr)] = {"short": float(np.median(sh)) if sh else None, "long": float(np.median(lo)) if lo else None,
+                             "n": len(sh)}
         ex["grad_at_loss"][g] = gal
         # E6 Q-C descriptors
         qc = []
         for r in rs:
             tp = timepoints(r["traj"])
             s = r["summary"]
-            qc.append({"delay": delay(r), "peak_excl": s["peak_excluded_train_acc"],
+            qc.append({"delay": delay(r), "delay_norm": delay(r, True),
+                       "peak_mem": r["traj"][tp["t_mem"]]["paths"]["mem_total"],
                        "persistence": (r["traj"][tp["t_grok"]]["step"] - r["traj"][tp["t_mem"]]["step"])
                        if tp["t_grok"] is not None else None,
                        "final_rule_frac": s["final_rule_frac"], "stable": s["stable"], "grokked": s["grokked"]})
+        pers = [q["persistence"] for q in qc if q["persistence"] is not None]
         ex["qc"][g] = {"C": rs[0]["C"], "Q": rs[0]["Q"], "lr": rs[0]["lr"], "n": len(rs),
                        "median_delay": float(np.median([q["delay"] for q in qc])),
-                       "median_peak_excl": float(np.median([q["peak_excl"] for q in qc])),
-                       "median_persistence": float(np.median([q["persistence"] for q in qc if q["persistence"] is not None]))
-                       if any(q["persistence"] is not None for q in qc) else None,
+                       "median_delay_lr_wd_normalized": float(np.median([q["delay_norm"] for q in qc])),
+                       "median_peak_mem": float(np.median([q["peak_mem"] for q in qc])),
+                       "median_persistence": float(np.median(pers)) if pers else None,
                        "median_final_rule_frac": float(np.median([q["final_rule_frac"] for q in qc])),
                        "stable_frac": float(np.mean([q["stable"] for q in qc])),
                        "grok_frac": float(np.mean([q["grokked"] for q in qc]))}
-        # E3b preservation: embedding path's own vs Shapley rule/mem energy at t_end
-        pres = []
-        for r in rs:
-            pa = r["traj"][timepoints(r["traj"])["t_end"]]["paths"]
-            pres.append({"gen0": pa["gen"][0], "mem0": pa["mem"][0],
-                         "rule_cancelled": pa["own_rule"][0] - pa["shap_rule"][0],
-                         "mem_cancelled": pa["own_mem"][0] - pa["shap_mem"][0]})
+        # E7 preservation: embedding path
+        pres = [{"gen0": endavg(r, lambda x: x["paths"]["gen"][0]), "mem0": endavg(r, lambda x: x["paths"]["mem"][0]),
+                 "rule_cancelled": endavg(r, lambda x: x["paths"]["own_rule"][0] - x["paths"]["shap_rule"][0]),
+                 "mem_cancelled": endavg(r, lambda x: x["paths"]["own_mem"][0] - x["paths"]["shap_mem"][0])} for r in rs]
         ex["preservation"][g] = {k: float(np.median([p[k] for p in pres])) for k in pres[0]}
-    return ex
+    return dict(ex)
+
+
+def shared_lr(stage0: list[dict]) -> dict:
+    """Exploratory: H2 contrasts and H3 at each shared lr of Stage 0 (3 seeds)."""
+    out = {}
+    for lr in sorted({r["lr"] for r in stage0}):
+        rs = [r for r in stage0 if r["lr"] == lr]
+        h3r = h3(rs, ALL, n_perm=2000)
+        h2r = h2(rs)
+        out[str(lr)] = {"H3_tau": None if h3r is None else h3r["tau"], "H3_p": None if h3r is None else h3r["p"],
+                        "median_delay": None if h3r is None else h3r["median_delay"],
+                        "H2a_mean": h2r["H2a"]["mean"], "H2b_mean": h2r["H2b"]["mean"],
+                        "grok_frac": {g: float(np.mean([grokked(r) for r in rs if r["arm"] == g])) for g in ALL
+                                      if any(r["arm"] == g for r in rs)}}
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -341,12 +411,14 @@ def compact(runs: list[dict]) -> list[dict]:
     out = []
     for r in runs:
         tp = timepoints(r["traj"])
+        n = len(r["traj"])
         thin = [{"step": x["step"], "train_acc": x["train_acc"], "test_acc": x["test_acc"],
-                 "excluded_train_acc": x["excluded_train_acc"], "gen": x["paths"]["gen"], "mem": x["paths"]["mem"],
+                 "gen": x["paths"]["gen"], "mem": x["paths"]["mem"], "gen_tshap": x["paths"]["gen_tshap"],
+                 "mem_tshap": x["paths"]["mem_tshap"], "gen_total": x["paths"]["gen_total"],
+                 "mem_total": x["paths"]["mem_total"],
                  "gen_without_short": None if x["paths"]["abl_short"] is None else x["paths"]["abl_short"]["gen"],
-                 "gen_without_long": None if x["paths"]["abl_long"] is None else x["paths"]["abl_long"]["gen"],
-                 "gen_total": x["paths"]["gen_total"]}
-                for i, x in enumerate(r["traj"]) if i % 5 == 0 or i == len(r["traj"]) - 1]
+                 "gen_without_long": None if x["paths"]["abl_long"] is None else x["paths"]["abl_long"]["gen"]}
+                for i, x in enumerate(r["traj"]) if x["step"] < 1000 or i % 5 == 0 or i == n - 1]
         out.append({"arm": r["arm"], "seed": r["seed"], "lr": r["lr"], "depth": r["depth"], "C": r["C"], "Q": r["Q"],
                     "summary": {k: v for k, v in r["summary"].items() if k not in ("final_branches", "final_ablate")},
                     "timepoints": {k: snapshot(r, v) for k, v in tp.items()}, "thin": thin})
@@ -356,9 +428,9 @@ def compact(runs: list[dict]) -> list[dict]:
 def fmt(x, nd=3):
     if x is None:
         return "—"
-    if isinstance(x, float) and x >= 1e9:
+    if isinstance(x, (float, np.floating)) and x >= 1e9:
         return "cens."
-    return f"{x:.{nd}f}" if isinstance(x, float) else str(x)
+    return f"{x:.{nd}f}" if isinstance(x, (float, np.floating)) else str(x)
 
 
 def figures(runs: list[dict], out: str) -> None:
@@ -369,34 +441,41 @@ def figures(runs: list[dict], out: str) -> None:
     except Exception:
         return
     graphs = [g for g in ALL if any(r["arm"] == g for r in runs)]
-    fig, axes = plt.subplots(2, len(graphs), figsize=(3.2 * len(graphs), 5.5), sharex=False, squeeze=False)
     colors = ["#888888", "#1b9e77", "#d95f02", "#7570b3", "#e7298a"]
-    for col, g in enumerate(graphs):
-        rs = [r for r in runs if r["arm"] == g]
-        n = min(len(r["traj"]) for r in rs)
-        steps = [rs[0]["traj"][i]["step"] for i in range(n)]
-        for row, key in enumerate(("gen", "mem")):
-            ax = axes[row][col]
+    ncol = (len(graphs) + 1) // 2
+    for key, fname in (("gen", "roles_gen.png"), ("mem", "roles_mem.png")):
+        fig, axes = plt.subplots(2, ncol, figsize=(3.0 * ncol, 5.6), squeeze=False)
+        for k, g in enumerate(graphs):
+            ax = axes[k % 2][k // 2]
+            rs = [r for r in runs if r["arm"] == g]
+            n = min(len(r["traj"]) for r in rs)
+            steps = [rs[0]["traj"][i]["step"] for i in range(n)]
             for j in range(5):
                 m = np.mean([[r["traj"][i]["paths"][key][j] for i in range(n)] for r in rs], 0)
                 lab = "emb" if j == 0 else f"b{j} (d{rs[0]['depth'][j - 1]})"
-                ax.plot(steps, m, color=colors[j], lw=1.2, label=lab)
+                ax.plot(steps, m, color=colors[j], lw=1.1, label=lab)
             ax.axhline(0, color="k", lw=0.5)
-            ax.set_title(f"{g}: {key}", fontsize=9)
-            if col == 0:
-                ax.set_ylabel(f"{key} (label-logit support)")
+            ax.set_xscale("symlog", linthresh=1000)
+            ax.set_title(g, fontsize=9)
             ax.tick_params(labelsize=7)
-            if row == 0:
-                ax.legend(fontsize=6)
-    fig.suptitle("Study 4: what each path does (mean over seeds; truncated at shortest run)", fontsize=10)
-    fig.tight_layout()
-    fig.savefig(os.path.join(out, "roles.png"), dpi=130)
-    plt.close(fig)
+            ax.legend(fontsize=6)
+        fig.suptitle(f"Study 4: {key} per component (direct attribution; mean over seeds; truncated at shortest run)",
+                     fontsize=10)
+        fig.tight_layout()
+        fig.savefig(os.path.join(out, fname), dpi=130)
+        plt.close(fig)
+
+
+def verdict(ok: bool, holm_p: float | None) -> str:
+    if not ok or holm_p is None or holm_p >= 0.05:
+        return "NOT SUPPORTED"
+    return "SUPPORTED" if holm_p <= 0.01 else "SUPPORTED, escalate to 29 seeds before claiming (0.01 < Holm p < 0.05)"
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--runs", required=True)
+    ap.add_argument("--stage0", default=None)
     ap.add_argument("--selection", default=None)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
@@ -404,72 +483,93 @@ def main():
     runs = load(args.runs)
     sel = json.load(open(args.selection)) if args.selection else {}
     flagged = [g for g, v in sel.items() if v["tier"] != "stable"]
-    res = {"H1": h1(runs, MIXED), "H2": h2(runs), "H3": h3(runs, ALL)}
-    holm_p = holm({k: res[k]["p"] for k in res})
-    res["holm"] = holm_p
+    res = {"H1": h1_both(runs, MIXED), "H2": h2(runs), "H3": h3(runs, ALL)}
+    hp = holm({k: res[k]["p"] for k in ("H1", "H2", "H3")})
+    res["holm"] = hp
+    res["verdicts"] = {"H1": verdict(res["H1"]["ci_both_above_0"], hp["H1"]),
+                       "H2": verdict(res["H2"]["ci_both_below_0"], hp["H2"]),
+                       "H3": verdict(res["H3"]["tau"] > 0 and res["H3"]["lo"] > 0, hp["H3"])}
     clean = [g for g in ALL if g not in flagged]
-    res["without_flagged"] = {"flagged": flagged, "H1": h1(runs, [g for g in MIXED if g in clean]),
-                              "H3": h3(runs, clean) if len(clean) > 1 else None}
+    res["without_flagged"] = {
+        "flagged": flagged, "H1": h1_both(runs, [g for g in MIXED if g in clean]),
+        "H2": {k: {**h2(runs, {k: v})[k], "involves_flagged": v[0] in flagged or v[1] in flagged}
+               for k, v in H2_CONTRASTS.items()},
+        "H3": h3(runs, clean)}
+    res["H3_lr_wd_normalized"] = h3(runs, ALL, normalized=True)
     ex = exploratory(runs)
-    json.dump({"results": res, "exploratory": ex, "selection": sel, "runs": compact(runs)},
-              open(os.path.join(args.out, "compact.json"), "w"))
+    s0 = shared_lr(load(args.stage0)) if args.stage0 else None
+    json.dump({"results": res, "exploratory": ex, "shared_lr": s0, "selection": sel, "runs": compact(runs)},
+              open(os.path.join(args.out, "compact.json"), "w"), default=float)
     figures(runs, args.out)
 
     L = ["# Study 4 automatic report", "", f"{len(runs)} Stage-1 runs. Selection: " +
-         ", ".join(f"{g} lr {v['lr']:g} ({v['tier']})" for g, v in sel.items()), ""]
-    h = res["H1"]
-    L += ["## H1 — short paths construct, long paths memorize (D > 0)",
-          f"pooled D = {fmt(h['pooled']['mean'])} [{fmt(h['pooled']['lo'])}, {fmt(h['pooled']['hi'])}], n seeds = "
-          f"{h['pooled']['n']}, p = {fmt(h['p'], 4)}, Holm p = {fmt(holm_p['H1'], 4)}; excluded runs {h['excluded']}",
-          "", "| graph | D | 95% CI | n |", "|---|---|---|---|"]
-    L += [f"| {g} | {fmt(v['mean'])} | [{fmt(v['lo'])}, {fmt(v['hi'])}] | {v['n']} |" for g, v in h["per_graph"].items()]
+         ", ".join(f"{g} lr {v['lr']:g} ({v['tier']}{', grid edge' if v['grid_edge'] else ''})" for g, v in sel.items()), ""]
+    L += ["## Verdicts (Holm over H1–H3)", ""] + [f"- **{k}:** {v} (Holm p = {fmt(hp[k], 4)})"
+                                                for k, v in res["verdicts"].items()]
+    for att in ("direct", "total"):
+        h = res["H1"][att]
+        L += ["", f"## H1 ({att} attribution): short paths' share of gen minus their share of mem (> 0)",
+              f"pooled D = {fmt(h['pooled']['mean'])} [{fmt(h['pooled']['lo'])}, {fmt(h['pooled']['hi'])}], seeds = "
+              f"{h['pooled']['n']}, one-sided p = {fmt(h['p'], 4)}; excluded {h['excluded']}; not grokked {h['not_grokked']}",
+              "", "| graph | D | 95% CI | n |", "|---|---|---|---|"]
+        L += [f"| {g} | {fmt(v['mean'])} | [{fmt(v['lo'])}, {fmt(v['hi'])}] | {v['n']} |" for g, v in h["per_graph"].items()]
     h = res["H2"]
-    L += ["", "## H2 — an extra short reader lowers the long blocks' utility (A − B < 0 in both)",
-          f"supported: {h['supported']}; intersection-union p = {fmt(h['p'], 4)}, Holm p = {fmt(holm_p['H2'], 4)}", "",
-          "| contrast | blocks | U(A) | U(B) | mean A−B | 95% CI | n | dropped |", "|---|---|---|---|---|---|---|---|"]
+    L += ["", "## H2: an extra short reader lowers the utility of existing long blocks (A − B < 0 in both)",
+          f"intersection-union p = {fmt(h['p'], 4)}", "",
+          "| contrast | blocks | U(A) | U(B) | mean A−B | 95% CI | pairs | not both grokked | undefined |",
+          "|---|---|---|---|---|---|---|---|---|"]
     for k in H2_CONTRASTS:
         v = h[k]
         L.append(f"| {k}: {v['A']} vs {v['B']} | {v['blocks']} | {fmt(v['U_A'])} | {fmt(v['U_B'])} | {fmt(v['mean'])} | "
-                 f"[{fmt(v['lo'])}, {fmt(v['hi'])}] | {v['n']} | {v['dropped']} |")
+                 f"[{fmt(v['lo'])}, {fmt(v['hi'])}] | {v['n']} | {v['pairs_not_both_grokked']} | {v['pairs_undefined']} |")
     h = res["H3"]
-    L += ["", "## H3 — composition delays generalization (τ(C, delay) > 0)",
-          f"τ_b = {fmt(h['tau'])}, permutation p = {fmt(h['p'], 4)}, Holm p = {fmt(holm_p['H3'], 4)}, n = {h['n']}, "
-          f"censored = {h['censored']}", "", "median delay: " + ", ".join(f"{g} {fmt(v, 0)}" for g, v in h["median_delay"].items())]
+    L += ["", "## H3: composition delays generalization (τ(C, delay) > 0)",
+          f"τ_b = {fmt(h['tau'])} [seed bootstrap {fmt(h['lo'])}, {fmt(h['hi'])}], permutation p = {fmt(h['p'], 4)}, "
+          f"n = {h['n']}, censored = {h['censored']}",
+          "median delay: " + ", ".join(f"{g} {fmt(v, 0)}" for g, v in h["median_delay"].items())]
+    hn = res["H3_lr_wd_normalized"]
+    L += [f"lr·wd-normalized delay (exploratory): τ_b = {fmt(hn['tau'])}, p = {fmt(hn['p'], 4)}"]
     w = res["without_flagged"]
     L += ["", f"## Without flagged graphs {w['flagged']}",
-          f"H1 pooled D = {fmt(w['H1']['pooled']['mean'])} [{fmt(w['H1']['pooled']['lo'])}, {fmt(w['H1']['pooled']['hi'])}]",
-          f"H3 τ = {fmt(w['H3']['tau']) if w['H3'] else '—'}, p = {fmt(w['H3']['p'], 4) if w['H3'] else '—'}"]
+          f"- H1 direct D = {fmt(w['H1']['direct']['pooled']['mean'])} [{fmt(w['H1']['direct']['pooled']['lo'])}, "
+          f"{fmt(w['H1']['direct']['pooled']['hi'])}]; total D = {fmt(w['H1']['total']['pooled']['mean'])} "
+          f"[{fmt(w['H1']['total']['pooled']['lo'])}, {fmt(w['H1']['total']['pooled']['hi'])}]"]
+    for k, v in w["H2"].items():
+        L.append(f"- {k}: mean A−B {fmt(v['mean'])} [{fmt(v['lo'])}, {fmt(v['hi'])}]"
+                 f"{' (involves a flagged graph)' if v['involves_flagged'] else ''}")
+    L.append(f"- H3 τ = {fmt(w['H3']['tau']) if w['H3'] else '—'}, p = {fmt(w['H3']['p'], 4) if w['H3'] else '—'}")
+    if s0:
+        L += ["", "## Shared learning rate (Stage 0, 3 seeds, exploratory)", "",
+              "| lr | H3 τ | H3 p | H2a A−B | H2b A−B |", "|---|---|---|---|---|"]
+        L += [f"| {lr} | {fmt(v['H3_tau'])} | {fmt(v['H3_p'], 3)} | {fmt(v['H2a_mean'])} | {fmt(v['H2b_mean'])} |"
+              for lr, v in s0.items()]
     L += ["", "## Exploratory (no claims)", "", "### Q-C descriptors", "",
-          "| graph | C | Q | lr | grok frac | stable frac | median delay | peak excl-train acc | persistence | final rule frac |",
-          "|---|---|---|---|---|---|---|---|---|---|"]
+          "| graph | C | Q | lr | grok | stable | median delay | lr·wd·delay | peak mem_total | persistence | final rule frac |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"]
     for g, q in ex["qc"].items():
         L.append(f"| {g} | {q['C']} | {q['Q']} | {q['lr']:g} | {fmt(q['grok_frac'], 2)} | {fmt(q['stable_frac'], 2)} | "
-                 f"{fmt(q['median_delay'], 0)} | {fmt(q['median_peak_excl'])} | {fmt(q['median_persistence'], 0)} | "
-                 f"{fmt(q['median_final_rule_frac'])} |")
-    L += ["", "### Role map at t_end (mean gen / mem per component: emb, b1..b4)", ""]
+                 f"{fmt(q['median_delay'], 0)} | {fmt(q['median_delay_lr_wd_normalized'], 2)} | {fmt(q['median_peak_mem'], 2)} | "
+                 f"{fmt(q['median_persistence'], 0)} | {fmt(q['median_final_rule_frac'])} |")
+    L += ["", "### Role map (mean over seeds; direct: emb, b1..b4; total-effect: b1..b4)", ""]
     for g, rm in ex["role_map"].items():
-        if "t_end" in rm:
-            L.append(f"- {g}: gen {rm['t_end']['gen']}, mem {rm['t_end']['mem']}"
-                     + (f"; at t_mem mem {rm['t_mem']['mem']}" if "t_mem" in rm else ""))
+        if "t_end" in rm and "t_mem" in rm:
+            L.append(f"- {g}: gen@end {rm['t_end']['gen']} | tshap {rm['t_end']['gen_tshap']}; "
+                     f"mem@t_mem {rm['t_mem']['mem']} | tshap {rm['t_mem']['mem_tshap']}")
     L += ["", "### Destruction", ""]
     for g, d in ex["destruction"].items():
-        L.append(f"- {g}: runs with a destroyer at end {fmt(d['frac_runs_with_destroyer_at_end'], 2)}; "
-                 f"cancellation ratio (median) {{{', '.join(f'{k}: {v:.2f}' for k, v in d['cancellation_ratio_median'].items())}}}")
-    L += ["", "### Effective depth (comp_dep_state of long blocks at t_end)", ""]
-    for g, e in ex["effective_depth"].items():
-        L.append(f"- {g}: long blocks {e['long_blocks']} → {e['comp_dep_state_mean']}")
+        L.append(f"- {g}: runs with a destroyer at end {fmt(d['frac_runs_with_destroyer_at_end'], 2)}; cancellation ratio "
+                 + ", ".join(f"{k} {v:.2f}" for k, v in d["cancellation_ratio_median"].items()))
+    L += ["", "### Effective depth (comp_dep_state of long blocks, end)", ""]
+    L += [f"- {g}: blocks {e['long_blocks']} → {e['comp_dep_state_mean']}" for g, e in ex["effective_depth"].items()]
     L += ["", "### Post-fit long-path learning (medians)", ""]
-    for g, e in ex["post_fit_long"].items():
-        L.append(f"- {g}: " + ", ".join(f"{k} {fmt(v)}" for k, v in e.items()))
+    L += [f"- {g}: " + ", ".join(f"{k} {fmt(v)}" for k, v in e.items()) for g, e in ex["post_fit_long"].items()]
     L += ["", "### Gradient allocation at matched train loss (median mean-block grad norm, short / long)", ""]
-    for g, e in ex["grad_at_loss"].items():
-        L.append(f"- {g}: " + "; ".join(f"loss≤{t}: {fmt(v['short_mean_grad'], 4)} / {fmt(v['long_mean_grad'], 4)}"
-                                        for t, v in e.items()))
-    L += ["", "### Preservation (embedding path, medians at t_end)", ""]
-    for g, e in ex["preservation"].items():
-        L.append(f"- {g}: " + ", ".join(f"{k} {fmt(v)}" for k, v in e.items()))
+    L += [f"- {g}: " + "; ".join(f"loss≤{t}: {fmt(v['short'], 4)} / {fmt(v['long'], 4)}" for t, v in e.items())
+          for g, e in ex["grad_at_loss"].items()]
+    L += ["", "### Preservation (embedding path, end medians)", ""]
+    L += [f"- {g}: " + ", ".join(f"{k} {fmt(v)}" for k, v in e.items()) for g, e in ex["preservation"].items()]
     open(os.path.join(args.out, "summary.md"), "w").write("\n".join(L) + "\n")
-    print("\n".join(L[:40]))
+    print("\n".join(L[:30]))
 
 
 if __name__ == "__main__":
