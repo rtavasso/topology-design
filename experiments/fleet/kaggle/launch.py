@@ -2,8 +2,10 @@
 
 Prerequisites:
   - Network access to www.kaggle.com and storage.googleapis.com (Kaggle stores uploads and outputs there).
-  - A Kaggle API token (Kaggle -> Settings -> API -> Create New Token) saved as kaggle.json. Point KAGGLE_CONFIG_DIR at the
-    folder containing it (default ~/.kaggle). Never commit it.
+  - A Kaggle API token (Kaggle -> Settings -> API -> Create New Token). Newer tokens (KGAT_...) go in
+    ~/.kaggle/access_token or the KAGGLE_API_TOKEN environment variable; legacy tokens are a kaggle.json. Never commit it.
+  - Your Kaggle username: --user, or KAGGLE_USERNAME, or read from a legacy kaggle.json.
+  - kaggle CLI >= 1.7 (pip install -U kaggle) for KGAT tokens.
   - A phone-verified Kaggle account (required for GPU and internet in kernels).
 
 Usage (from the repo root):  python experiments/fleet/kaggle/launch.py [--out results/kaggle_validate]
@@ -45,9 +47,15 @@ def main():
     ap.add_argument("--dataset", default="topology-design-code")
     ap.add_argument("--kernel", default="topology-fleet-validate")
     ap.add_argument("--poll", type=int, default=60)
+    ap.add_argument("--user", default=os.environ.get("KAGGLE_USERNAME"))
     args = ap.parse_args()
-    cfg_dir = os.environ.get("KAGGLE_CONFIG_DIR", os.path.expanduser("~/.kaggle"))
-    user = json.load(open(os.path.join(cfg_dir, "kaggle.json")))["username"]
+    user = args.user
+    if not user:
+        cfg_dir = os.environ.get("KAGGLE_CONFIG_DIR", os.path.expanduser("~/.kaggle"))
+        legacy = os.path.join(cfg_dir, "kaggle.json")
+        if not os.path.exists(legacy):
+            sys.exit("Kaggle username needed: pass --user NAME or set KAGGLE_USERNAME")
+        user = json.load(open(legacy))["username"]
     tmp = tempfile.mkdtemp()
     # 1. code snapshot as a private dataset
     ds = os.path.join(tmp, "dataset")
