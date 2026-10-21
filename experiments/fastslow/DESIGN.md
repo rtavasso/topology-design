@@ -1,7 +1,9 @@
 # Phase 5 design — fast and slow paths: time constants and routing of the learning signal
 
-**Status:** design, revision 2 (21 Oct 2026). Nothing has run.
-- Revision 1 was reviewed independently by two agents, one scientific and one technical with small numerical checks. Their findings and how each is handled are in the *Change log* at the end.
+**Status:** design, revision 3 (21 Oct 2026). Nothing has run.
+- Revision 1 was reviewed independently by two agents, one scientific and one technical with small numerical checks.
+- Revision 2 was re-reviewed by a third agent, with a real-network check.
+- All findings and how each is handled are in the *Change log* at the end.
 - Each study is written at preregistration level, and is frozen as a preregistration when its gate is reached.
 
 **Claim types** (AGENTS rule 5):
@@ -45,10 +47,21 @@ These facts determine which manipulations can work at all. Numerical checks are 
    - In the AdamW toy with wd = 1, a burst's displacement decayed to 0.001 while a drift's stayed at 1.0.
    - This explains observation 5, and it means **per-branch (lr, wd) is the most direct way to give branches different time constants.** Per branch, lr sets the speed and τ = 1/(lr·wd) the memory.
    - The equilibrium weight norm scales as 1/wd and is reported.
-4. **The agreement split is weak at full batch.**
+4. **The agreement split behaves differently in the two branches.**
    - With 8 disjoint groups of about 174 examples, per-example idiosyncrasy averages out within groups. A 7-of-8 sign-agreement mask passes by chance 7% of the time.
-   - In the asym plateau, measured mask densities were 4–15%, near chance. The consensus part aligned more with memorization than with generalization (cos 0.26 vs 0.07; one seed).
-   - So whether "agreement" isolates the generalizing signal here is an open empirical question for 5A, not an assumption.
+   - Measured densities (asym plateau, one seed):
+     - **S:** 4–15%, near chance.
+     - **L:** about 30%, ranging 9–59%.
+   - The consensus part aligned more with memorization than with generalization (cos 0.26 vs 0.07).
+   - So whether agreement isolates the generalizing signal here is an open empirical question for 5A, not an assumption.
+5. **Each branch's weight scale is set by its decay.**
+   - At AdamW's fixed point the update balances decay ($\hat u \approx \mathrm{wd}\cdot\theta$), so a branch's weight scale goes roughly as 1/wd (cf. Xie & Li 2024).
+   - A two-layer ReLU block is degree-2 homogeneous, so its logit scale goes roughly as 1/wd².
+   - Any per-branch decay manipulation therefore changes **how much** of the output a branch carries, independently of **what kind** of function it carries.
+   - Role measures must be **scale-invariant** (§3).
+6. **EMA of the preconditioned update is a second, slower momentum.**
+   - At α = 0.98 it stays within 6–11° of the update itself during the plateau, nearly the identity. At α = 0.998 the angle is 28–38°.
+   - Its angle spikes (up to 74°) mostly at instability events, so any effect of time routing may be mediated by stability.
 
 ## 3. Shared setup
 
@@ -79,12 +92,23 @@ These facts determine which manipulations can work at all. Numerical checks are 
 2. **Nonlinear tier:** test accuracy, train accuracy and test loss of each branch alone (the other branch ablated) and of the full network.
 
 **Derived quantities:**
-- Share $s_X(\text{gen}) = \text{gen}_X/(\text{gen}_L+\text{gen}_S)$, clipped to [−1, 2], and likewise for mem.
-- **Role score** $D_X = s_X(\text{gen})|_{t_\text{end}} - s_X(\text{mem})|_{t_\text{mem}}$. $t_\text{end}$ is the mean of the last 5 evals; $t_\text{mem}$ is the peak of total mem.
-- **Single-time co-location** $K_X(t)=|s_X(\text{gen})(t) - s_X(\text{mem})(t)|$, at $t_\text{grok}$ and at $t_\text{end}$. It avoids comparing two different times.
+- **Composition (primary role measure, scale-invariant):** $c_X(t)=\text{gen}_X/(|\text{gen}_X|+|\text{mem}_X|)$, in [−1, 1].
+  - Both gen and mem are linear in branch X's logits, so rescaling X's output cancels exactly.
+  - +1 means purely generalizing, −1 means purely anti-generalizing; values near 0 mean memorization-dominated.
+  - **Role contrast:** $R=c_L-c_S$, the difference in what *kind* of function each branch carries, measured at a single time.
+- **Shares** $s_X(\text{gen}) = \text{gen}_X/(\text{gen}_L+\text{gen}_S)$, clipped to [−1, 2], and likewise for mem.
+  - The Study-4-style **role score** $D_X = s_X(\text{gen})|_{t_\text{end}} - s_X(\text{mem})|_{t_\text{mem}}$ is secondary. It is scale-dependent (§2.5), so it is never the sole basis of a claim.
+- **Single-time co-location** $K_X(t)=|s_X(\text{gen})(t) - s_X(\text{mem})(t)|$.
+- **Fixed measurement times:**
+  - $t_\text{end}$ is the mean over the last 2,000 steps of a **fixed horizon**, the same for every arm in a study. Runs do not stop early, so composition is defined whether or not a run grokked.
+  - $t_\text{mem}$ is the peak of total mem.
+  - Grokking delay is reported, censored at the horizon, with censored runs as ties at the top.
 - **Output masking:** the step-weighted integral of the negative part of $\text{gen}_X$ over steps 0–10,000, and the first step after which $\text{gen}_X$ stays positive.
 - **Signal masking** (counterfactual): $M(t) = 1-\lVert g_L^{\,\text{S present}}\rVert / \lVert g_L^{\,\text{S ablated}}\rVert$, the drop in L's training gradient caused by S's contribution to the logits. Also its projection on ∇gen.
-- **Stability:** post-fit collapses (train accuracy below 0.9 after first fit), post-fit minimum train accuracy, and per-branch weight norms.
+- **Stability:**
+  - post-fit collapses (train accuracy below 0.9 after first fit) and post-fit minimum train accuracy;
+  - per-branch weight norms and output RMS;
+  - path efficiency $\lVert\sum_t u_t\rVert/\sum_t\lVert u_t\rVert$ of each branch's updates.
 
 **Leakage guard.** Every measurement that uses test-set gradients calls `torch.autograd.grad`, never `.backward()`. A test asserts that `p.grad` is unchanged by measurement. In the current trainer, measurement happens between `backward()` and `opt.step()`.
 
@@ -92,10 +116,18 @@ These facts determine which manipulations can work at all. Numerical checks are 
 - Paired differences are tested with **exact sign-flip permutation tests**; 1,024 flips at n = 10, or a random 100,000 above that.
 - 95% CIs are BCa bootstrap.
 - Holm correction within each study.
-- **Effect-size floor:** a role or allocation claim needs |ΔD| ≥ 0.10 or |Δs| ≥ 0.10, in addition to significance.
-- **Seeds:** $n=\max\big(10,\lceil(2.49\,\hat\sigma_\Delta/0.10)^2\rceil\big)$, capped at 29. Here $\hat\sigma_\Delta$ is the pilot's paired SD of the primary contrast, giving power 0.8 one-sided for ΔD = 0.10.
-- **Replication rule** for headline claims (marked ★): a result supported at stage 1 must replicate on fresh seeds, making 29 in total, with one-sided p < 0.05 on the new seeds alone. This replaces "escalate", which was optional stopping.
-- **Mediators:** collapses and post-fit minimum train accuracy are reported per arm. Every role claim is re-tested with collapsing runs excluded, and with collapse count as a covariate in a paired rank regression. A claim that does not survive is labeled stability-mediated.
+- **Effect-size floor:** a role claim needs |ΔR| ≥ 0.10 (composition contrast), in addition to significance.
+- **Seeds:**
+  - **20 per arm** for the arms in a study's ★ primary contrast;
+  - **10 per arm** otherwise.
+  - Fixed now; the pilot has too few seeds to estimate a paired SD.
+  - At σ_Δ = 0.15, n = 20 gives power of about 0.8 for ΔR = 0.10 two-sided with an exact test.
+- **Replication rule** for ★ headline claims: a stage-1 result that is supported must replicate on **at least 15 fresh seeds**, with p < 0.05 on the new seeds alone and in the same direction. Totals may exceed 29.
+- **Families:** each study names its primary ★ contrast and its Holm family below. Exploratory results are never Holm-corrected or claimed.
+- **Stability sensitivity analysis:**
+  - collapses, post-fit minimum and path efficiency are reported per arm;
+  - every role claim is re-tested excluding **whole seed pairs** in which either run collapsed, and with the paired difference in collapse count as a covariate in a rank regression.
+  - It is called a *sensitivity analysis*, not mediation, because these variables are post-treatment. A claim that does not survive is labeled stability-dependent.
 
 ## 4. Study 5A — where is the generalizing signal, and is there masking? (measurement only)
 
@@ -115,12 +147,15 @@ These facts determine which manipulations can work at all. Numerical checks are 
   - groups resampled at random every eval;
   - m ∈ {4, 8, 16};
   - primary m = 8, τ = 0.75.
-- For each split part G, the **share of projection** $\pi_G(t)=\langle -G,\hat t\rangle/\langle -g,\hat t\rangle$ for targets $t = \nabla\text{gen}$ and $t=\nabla\text{mem}_\perp$, the memorization gradient with its ∇gen component removed.
-- **Separation:** $\Sigma' = \pi_G(\nabla\text{gen})-\pi_G(\nabla\text{mem}_\perp)$, minus the same statistic for a **matched null**.
-  - The null for the agreement split is a random coordinate mask of equal density, redrawn each eval, plus a top-|g| magnitude mask of equal density.
-  - The null for the time split is a time-shuffled EMA, built from the same gradients in random order within the window.
-  - $\Sigma'$ is about 0 for random splits, and about 0 when ℓ ≈ g (checked analytically by the technical reviewer).
-- Also on realized updates: each part's first moment divided by one shared $\sqrt{\hat v}$ from a shadow AdamW.
+- **Separation statistic** for each split part G (its only denominator is ‖g‖, so it cannot flip sign through a near-zero projection):
+$$\tilde\Sigma = \frac{\langle -G_\perp,\ \widehat{\nabla\text{gen}} - \widehat{\nabla\text{mem}_\perp}\rangle}{\lVert g\rVert}, \qquad G_\perp = G - \frac{\langle G,g\rangle}{\lVert g\rVert^2}\,g$$
+  - $\nabla\text{mem}_\perp$ is the memorization gradient with its ∇gen component removed.
+  - $\tilde\Sigma$ measures whether the part's *deviation from the full gradient* leans toward generalization or memorization.
+  - It is 0 when G ∝ g (e.g., ℓ ≈ g), and 0 in expectation for random masks.
+  - It is reported minus a **matched null**:
+    - for the agreement split, a random coordinate mask of equal density, redrawn each eval, plus a top-|g| magnitude mask of equal density;
+    - for the time split, a **matched-angle random rotation**: g rotated toward a random direction orthogonal to it, by the measured angle between ℓ and g, norm-matched.
+- **On the preconditioned update.** The same statistic is computed with $\hat u$, a shadow AdamW update on the unrouted trajectory, in place of g, and the û-splits used by 5C in place of G. This is what 5C's gate uses.
 
 *c. Masking.* $M(t)$ (signal masking) and output masking, in asym and sym.
 
@@ -128,63 +163,72 @@ These facts determine which manipulations can work at all. Numerical checks are 
 
 **Hypotheses.** These are empirical, not derived. Plateau phase, per-seed means pooled over graphs.
 
-- **H5A-1 (agreement separates):** null-corrected $\Sigma'_\text{agree}$ > 0.
-  - The reviewer's one-seed check suggests it may be negative in the asym plateau; any outcome is informative.
-- **H5A-2 (time does not separate memorization from generalization):** null-corrected $\Sigma'_\text{time}$ at α = 0.98, judged by two one-sided tests with band δ = 0.05:
-  - **equivalent** if the 90% CI lies within ±δ;
-  - **different** if the 95% CI excludes 0;
-  - **inconclusive** otherwise.
+- **H5A-1 (agreement separates):** null-corrected $\tilde\Sigma_\text{agree}$ > 0, on the gradient.
+  - A one-seed check suggests it may be negative in the asym plateau; any outcome is informative.
+- **H5A-2 (time does not separate memorization from generalization):** null-corrected $\tilde\Sigma_\text{time}$ at α = 0.998, on the gradient, judged by two one-sided tests.
+  - The band δ is half the between-seed SD of the *null* statistic in the same runs, so it is calibrated without looking at the effect.
+  - **Equivalent** if the 90% CI lies within ±δ; **different** if the 95% CI excludes 0; **inconclusive** otherwise.
 - **H5A-3 (signal masking exists):** in asym, $M(t)$ averaged over the plateau is > 0. S's presence reduces L's gradient.
 - **H5A-4 (decay drives the plateau):** in the plateau, the decay step's projection share onto $\widehat{\nabla\text{gen}}$ exceeds the gradient step's. *Basis:* observation 5 and §2.3.
 
 **Exploratory:**
 - the high-frequency power share in windows *preceding* collapses versus matched collapse-free windows (the collapse windows themselves are excluded);
-- results at m = 4 and m = 16, and at α = 0.998.
+- results at m = 4 and m = 16, and at α = 0.98.
 
-**Gate for 5C.** A routing split runs as confirmatory in 5C only if its null-corrected $\Sigma'$ has a 95% CI above 0. Otherwise it runs as one exploratory pair (G→L and G→S), and its other 5C arms are dropped.
+**Holm family (5A):** H5A-1, H5A-2 (its "different" branch), H5A-3, H5A-4. No ★ contrast; 5A is measurement.
+
+**Gate for 5C**, on the **preconditioned-update** version of $\tilde\Sigma$, the split that 5C actually routes. A split runs as confirmatory in 5C only if its null-corrected $\tilde\Sigma_{\hat u}$ has a 95% CI above 0 in the plateau, pooled over asym's L. Otherwise it runs as one exploratory pair (G→L and G→S), and its other 5C arms are dropped.
 
 **Compute:** about 50 runs. Group gradients use `torch.func.vmap`, and the agreement split costs about 2× per eval step only. Roughly 1–1.5 hours.
 
 ## 5. Study 5B — different time constants per branch (the direct test)
 
-**Question.** If one branch is fast with short memory and the other slow with long memory, does a division of labor emerge, and without masking? Does it matter whether the slow branch is a chain?
+**Question.** If one branch is fast with short memory and the other slow with long memory, does it end up carrying a different *kind* of function? Does removing the shared-error masking change L's role?
 
-**Two competing predictions, both preregistered:**
-- **Complementary learning systems (CLS):** the slow, long-memory branch accumulates the shared structure (generalization), and the fast, short-memory branch imprints and then forgets (memorization).
-- **Circuit efficiency** (Varma et al. 2023; Nanda et al. 2023): weight decay selects the efficient, generalizing circuit. The branch under *stronger* decay therefore hosts generalization, and the branch under weak decay keeps memorization.
+**Prediction (complementary learning systems, CLS).** The branch with the longer memory accumulates what examples share, so it is generalization-rich. The branch with the shorter memory imprints and forgets, so it is memorization-rich.
+- No competing *derived* prediction is offered. Revision 2's circuit-efficiency prediction, that stronger decay hosts generalization, was not derivable: a margin or efficiency argument puts both kinds of function preferentially in the cheaper, low-decay branch, the same direction as CLS.
+- A **pure scale account** (§2.5) predicts *no change in composition*, only in shares. The composition measure distinguishes CLS from it.
 
-The two disagree on the direction of the decay effect, so the experiment can discriminate between them.
+**Arms.** Base lr $\eta_0$ and base wd = 1, split geometrically around the base so that no branch leaves the range Study 4 explored. Shared parameters stay at base settings.
 
-**Arms.** At the base lr (shared parameters at base settings); 10 seeds, or more per the power rule.
+| arm | L (or A in sym) | S (or B in sym) | what differs | seeds |
+|---|---|---|---|---|
+| base | η₀, wd 1 | η₀, wd 1 | — | 20 |
+| memory 4 | η₀, wd 0.5 | η₀, wd 2 | L remembers 4× longer than S (τ ratio 4) | 20 |
+| memory ¼ | η₀, wd 2 | η₀, wd 0.5 | L remembers 4× shorter | 20 |
+| memory 4-scaled | as memory 4, plus fixed output multipliers α_L, α_S | | the scale change of §2.5 removed | 20 |
+| memory ¼-scaled | as memory ¼, plus fixed output multipliers | | | 20 |
+| speed 4 | 2η₀, wd 0.5 | η₀/2, wd 2 | L steps 4× faster at equal τ | 10 |
+| speed ¼ | η₀/2, wd 2 | 2η₀, wd 0.5 | L steps 4× slower at equal τ | 10 |
+| unmasked-L (asym only) | trained on CE($z_0+z_L$) only, i.e., S's logits detached from L's loss | full loss | removes S's signal masking of L at equal capacity (labeled diagnostic) | 10 |
 
-| arm | branch settings (first branch : second branch) | holds fixed |
-|---|---|---|
-| base | equal | — |
-| speed ¼, speed 4 | lr ratio ¼ or 4 (L or A relative to the other) | the time constant τ of each branch (so wd scales with 1/lr) |
-| memory ¼, memory 4 | wd ratio 4 or ¼ (so τ ratio ¼ or 4) | lr |
-| L-alone, S-alone | the other branch's multiplier set to 0 for all of training (capacity halves; isolation arms) | — |
+- **Output multipliers for the scaled arms:** set from the pilot (3 seeds of each unscaled memory arm). α_X is the ratio of branch X's output RMS at step 20,000 in base to that in the unscaled arm; it is fixed before stage 1. Multipliers use the existing per-block `alphas`.
+- **sym** runs base, memory 4, memory ¼ and both speed arms at 10 seeds.
+- **Horizon:** 50,000 steps, no early stop, for every arm.
+  - Decay rates set the generalization clock. Study 4's 6–19 lr·wd·steps means up to about 19,000 steps for the branch with lr·wd = 1e-3.
+- **Total:** asym 8 arms (5 × 20 + 3 × 10 = 130 runs); sym 5 arms (50 runs); pilot 18 + 6 = 24 runs.
 
-- In asym, "first branch" is L. In sym, it is A, and sym runs the same arms except the isolation arms.
-- Total: asym 7 arms, sym 5 arms, i.e., 12 arms, about 120 runs.
-- Notation: "speed 4" means the first branch steps 4× faster at equal memory. "memory 4" means the first branch remembers 4× longer at equal speed.
+**Hypotheses** (composition at $t_\text{end}$; asym unless stated):
+- **★ H5B-1 (memory length sets the role; CLS):** $R(\text{memory 4}) - R(\text{memory ¼}) > 0$ by at least 0.10. The branch remembering longer is relatively generalization-rich.
+  - It must hold with the same sign in the **scaled** pair. Otherwise the result is labeled scale-dependent and not supported.
+  - *Falsifier:* ΔR ≤ 0, or it holds only without scale matching.
+- **H5B-2 (speed sets the role):** $R(\text{speed ¼}) - R(\text{speed 4})$, two-sided.
+  - CLS predicts > 0 (the slower branch is the generalizer).
+  - Study 4's lr-migration predicts the faster branch takes the function. That concerns shares, not composition, so it makes no composition prediction.
+- **H5B-3 (removing signal masking changes L's role):** $c_L(\text{unmasked-L}) - c_L(\text{base}) > 0$, and L's generalization rises earlier: the first step at which $\text{gen}_L > 0$ persistently.
+  - *Basis:* H5A-3. If S's fit starves L of signal, freeing L's error should let it build generalizing function sooner.
 
-**Hypotheses** (asym unless stated):
-- **H5B-1 (time constants create a division of labor):** at least one of the four time-constant arms changes $D_L$ by at least 0.10 relative to base (an omnibus over 4 arms, then Holm). The **direction** is preregistered as the competing pair above:
-  - CLS predicts $D_L$ rises in *speed ¼* and *memory 4*;
-  - circuit efficiency predicts $D_L$ rises in *memory ¼*.
-- **H5B-2 (direction of the memory effect)★:** sign of $D_L(\text{memory 4}) - D_L(\text{memory ¼})$. Positive supports CLS; negative supports circuit efficiency.
-  - Tested two-sided. Its sign is the discriminating result, so it is the headline and must replicate.
-- **H5B-3 (masking):**
-  - L-alone generalizes faster than L does with S present: L-alone's grokking delay is shorter than base's, and its gen output-masking integral is smaller.
-  - The S-alone versus base comparison is reported symmetrically.
-  - *Basis:* H5A-3. If S masks L, removing S speeds L.
-  - Capacity halves in the isolation arms; this is stated, and the nonlinear tier reports fit.
-- **H5B-4 (topology × time constants, EXPLORATORY on this task):** for the arm with the largest |ΔD_L| in asym, compare ΔD in sym (difference-in-differences).
-  - The rule here needs no composition, so a null cannot mean "wiring irrelevant". This becomes confirmatory only on a task that defeats short paths.
+**Holm family (5B):** ★H5B-1, H5B-2, H5B-3.
 
-**Mediation.** Speed arms change each branch's effective step, and so its stability; Study 2 found long chains unstable at larger steps. Every claim must survive the mediator analysis in §3.
+**Exploratory:**
+- sym versus asym for the same time-constant arms (the topology × time-constant difference-in-differences). The rule here needs no composition, so a null cannot mean "wiring irrelevant".
+- shares and $D_X$;
+- grokking delay;
+- per-branch norms.
 
-**Compute:** about 120 runs × ~20,000 steps at 6 blocks. Roughly 2–2.5 hours.
+**Sensitivity:** speed arms change each branch's effective step, and hence its stability (Study 2); the stability sensitivity analysis of §3 applies to every claim.
+
+**Compute:** about 200 runs × 50,000 steps at about 30 ms/step on 10 workers, roughly **8 hours**. It splits naturally: pilot plus asym ★ arms first (about 4.5 hours), then the rest.
 
 ## 6. Study 5C — routing the preconditioned update (the frequency/agreement idea)
 
@@ -193,32 +237,47 @@ The two disagree on the direction of the decay effect, so the experiment can dis
 **Routing**, defined to respect §2.2:
 - Per branch, keep AdamW moments on the raw branch gradient.
 - Split the **preconditioned update** $\hat u=\hat m/(\sqrt{\hat v}+\epsilon)$ into a G-part and a remainder:
-  - *time:* $\mathrm{EMA}_\alpha(\hat u)$ and the rest, with α from 5A;
+  - *time:* $\mathrm{EMA}_\alpha(\hat u)$ and the rest, with α = 0.998 (fixed, see below);
   - *agreement:* the coordinate mask from group gradients, applied to $\hat u$.
-- **One-sided:** the receiving branch's update is replaced by its G-part, rescaled to the norm of its own unrouted update (*direction-only*, hard routing). The other branch is untouched.
+- **One-sided:** the receiving branch's update is replaced by its G-part, rescaled to the norm of its own unrouted update (*direction-only*, hard routing).
+  - The norm is taken over the branch's flattened parameters.
+  - If ‖G-part‖ < 1e-12 (an empty mask), the unrouted update is used for that step.
+  - The other branch is untouched. This drops the "short branch hears the fast part" half of the idea, deliberately, because two-sided routing reversed that branch (§2.2).
 - Decay is unchanged.
-- **Manipulation check (pass thresholds, preregistered):** a median angle of at least 20° between the routed and shadow unrouted update of the receiving branch over the plateau, *and* a rise of at least 0.15 in the G-part's share of update power. Arms failing either are reported and excluded from the hypotheses.
+- **Time split:**
+  - α = **0.998**, fixed; at 0.98 the EMA of û is nearly û (§2.6).
+  - The EMA starts at zero, with bias correction.
+  - It is, in effect, a second, slower momentum plus norm matching, and is named as such in reporting.
+- **Manipulation check:** the median angle between the routed and the shadow unrouted update of the receiving branch over the plateau must be **at least 20°**. This is the only threshold; under hard routing, a "G-share" is 1 by definition. Arms failing it are reported and excluded from the hypotheses.
+- **Per-coordinate amplification:** norm matching amplifies kept coordinates by about 1/√density under the agreement mask (about 1.3× in L, about 2.4× in S). It is reported per arm and covered by the matched-density nulls.
 
 **Arms.** At the base lr; 10 seeds or more per power.
-- asym: none; G→L and G→S for each split passing the 5A gate; random-mask → L at matched density (null); top-|g| mask → L at matched density (null, agreement split only).
-- sym: G→A for each passing split.
+- **asym:**
+  - none;
+  - G→L and G→S for each split passing the 5A gate;
+  - nulls, **for both L and S:**
+    - agreement split: random mask at matched density, and top-|û| mask at matched density;
+    - time split: matched-angle random rotation, i.e., û rotated toward a random orthogonal direction by the angle the time-routed arm achieved, norm-matched.
+- **sym:** none, and G→A for each passing split.
 - **Positive control:** uniform Grokfast (λ = 2, α = 0.98) on all parameters of asym. Does it accelerate grokking here, as published?
 
 **Hypotheses:**
-- **H5C-1 (routing creates a division of labor):** $D_L(\text{G→L}) - D_L(\text{none}) \ge 0.10$ and > 0 by test.
-- **H5C-2 (signal-specific)★:** $D_L(\text{G→L})$ exceeds $D_L$ under both null masks. This is an intersection-union test.
-- **H5C-3 (within-graph topology comparison):** $[D_L(\text{G→L})-D_L(\text{none})] - [D_S(\text{G→S})-D_S(\text{none})]$.
+- **H5C-1 (routing creates a division of labor):** $R(\text{G→L}) - R(\text{none}) \ge 0.10$ and > 0 by test. Composition contrast; shares are reported.
+- **★ H5C-2 (signal-specific):** $R(\text{G→L})$ exceeds R under every matched null for L. This is an intersection-union test.
+- **H5C-3 (within-graph topology comparison):** $[c_L(\text{G→L})-c_L(\text{none})] - [c_S(\text{G→S})-c_S(\text{none})]$, each against its own branch's matched nulls.
   - Two-sided. Same graph, same stability profile.
   - Positive means the long branch makes better use of the routed signal than the short one.
-  - EXPLORATORY on this task, for the reason in H5B-4.
+  - EXPLORATORY on this task, for the reason given for the sym-vs-asym comparison in §5.
 
-**Compute:** up to about 100 runs; agreement arms cost about 2× per step. Up to about 2.5 hours, less if the gate drops arms.
+**Holm family (5C):** H5C-1 and ★H5C-2. H5C-3 is exploratory. Seeds: 20 for the ★ arms (none, G→L, L-nulls), 10 otherwise.
+
+**Compute:** up to about 150 runs at the 5B horizon; agreement arms cost about 2× per step. Up to about 5 hours, much less if the gate drops a split.
 
 ## 7. Study 5D — consolidation from the fast branch into the slow branch (diagnostic)
 
 **Change from revision 1.** Weight-space coupling is dropped. The hidden units of independently initialized blocks are not aligned, so coupling their weights is shrinkage toward unrelated features, not consolidation. Consolidation is done in function space.
 
-**Arms.** asym, at the base lr and at the 5B time-constant setting that maximized $D_L$ if H5B-1 was supported, else base settings; 10 seeds.
+**Arms.** asym, at the base lr and at the 5B memory arm with the larger R if ★H5B-1 was supported, else base settings; 10 seeds.
 - **C0:** no consolidation.
 - **C1:** the long branch receives an extra loss $\kappa\lVert z_L(x)-\mathrm{sg}(\bar z_S(x))\rVert^2$ on training inputs.
   - $\bar z_S$ is the per-example EMA (β = 0.99) of the short branch's direct centered logits; sg is stop-gradient.
@@ -226,12 +285,15 @@ The two disagree on the direction of the decay effect, so the experiment can dis
 - **C-null:** as C1 at κ = 0.1, but each example's target is the EMA logit vector of a *different* training example (a fixed random permutation). This preserves the target statistics and destroys example correspondence.
 
 **Hypotheses:**
-- **H5D-1 (consolidation transfers memorization more than generalization):** for C1 versus C0, the change in $\text{mem}_L$ at $t_\text{mem}$ divided by the change in $\text{gen}_L$ at $t_\text{end}$ is > 1. This is a paired ratio test on log scale.
+- **H5D-1 (consolidation transfers memorization more than generalization):** for C1 versus C0, $\Delta c_L < 0$. L's composition shifts toward memorization.
+  - Scale-invariant and defined whatever the signs, unlike revision 2's ratio.
   - *Basis:* the consolidation target is the fast branch's fit to training labels.
   - *Falsifier:* ratio ≤ 1. Consolidation then preferentially transfers what generalizes, which is the researcher's hoped-for outcome.
 - **H5D-2:** C1 differs from C-null. Consolidation's effect is example-specific, not a regularizer.
 
-**Compute:** about 40 runs. Roughly 40 minutes.
+**Holm family (5D):** H5D-1, H5D-2.
+
+**Compute:** about 40 runs at the 5B horizon. Roughly 1.5 hours.
 
 ## 8. Study 5E — new examples arriving
 
@@ -241,7 +303,7 @@ The two disagree on the direction of the decay effect, so the experiment can dis
 - Order is fixed per seed. Test set: the complement of the final training set.
 - Agreement groups, where used, are redrawn at random each step from the current training set.
 
-**Arms:** asym base; asym at the best 5B time-constant cell (by $D_L$, if H5B-1 is supported); asym with the best 5C routing (if H5C-2 is supported); sym counterparts of the included treatments. 10 seeds.
+**Arms:** asym base; asym at the 5B arm with the largest R (if ★H5B-1 is supported); asym with the best 5C routing (if ★H5C-2 is supported); sym counterparts of the included treatments. 10 seeds.
 
 **Measures:**
 - **Memorization latency:** steps until at least 90% of an increment's new pairs are correct, read every step from the training logits.
@@ -261,6 +323,8 @@ The two disagree on the direction of the decay effect, so the experiment can dis
 - **H5E-2 (no memorization slowdown):** median latency at most 1.25× base. Non-inferiority on the upper CI of the paired ratio.
 - **H5E-3 (path specialization in what one example teaches):** at step 15,000, $[\text{L's transfer share} - \text{L's imprinting share}]$ is larger in the treatment than in base. Difference-in-differences.
 
+**Holm family (5E):** H5E-1, H5E-2, H5E-3.
+
 **Compute:** about 40 runs × 30,000 steps. Roughly 1.5 hours.
 
 ## 9. Order and gates
@@ -278,8 +342,8 @@ The two disagree on the direction of the decay effect, so the experiment can dis
 - the base lr by the pilot rule.
 
 **Reading the phase as a whole:**
-- If neither time constants (5B) nor direction routing (5C) moves $D_L$ by 0.10, co-location is robust to the learning signal in this setting. That supports the scaffold reading: generalization grows in the memorized structure.
-- The program would then move to a task that requires composition. There, the H5B-4 and H5C-3 topology comparisons can become confirmatory.
+- If neither time constants (5B) nor direction routing (5C) moves the composition contrast R by 0.10, co-location is robust to the learning signal in this setting. That supports the scaffold reading: generalization grows in the memorized structure.
+- The program would then move to a task that requires composition. There, the 5B sym-vs-asym and H5C-3 topology comparisons can become confirmatory.
 
 ## 10. Prior art and novelty boundary
 
@@ -309,7 +373,7 @@ The two disagree on the direction of the decay effect, so the experiment can dis
 
 ## 11. Known limits and deviations from AGENTS.md, stated before any data
 
-- **The shallow-rule task** prevents confirmatory topology claims (H5B-4, H5C-3); a task where short paths fail is needed.
+- **The shallow-rule task** prevents confirmatory topology claims (the 5B sym-vs-asym comparison, H5C-3); a task where short paths fail is needed.
 - **Optimizer changes and an added loss** make these diagnostics (rule 1). Each is labeled as such.
 - **Shared lr instead of per-arm tuning** (rule 4), justified by Study 4's lr confound.
 - **Richness sweep deferred** (rule 4). No topology claim from this phase is made without it.
@@ -318,8 +382,35 @@ The two disagree on the direction of the decay effect, so the experiment can dis
 - **Graph family:** accumulated states prevent two independent chains, so the topology control is chain versus parallel.
 - **Batch regime:** full batch only.
 - **One optimizer.** A plain-SGD replication of the 5B base and memory arms is planned as the first follow-up.
+- **Compute.** The phase totals roughly 18–20 hours of MacBook time at stage-1 seed counts, plus replications. It is planned as several overnight runs, in the order of §9.
 
 ## Change log (before any run)
+
+**Revision 3 (21 Oct 2026),** after a second-round review of revision 2, which included a real-network check (pk012000, seed 500).
+
+**Blocking findings and their fixes:**
+
+| Finding | Fix |
+|---|---|
+| Σ′ blew up in L: its denominator ⟨−g,∇gen⟩ changed sign at 11 of 28 plateau evals | Replaced by $\tilde\Sigma$, whose only denominator is ‖g‖; matched nulls kept (§4) |
+| H5B-2's sign could not tell CLS from circuit efficiency, and decay changes branch weight scale (≈1/wd) and logit scale (≈1/wd²) | Headline is now the scale-invariant composition contrast R = c_L − c_S. Scale-matched memory arms must agree in sign. The circuit-efficiency prediction is dropped as underived; a pure scale account predicts no change in composition (§2.5, §5) |
+| Time routing at α = 0.98 was nearly the identity (6–11°); the manipulation check was ill-posed; the gate was measured on the wrong object; the time split had no null | α fixed at 0.998. The check is the angle alone. The 5C gate uses the û-split. Matched-angle random-rotation nulls for both splits and both branches (§4, §6) |
+
+**Important findings and their fixes:**
+- **The agreement split is not near chance in L.** Density there is about 30%, not 4–15% (corrected §2.4). Matched-density nulls now cover S too, and per-coordinate amplification is reported.
+- **Power.** Seeds are now fixed: 20 for ★ arms, 10 otherwise. The replication uses at least 15 fresh seeds, and totals may exceed 29. Holm families and ★ contrasts are named per study; the "omnibus" is dropped.
+- **Censoring.** 5B runs to a fixed 50,000-step horizon without early stopping, with composition at fixed times.
+- **The isolation arms confounded capacity.** Replaced by an unmasked-L arm (L trained on CE(z₀+z_L)) at equal capacity.
+- **The speed arms were under-specified.** Each branch's lr and wd is now stated per arm, split geometrically around the base.
+- **5C sym arms had no baseline.** Added sym-none.
+
+**Minor fixes:**
+- EMA(û) is named as a second momentum; path efficiency is added.
+- Norm-match scope and the empty-mask fallback are specified.
+- The shuffled-EMA null (memory-heavy) is replaced by the rotation null.
+- The mediator analysis is renamed a sensitivity analysis and excludes whole pairs.
+- 5D's ratio is replaced by Δc_L.
+- Compute is re-estimated.
 
 **Revision 2 (21 Oct 2026),** after two independent reviews of revision 1.
 

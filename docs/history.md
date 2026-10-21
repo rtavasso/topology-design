@@ -148,6 +148,31 @@ The graph set grew to eight: `pk0110` and `pk0121` were added as clean H2 contro
 - Co-location fails at a shared lr, or on a deep-rule task.
 - Migration does not track per-path instability.
 
+## Entry 20 (21 Oct 2026): Phase 5 design — fast and slow paths
+
+**Premise.** Study 4 showed that, in a family where every block sees all information, topology acts only as a preconditioner of first-order learning. Memorization and generalization co-locate, and generalization runs on the weight-decay clock.
+
+The researcher proposed separating them by time constant: a fast path that memorizes, a slow path that generalizes, without masking each other on the shared stream. Possibly with low-frequency gradient routed to the long branch, and consolidation from fast to slow.
+
+**Design:** [experiments/fastslow/DESIGN.md](../experiments/fastslow/DESIGN.md), revision 3, reviewed three times (two independent reviews of revision 1, one of revision 2).
+
+**Decisive findings from the reviews and checks:**
+- Linear time filters cannot select between memorization and generalization.
+- AdamW cancels most pre-optimizer gradient scaling. Two-sided routing reverses the other branch.
+- **Decoupled weight decay is itself the time filter,** with τ = 1/(lr·wd). So per-branch (lr, wd) is the direct implementation of "different time constants".
+- Decay also sets branch weight scale, so role measures must be scale-invariant (the composition c_X).
+- The first split statistics were biased or unstable, and were replaced.
+
+**Decisions:**
+- Study order: measurement of signal and masking (5A); per-branch time constants with a CLS prediction and scale-matched arms (5B, the headline); direction-only routing of the preconditioned update, gated by 5A (5C); function-space consolidation (5D); sequential arrival (5E).
+- All are labeled diagnostics outside the parameter-free family. Their structural factor (chain vs parallel) stays parameter-free.
+- Current repo priority (AGENTS.md: Phase 0) is superseded by the researcher's direction.
+
+**Expected falsifiers:**
+- Composition is unchanged by memory length, or changes only without scale matching.
+- Removing signal masking does not change L's composition.
+- No routed split beats its matched null.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
