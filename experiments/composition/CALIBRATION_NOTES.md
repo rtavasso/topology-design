@@ -50,3 +50,36 @@ Task `addmul`: y = ((a+b) mod p)·c mod p, p = 13. Control `add3`: y = (a+b+c) m
 **Round 4** (`grids/calibrate4.json`, 12 runs, about 30 min): train fraction 0.9, lr 1e-3, weight decay ∈ {1, 3, 10}, pk012 vs pk000, 2 seeds, with the fixed probe and `state_s_frac`. It asks two things:
 - Does stronger decay stabilize the chain? That would be a Study 3 regime without the stability confound, and a direct test of the slingshot lead.
 - Where in the stream does a+b appear?
+
+**Round 4 results** (Mac, 21 Oct; train fraction 0.9, lr 1e-3, 50k steps, 2 seeds):
+
+| arm | wd | grokked | collapses after fit | final total param norm | peak test |
+|---|---|---|---|---|---|
+| pk000 | 1 | 2/2 (13.7k, 49.2k) | 0, 0 | 97, 85 | 0.96, 0.95 |
+| pk000 | 3 | 1/2 (21.1k) | 0, 0 | 84, 85 | 0.96, 0.84 |
+| pk000 | 10 | 0/2 | one run never fit | 73, 74 | 0.48, 0.25 |
+| pk012 | 1 | 0/2 | 24, 24 | 45, 49 | 0.92, 0.90 |
+| pk012 | 3 | 0/2 | 75, 46 | 40, 41 | 0.73, 0.74 |
+| pk012 | 10 | 0/2 | never fits (train ≤ 0.48) | 31, 26 | 0.38, 0.41 |
+
+- **Stronger decay does not stabilize the chain. The slingshot lead from round 3 is refuted in this form.**
+  - At wd 3 the chain collapses *more*, not less. At wd 10 it cannot fit at all.
+  - The chain is also unstable with about **half the parameter norm** of the stable parallel net.
+  - So the chain's instability is not from large weights. It may come from how depth compounds the update (a product of block Jacobians), which Prop. 3 suggests. The direct test is still to measure sharpness.
+- **Where a+b appears (state_s_frac, exact; the probe at chance is 0.08):**
+  - **Parallel net:**
+    - every block writes s-dependent content: state_s_frac rises across the stream, about 0.1, 0.25, 0.45;
+    - s is linearly decodable from every state after h_0, at 0.4–0.65, throughout training.
+    - Each block computes the sum directly from the embeddings, the known one-layer modular-addition solution.
+  - **Chain:**
+    - blocks 1 and 2 write almost nothing s-dependent: state_s_frac stays ≤ 0.08 through h_2;
+    - block 3 adds 0.3–0.4, but s is *not* decodable there (0.11–0.12, chance).
+    - So the last block writes a joint function of (s, c), close to the answer itself, and s never appears as an explicit variable in the stream.
+    - A small, transient s signal is decodable from h_1 at step 500 (0.56) and fades by step 10k (0.14–0.18). Its energy is too small to register in state_s_frac.
+  - **Lead (one task, 2 seeds, and the chain is unstable throughout):** composition depth does *not* make the network build the intermediate as a stage. The parallel net represents s explicitly; the chain does not. The instability may be what prevents a staged solution, so this cannot be read as a topology effect until the chain trains stably.
+- **Consequence for Study 3:** neither lr (round 3) nor weight decay (round 4) gives a stable chain on this task. A fair comparison needs a stabilizer applied identically to every arm. Candidates, roughly from least to most intrusive:
+  1. gradient-norm clipping;
+  2. a small init or 1/L scale on each block's output (ReZero/Fixup style), so that depth does not compound at initialization;
+  3. pre-block LayerNorm.
+
+  LayerNorm is the most realistic option but changes the model that Phase 0 analyzes. The choice is the researcher's.
