@@ -71,12 +71,15 @@ def main():
             tf.add(os.path.join(ROOT, rel), arcname=os.path.join("code", rel))
     json.dump({"title": args.dataset, "id": f"{user}/{args.dataset}", "licenses": [{"name": "CC0-1.0"}]},
               open(os.path.join(ds, "dataset-metadata.json"), "w"))
-    exists = kaggle("datasets", "status", f"{user}/{args.dataset}", check=False).returncode == 0
-    if exists:
-        kaggle("datasets", "version", "-p", ds, "-m", f"code {time.strftime('%Y-%m-%d %H:%M')}")
-    else:
+    # the status call can return 403 for a dataset that does not exist yet, so try a new version first and fall back
+    v = kaggle("datasets", "version", "-p", ds, "-m", f"code {time.strftime('%Y-%m-%d %H:%M')}", check=False)
+    if v.returncode != 0 or "error" in v.stdout.lower() or "not found" in v.stdout.lower():
         kaggle("datasets", "create", "-p", ds)
-    time.sleep(30)  # let the dataset version finish processing
+    for _ in range(30):  # wait until the new dataset version is ready before the kernel mounts it
+        st = kaggle("datasets", "status", f"{user}/{args.dataset}", check=False).stdout.lower()
+        if "ready" in st:
+            break
+        time.sleep(10)
     # 2. GPU script kernel
     kd = os.path.join(tmp, "kernel")
     os.makedirs(kd)

@@ -15,6 +15,9 @@ for t in glob.glob("/kaggle/input/**/code.tar.gz", recursive=True):
     code = os.path.join(W, "code")
 if code is None:  # Kaggle may have auto-extracted the archive
     hits = glob.glob("/kaggle/input/**/src/topology_design/fleet.py", recursive=True)
+    if not hits:
+        print("code not found under /kaggle/input:", glob.glob("/kaggle/input/**", recursive=True)[:50])
+        sys.exit(1)
     code = os.path.dirname(os.path.dirname(os.path.dirname(hits[0])))
 os.chdir(code)
 env = dict(os.environ, PYTHONPATH=os.path.join(code, "src"))
