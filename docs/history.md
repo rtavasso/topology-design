@@ -91,6 +91,30 @@ This is a condensed record. The full v0 reasoning, including every pivot in the 
 - the paired effect does not vanish as $\alpha\to0$, which would mean a confound;
 - the parallel arm deviates from its two-layer prediction, which would mean the anchor itself is wrong.
 
+## Pivot 18 (21 Oct 2026): back to the motivating questions
+
+**Premise.** The researcher flagged that Studies 1–3 had drifted from the program's motivation.
+
+**Evidence of drift:**
+- The outcomes became learning dynamics, not learned structure. Grokking speed (Study 1) and stability ceilings (Study 2) say how fast or how stably a graph trains, not what it learns.
+- Each confound became the next study. Study 3 spent five calibration rounds searching for a task setting where long chains grok.
+- Round 5 proposed gradient clipping and LayerNorm as the setup, which v0 §2 allows only as labeled diagnostics.
+- The composition task presupposed a circuit (a+b computed as a stage), against v0 §7's warning about probing for expected structure.
+
+**Decisions:**
+- **Study 4** ([experiments/paths/PREREGISTRATION.md](../experiments/paths/PREREGISTRATION.md)) asks the three original questions on one shared run set: path roles, long-path learning under short-path friction, and memorization vs generalization.
+- It uses modular addition, which already works, and six graphs linked by single-edge rewirings.
+- Each graph gets its own learning rate in its stable range. No stabilizers.
+- All measurements are exact decompositions of the output function (`grokking.path_measure`): per-path support for the rule on unseen inputs and for train labels through non-rule structure, with signs giving construct, interfere, memorize or destroy; composition dependence by re-evaluating a block on the raw embedding; and total effects of any block subset.
+- The composition study (Study 3) is paused. Round 5 is shelved. Studies 1–2 stand as context: Study 2's ceiling motivates the per-graph lr.
+
+**Rejected alternative:** stabilizing long chains with normalization or clipping. That changes the model class the questions are about.
+
+**Expected falsifiers:**
+- H1 fails: depth does not sort rule vs memorization.
+- H2 fails: an added short reader does not reduce the long blocks' utility.
+- H3 fails: Study 1's composition cost was produced by the shared lr.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

@@ -28,7 +28,7 @@ import torch.nn.functional as F
 from . import grokking as gk
 
 STRUCT_FIELDS = ("p", "d", "hidden", "beta", "out_scale", "train_frac", "steps", "eval_every", "init_scale",
-                 "grok_thresh", "stop_after_grok")
+                 "grok_thresh", "stop_after_grok", "measure_paths")
 
 
 def struct_key(cfg: gk.RunConfig) -> tuple:
@@ -161,7 +161,7 @@ def train_batch(cfgs: list[gk.RunConfig], device: str = "cpu", verbose: bool = F
             for j in range(R):
                 if done[j]:
                     continue
-                rec = {"step": step, **gk.measure(model.single(j), splits[j][0], splits[j][1]),
+                rec = {"step": step, **gk.measure(model.single(j), splits[j][0], splits[j][1], c0.measure_paths),
                        "residual_norm": float(res[j]), "grad_norms": model.group_grad_norms(j)}
                 trajs[j].append(rec)
                 if grok_step[j] is None and rec["test_acc"] >= c0.grok_thresh:

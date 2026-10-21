@@ -89,6 +89,7 @@ class RunConfig:
     init_scale: float = 1.0  # multiplies default init of every parameter
     stop_after_grok: int = 2000  # keep training this many steps after test acc >= grok_thresh (0 = never stop early)
     grok_thresh: float = 0.95
+    measure_paths: bool = True  # record path_measure at each eval (Study 4); off for lr-selection runs
     tag: str = ""
     extra: dict = field(default_factory=dict)
 
@@ -146,7 +147,7 @@ class RoutedMLP(nn.Module):
     def block(self, i: int, h: torch.Tensor) -> torch.Tensor:
         return self.w2[i](F.relu(self.w1[i](h)))
 
-    def forward(self, a, b, alphas: torch.Tensor | None = None, return_parts: bool = False):
+    def forward(self, a, b, alphas: torch.Tensor | None = None, return_parts: bool = False, return_states: bool = False):
         alphas = self.alphas if alphas is None else alphas
         hs = [self.embed_a(a) + self.embed_b(b)]
         writes = []
@@ -156,11 +157,13 @@ class RoutedMLP(nn.Module):
             hs.append(self.beta * hs[-1] + w)
         logits = self.out_scale * self.unembed(hs[-1])
         if not return_parts:
-            return logits
+            return (logits, hs) if return_states else logits
         # exact direct contributions: h_L = beta^L h_0 + sum_i beta^(L-i) w_i
         L = self.L
         parts = [self.out_scale * (self.beta**L) * self.unembed(hs[0])]
         parts += [self.out_scale * (self.beta ** (L - 1 - i)) * self.unembed(w) for i, w in enumerate(writes)]
+        if return_states:
+            return logits, torch.stack(parts), hs
         return logits, torch.stack(parts)  # (L+1, n, p): [embedding path, block 1, ..., block L]
 
     def branch_param_groups(self) -> dict[str, list[nn.Parameter]]:
@@ -209,8 +212,96 @@ def acc(logits: torch.Tensor, y: torch.Tensor) -> float:
     return (logits.argmax(-1) == y).float().mean().item()
 
 
+def _label_logit(Z: torch.Tensor, idx: torch.Tensor, y: torch.Tensor) -> float:
+    """Mean over points idx of Z[i, y_i]. With Z centered over classes this is linear in Z, hence additive over parts."""
+    return Z[idx, y[idx]].mean().item()
+
+
 @torch.no_grad()
-def measure(model: RoutedMLP, tr: torch.Tensor, te: torch.Tensor) -> dict:
+def path_measure(model: RoutedMLP, tr: torch.Tensor, te: torch.Tensor) -> dict:
+    """Exact function-space accounting of what each path does (experiments/paths/PREREGISTRATION.md).
+
+    Components j = 0 (embedding path U h_0) and j = 1..L (block j's direct write). Their centered logits sum exactly to
+    the centered output logits, and the rule projection R (functions of (a+b) mod p) and remainder M = Z - R are linear,
+    so every quantity below is an exact additive decomposition over components:
+      gen[j]  = mean over TEST points of R_j[i, y_i]   support for the correct answer on unseen inputs via the rule
+      mem[j]  = mean over TRAIN points of M_j[i, y_i]  support for the train label via non-rule structure (memorization)
+      noise[j]= mean over TEST points of M_j[i, y_i]   non-rule support on unseen inputs (should be ~0 or negative)
+    Signs carry roles: gen > 0 constructs the rule, gen < 0 interferes with it; mem > 0 memorizes, mem < 0 cancels
+    memorization written elsewhere (destroys). Energy accounting uses the Shapley value of the quadratic energy game,
+    phi_j = <v_j, sum_k v_k> (sums exactly to the total energy; negative = cancels other components).
+
+    Composition dependence of block j (parent k_j >= 1): how much of its write depends on upstream computation, by
+    re-evaluating the same block on the raw embedding: w_j(h_k) - w_j(h_0). Zero by definition for root readers.
+
+    Group ablations remove all depth-1 ("short") or all depth>=2 ("long") blocks from the forward pass (total effect).
+    """
+    p, L = model.p, model.L
+    a, b, y = full_grid(p)
+    logits, parts, hs = model(a, b, return_parts=True, return_states=True)
+    depth = block_depths(model.parents)
+    Zs = [centered(parts[j]) for j in range(L + 1)]
+    Rs = [rule_projection(Z, p) for Z in Zs]
+    Ms = [Z - R for Z, R in zip(Zs, Rs)]
+    Rt, Mt = sum(Rs), sum(Ms)
+    n = p * p
+    out = {
+        "depth": depth,
+        "gen": [_label_logit(R, te, y) for R in Rs],
+        "mem": [_label_logit(M, tr, y) for M in Ms],
+        "noise": [_label_logit(M, te, y) for M in Ms],
+        "gen_total": _label_logit(Rt, te, y),
+        "mem_total": _label_logit(Mt, tr, y),
+        "shap_rule": [float((R * Rt).sum() / n) for R in Rs],
+        "shap_mem": [float((M[tr] * Mt[tr]).sum() / len(tr)) for M in Ms],
+        "own_rule": [float(R.pow(2).sum() / n) for R in Rs],
+        "own_mem": [float(M[tr].pow(2).sum() / len(tr)) for M in Ms],
+        "rule_energy_total": float(Rt.pow(2).sum() / n),
+        "mem_energy_total": float(Mt[tr].pow(2).sum() / len(tr)),
+    }
+    # composition dependence (state space and function space)
+    cd_state, cd_gen, cd_mem = [], [], []
+    for i, k in enumerate(model.parents):
+        if k == 0:
+            cd_state.append(0.0), cd_gen.append(0.0), cd_mem.append(0.0)
+            continue
+        w_k = model.alphas[i] * model.block(i, hs[k])
+        w_0 = model.alphas[i] * model.block(i, hs[0])
+        dw = w_k - w_0
+        cd_state.append(float(dw.pow(2).sum() / w_k.pow(2).sum().clamp_min(1e-12)))
+        Zd = centered(model.out_scale * model.beta ** (L - 1 - i) * model.unembed(dw))
+        Rd = rule_projection(Zd, p)
+        cd_gen.append(_label_logit(Rd, te, y))
+        cd_mem.append(_label_logit(Zd - Rd, tr, y))
+    out["comp_dep_state"], out["comp_dep_gen"], out["comp_dep_mem"] = cd_state, cd_gen, cd_mem
+    # total-effect ablations in function space: single blocks, and the short (depth-1) / long (depth>=2) groups
+    def ablated(sel):
+        al = model.alphas.clone()
+        al[sel] = 0.0
+        lg = model(a, b, alphas=al)
+        Zc = centered(lg)
+        R = rule_projection(Zc, p)
+        return {"train_acc": acc(lg[tr], y[tr]), "test_acc": acc(lg[te], y[te]),
+                "gen": _label_logit(R, te, y), "mem": _label_logit(Zc - R, tr, y)}
+
+    # every non-empty subset of blocks, keyed by a mask string over blocks 1..L (e.g. "0110" = blocks 2 and 3 removed)
+    sets = {}
+    for mask in range(1, 2 ** L):
+        sel = [i for i in range(L) if mask >> i & 1]
+        sets["".join("1" if i in sel else "0" for i in range(L))] = ablated(sel)
+    out["abl_sets"] = sets
+
+    def key(sel):
+        return "".join("1" if i in sel else "0" for i in range(L))
+
+    out["abl_block"] = [sets[key([i])] for i in range(L)]
+    for name, sel in (("short", [i for i in range(L) if depth[i] == 1]), ("long", [i for i in range(L) if depth[i] >= 2])):
+        out[f"abl_{name}"] = sets[key(sel)] if sel else None
+    return out
+
+
+@torch.no_grad()
+def measure(model: RoutedMLP, tr: torch.Tensor, te: torch.Tensor, paths: bool = True) -> dict:
     p = model.p
     a, b, y = full_grid(p)
     logits, parts = model(a, b, return_parts=True)
@@ -257,6 +348,8 @@ def measure(model: RoutedMLP, tr: torch.Tensor, te: torch.Tensor) -> dict:
     E = torch.cat([model.embed_a.weight, model.embed_b.weight], dim=1)  # (p, 2d)
     power = torch.fft.rfft(E - E.mean(0), dim=0).abs().pow(2).sum(1)[1:]
     out["embed_top5_freq_frac"] = (power.sort(descending=True).values[:5].sum() / power.sum()).item()
+    if paths:
+        out["paths"] = path_measure(model, tr, te)
     return out
 
 
@@ -297,7 +390,7 @@ def train_run(cfg: RunConfig, verbose: bool = False) -> dict:
             break
         loss.backward()
         if step % cfg.eval_every == 0:
-            rec = {"step": step, **measure(model, tr, te), **grad_stats(model, loss, logits.detach(), ytr)}
+            rec = {"step": step, **measure(model, tr, te, cfg.measure_paths), **grad_stats(model, loss, logits.detach(), ytr)}
             traj.append(rec)
             if verbose:
                 print(f"{cfg.run_id} step {step} train {rec['train_acc']:.3f} test {rec['test_acc']:.3f} "

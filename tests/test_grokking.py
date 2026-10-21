@@ -109,3 +109,68 @@ def test_stable_flag_on_benign_run():
                        lr=3e-3, weight_decay=0.1, train_frac=0.8)
     s = gk.train_run(cfg)["summary"]
     assert s["diverged_at"] is None and s["post_fit_min_train_acc"] >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# path_measure (experiments/paths): exactness of the function-space accounting
+# ---------------------------------------------------------------------------
+
+
+def _trained(arm, steps=60, p=11):
+    cfg = gk.RunConfig(arm=arm, p=p, d=16, hidden=32, lr=3e-3, steps=steps, eval_every=steps, stop_after_grok=0)
+    model = gk.build_model(cfg)
+    tr, te = gk.split(p, 0.4, 0)
+    a, b, y = gk.full_grid(p)
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=1.0)
+    for _ in range(steps):
+        opt.zero_grad()
+        torch.nn.functional.cross_entropy(model(a[tr], b[tr]), y[tr]).backward()
+        opt.step()
+    return model, tr, te
+
+
+def test_path_measure_is_an_exact_additive_decomposition():
+    for arm in ("pk0000", "pk0120", "pk0123"):
+        model, tr, te = _trained(arm)
+        pm = gk.path_measure(model, tr, te)
+        a, b, y = gk.full_grid(model.p)
+        Zc = gk.centered(model(a, b))
+        R = gk.rule_projection(Zc, model.p)
+        M = Zc - R
+        assert abs(sum(pm["gen"]) - R[te, y[te]].mean().item()) < 1e-4
+        assert abs(sum(pm["gen"]) - pm["gen_total"]) < 1e-4 and abs(sum(pm["mem"]) - pm["mem_total"]) < 1e-4
+        assert abs(sum(pm["mem"]) - M[tr, y[tr]].mean().item()) < 1e-4
+        # Shapley energies sum to the total energy
+        assert abs(sum(pm["shap_rule"]) - pm["rule_energy_total"]) < 1e-4 * max(1.0, pm["rule_energy_total"])
+        assert abs(sum(pm["shap_mem"]) - pm["mem_energy_total"]) < 1e-4 * max(1.0, pm["mem_energy_total"])
+        assert len(pm["gen"]) == model.L + 1 and pm["depth"] == gk.block_depths(model.parents)
+
+
+def test_composition_dependence_zero_for_root_readers_and_positive_in_chain():
+    model, tr, te = _trained("pk0000")
+    pm = gk.path_measure(model, tr, te)
+    assert pm["comp_dep_state"] == [0.0] * 4 and pm["abl_long"] is None and pm["abl_short"] is not None
+    model, tr, te = _trained("pk0123")
+    pm = gk.path_measure(model, tr, te)
+    assert pm["comp_dep_state"][0] == 0.0 and all(v > 0 for v in pm["comp_dep_state"][1:])
+    assert pm["abl_long"] is not None
+
+
+def test_group_ablation_matches_manual_alpha_zeroing():
+    model, tr, te = _trained("pk0120")  # depths 1,2,3,1: short = blocks 1 and 4
+    pm = gk.path_measure(model, tr, te)
+    a, b, y = gk.full_grid(model.p)
+    al = model.alphas.clone()
+    al[[0, 3]] = 0.0
+    lg = model(a, b, alphas=al)
+    assert pm["abl_short"]["test_acc"] == gk.acc(lg[te], y[te])
+    al = model.alphas.clone()
+    al[1] = 0.0
+    assert pm["abl_block"][1]["test_acc"] == gk.acc(model(a, b, alphas=al)[te], y[te]) and len(pm["abl_block"]) == 4
+    assert len(pm["abl_sets"]) == 15 and pm["abl_sets"]["1001"] == pm["abl_short"] and pm["abl_sets"]["0110"] == pm["abl_long"]
+    al = model.alphas.clone()
+    al[[1, 2]] = 0.0
+    lg = model(a, b, alphas=al)
+    Zc = gk.centered(lg)
+    assert abs(pm["abl_sets"]["0110"]["gen"] - gk.rule_projection(Zc, model.p)[te, y[te]].mean().item()) < 1e-5
+    assert "paths" in gk.measure(model, tr, te)

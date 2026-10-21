@@ -90,3 +90,9 @@ Task `addmul`: y = ((a+b) mod p)·c mod p, p = 13. Control `add3`: y = (a+b+c) m
 - pre-block LayerNorm.
 
 The gradient norm is now logged at each eval. Question: which stabilizer removes the chain's collapses with the least change to the model?
+
+**Status (21 Oct): paused; round 5 not run.** Two reasons:
+- Its stabilizers (clipping, LayerNorm) would change the model class, which v0 §2 allows only as labeled diagnostics.
+- The task presupposes a circuit.
+
+The program returned to its motivating questions in Study 4 (`experiments/paths/`); see docs/history.md, Pivot 18. The stabilizer options stay in the code, off by default, for later diagnostic use.

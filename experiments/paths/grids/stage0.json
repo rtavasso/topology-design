@@ -1,0 +1,7 @@
+{"_note": "Study 4 Stage 0: per-graph lr selection (see PREREGISTRATION.md). Path measurements off.",
+ "base": {"p": 59, "train_frac": 0.4, "d": 128, "hidden": 256, "weight_decay": 1.0, "steps": 40000, "eval_every": 100,
+          "stop_after_grok": 1000, "measure_paths": false, "tag": "paths0"},
+ "tie_data_seed": true,
+ "vary": {"arm": ["pk0000", "pk0100", "pk0111", "pk0120", "pk0122", "pk0123"],
+          "lr": [0.0005, 0.001, 0.002, 0.004, 0.008],
+          "model_seed": [400, 401, 402]}}
