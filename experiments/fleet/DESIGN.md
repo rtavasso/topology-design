@@ -26,7 +26,10 @@ They must share: p, d, hidden, the number of blocks L, the task family, the trai
 
 - **Initialization:** each run's initial weights are copied from `grokking.build_model`, so they are bit-identical to the single-run trainer and to Studies 1–4.
 - **Optimizer:** `FleetAdamW` has `torch.optim.AdamW` semantics (betas 0.9 and 0.98, eps 1e-8, decoupled decay), with per-run, per-tensor lr and wd. It is tested against torch AdamW with parameter groups.
-- **Floating point:** batched and single matrix products sum in a different order. Parameters agree to about 1e-6 for the first steps and drift to about 3e-5 by step 25. Chaotic phases (collapses) therefore diverge between devices. Device validation is statistical (`validate_gpu.py`), not trajectory-exact.
+- **Floating point:**
+  - In **float64**, the fleet reproduces `grokking.train_run` exactly for step lists, $t_\text{fit}$, $t_\text{grok}$ and divergence steps. Losses agree to about 1e-12 until chaotic collapse phases amplify summation-order differences (around step 1,300 in the test). Tested with mixed graphs, dense evals, stop-after-grok, compaction and a diverging run.
+  - In **float32**, batched and single matrix products sum in a different order. Parameters agree to about 1e-6 for the first steps and drift to about 3e-5 by step 25, so chaotic phases diverge between devices.
+  - Device validation is therefore seed-paired and statistical (`validate_gpu.py`), not trajectory-exact.
 - **CUDA:** TF32 is off by default, for exactness. `--allow-tf32` is faster on Ampere and later GPUs.
 
 ## Measurement on the device
@@ -44,12 +47,26 @@ Every eval runs, for all runs at once, a forward pass over the full input grid, 
 
 Only small per-run arrays are copied to the host.
 
-**Per-eval cost:** 1 + L + (branches + 1) grid forward passes. All of these are tested equal to `grokking.path_measure` and `grokking.measure` on the same weights.
+**Per-eval cost:** 1 + L + (branches + 1) grid forward passes, about 6× a training step on CPU.
+
+**Tested equal to the reference** on the same weights:
+- `grokking.path_measure` gen and mem;
+- `grokking.measure` loss and accuracy;
+- single-block and branch ablations;
+- the test-only rule fraction;
+- gradient norms;
+- invariance to chunk size.
+
+Exception and rule-train quantities and `part_rms` were cross-checked manually by the code review.
+
+Sets that are empty, such as exceptions on plain `modadd`, are recorded as `null`, not 0.
 
 ## No per-step synchronisation
 
 - Divergence (a non-finite loss) and early stopping are tracked in device tensors, and read only at evals.
-- A diverged or finished run is frozen: its lr is set to 0, so it gets no step and no decay. Its loss is excluded, so it cannot contaminate other runs. Tested.
+- A diverged or finished run is **frozen exactly**: its parameters and optimizer moments are left unchanged, even if its gradients are NaN. Its loss is excluded, so it cannot contaminate other runs. Tested.
+- **Compaction:** when the active fraction of a batch falls below one half, the batch is shrunk to its active runs (parameters, moments, hyperparameters, data). A batch's wall time therefore no longer waits on idle runs.
+- The driver also sorts each batch group by learning rate, so runs of similar length share a batch.
 
 ## Tasks
 
@@ -71,6 +88,10 @@ These are planned on top of this core:
 The loss is computed in one place and the optimizer exposes the preconditioned update, so each is a local change.
 
 ## Running it
+
+**Run identity.** `run_id` is a readable prefix plus a hash of *every* config field. Changing the horizon, width or branches can never reuse or overwrite stale results, and the driver rejects duplicate configurations.
+
+**Summary schema.** The summary uses the same keys as `grokking.stability_summary` where they overlap: t_fit, t_grok, stable, and post_fit_min_train_acc (0 for diverged runs). It adds n_collapses and final_rule_frac_test. Trajectory records are flat, with no `paths` sub-dict, so `paths/analyze.py` would need a small adapter.
 
 **Local** (CPU, or Apple GPU via MPS):
 
@@ -98,4 +119,11 @@ Kaggle's preinstalled torch is used. For a private repository, use a Kaggle secr
 
 1. `tests/test_fleet.py` passes on the target device. The MPS and CUDA equivalence tests run automatically when the device exists.
 2. `bench_fleet.py`: run-steps per second against R, to choose `--max-batch`.
-3. `validate_gpu.py`: Study 4 Stage-0 cells re-run on the device. Median grokking steps should match the CPU reference within the seed-to-seed spread.
+3. `validate_gpu.py` re-runs Study 4's Stage-1 graphs on the device (by default pk0000, pk0100 and pk0111; 10 seeds each, at their selected lrs) and compares per seed with the CPU runs in `experiments/paths/results_data/compact.json.gz`. It exits non-zero unless:
+   - $t_\text{fit}$ matches exactly in at least 80% of runs (a non-chaotic phase);
+   - for each graph, the median |Δ$t_\text{grok}$| is within the CPU seed IQR (or 10% of the median);
+   - there is at most one grok/no-grok disagreement.
+
+**Known costs, not yet optimized:**
+- In mixed-graph batches, choosing parents stacks the earlier states (about 10% per step on CPU).
+- Ablations recompute the full forward pass.

@@ -45,6 +45,14 @@ def _fleet_after(cfgs, steps):
     return f
 
 
+def _grid(tasks):
+    grid = {"a": tasks[0]["a"], "b": tasks[0]["b"], "key": tasks[0]["key"], "y": torch.stack([t["y"] for t in tasks]),
+            "n_key": torch.bincount(tasks[0]["key"], minlength=int(tasks[0]["key"].max()) + 1)}
+    for s in ("train", "test", "exc", "rule_train"):
+        grid[s] = torch.stack([t[s] for t in tasks])
+    return grid
+
+
 def _assert_same(f, j, single, atol=2e-5, rtol=2e-4):
     for (name, ps), pb in zip(single.named_parameters(), f.single(j).parameters()):
         torch.testing.assert_close(pb, ps, atol=atol, rtol=rtol, msg=f"run {j} param {name}")
@@ -56,6 +64,7 @@ def test_mixed_graphs_hyperparams_and_exceptions_match_single_runs():
         fl.FleetConfig(arm="pk0120", model_seed=1, data_seed=3, lr=3e-3, weight_decay=0.3, **SMALL),
         fl.FleetConfig(arm="pk0123", model_seed=2, data_seed=1, lr=2e-3, weight_decay=0.0, alphas=(1.0, 0.5, 2.0, 1.0),
                        out_scale=2.0, **SMALL),
+        fl.FleetConfig(arm="pk0111", model_seed=4, data_seed=2, beta=0.9, init_scale=0.5, **SMALL),
     ]
     f = _fleet_after(cfgs, 25)
     for j, c in enumerate(cfgs):
@@ -100,12 +109,11 @@ def test_measurement_matches_single_run_measures_and_is_chunk_invariant():
             for s, a in enumerate(("pk0120", "pk0000", "pk0123"))]
     f = _fleet_after(cfgs, 30)
     tasks = [fl.build_task(c) for c in cfgs]
-    grid = {"a": tasks[0]["a"], "b": tasks[0]["b"], "key": tasks[0]["key"], "y": torch.stack([t["y"] for t in tasks])}
-    for s in ("train", "test", "exc", "rule_train"):
-        grid[s] = torch.stack([t[s] for t in tasks])
+    grid = _grid(tasks)
     m_big, m_small = fl.measure(f, grid, chunk=4096), fl.measure(f, grid, chunk=7)
     for k in m_big:
-        torch.testing.assert_close(m_big[k], m_small[k], atol=1e-4, rtol=1e-4, msg=k)
+        torch.testing.assert_close(m_big[k], m_small[k], atol=1e-4, rtol=1e-4, msg=k, equal_nan=True)
+    assert torch.isnan(m_big["exc_acc"]).all()  # no exceptions -> undefined, not 0
     for j, t in enumerate(tasks):
         single = f.single(j)
         pm = gk.path_measure(single, t["tr"], t["te"])
@@ -192,3 +200,75 @@ def test_cuda_matches_cpu():
     for c, g in zip(cpu, gpu):
         for rc, rg in zip(c["trajectory"][:3], g["trajectory"][:3]):
             assert rg["train_loss"] == pytest.approx(rc["train_loss"], rel=1e-3, abs=1e-4)
+
+
+def test_float64_long_horizon_matches_single_trainer_exactly():
+    """In float64 the fleet trainer reproduces grokking.train_run step lists, t_fit and t_grok exactly, with mixed
+    graphs (parents differ at the same block index), dense early evals, stop_after_grok, compaction and a diverging run."""
+    old = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+    try:
+        small = dict(p=11, d=32, hidden=64, steps=1500, eval_every=50, dense_early=True, stop_after_grok=100,
+                     train_frac=0.8)
+        cfgs = [fl.FleetConfig(arm=a, model_seed=s, data_seed=s, lr=lr, weight_decay=1.0, **small)
+                for s, (a, lr) in enumerate([("pk0000", 1e-2), ("pk0120", 1e-2), ("pk0111", 5e-3), ("pk0123", 300.0)])]
+        outs = fl.train_fleet(cfgs, compact_below=0.9)
+        for c, o in zip(cfgs, outs):
+            ref = gk.train_run(gk.RunConfig(arm=c.arm, p=c.p, d=c.d, hidden=c.hidden, train_frac=c.train_frac,
+                                            steps=c.steps, eval_every=c.eval_every, dense_early=True,
+                                            stop_after_grok=c.stop_after_grok, model_seed=c.model_seed,
+                                            data_seed=c.data_seed, lr=c.lr, weight_decay=c.weight_decay,
+                                            measure_paths=False))
+            assert [r["step"] for r in o["trajectory"]] == [r["step"] for r in ref["trajectory"]], c.arm
+            for k in ("t_fit", "t_grok"):
+                assert o["summary"][k] == ref["summary"][k], (c.arm, k)
+            if ref["summary"]["diverged_at"] is not None:
+                assert o["summary"]["diverged_at"] is not None and o["summary"]["post_fit_min_train_acc"] == 0.0
+            # losses agree to ~1e-12 until chaotic collapse phases amplify summation-order differences (~step 1300 here)
+            for rb, rs in zip(o["trajectory"], ref["trajectory"]):
+                if rb["step"] <= 1000:
+                    assert rb["train_loss"] == pytest.approx(rs["train_loss"], rel=1e-9, abs=1e-10)
+        assert any(o["summary"]["t_grok"] is not None for o in outs)  # the check exercised stop_after_grok
+    finally:
+        torch.set_default_dtype(old)
+
+
+def test_inactive_runs_are_frozen_exactly():
+    cfgs = [fl.FleetConfig(arm="pk0120", model_seed=s, data_seed=s, **SMALL) for s in range(2)]
+    f = fl.Fleet(cfgs)
+    opt = fl.FleetAdamW(f)
+    t = [fl.build_task(c) for c in cfgs]
+    tr = torch.stack([x["tr"] for x in t])
+    a, b = t[0]["a"], t[0]["b"]
+    Y = torch.stack([x["y"] for x in t]).gather(1, tr)
+    before = {k: v.detach().clone() for k, v in f.params.items()}
+    opt.zero_grad()
+    lg = f.forward(a[tr], b[tr])
+    torch.nn.functional.cross_entropy(lg.reshape(-1, lg.shape[-1]), Y.reshape(-1)).backward()
+    for p in f.params.values():
+        p.grad[1] = float("nan")  # run 1 has NaN gradients and is inactive
+    opt.step(torch.tensor([True, False]))
+    for k, v in f.params.items():
+        assert torch.equal(v[1], before[k][1]) and not torch.equal(v[0], before[k][0])
+        assert torch.isfinite(opt.m[k]).all()
+
+
+def test_run_ids_are_unique_across_any_field():
+    a, b = fl.FleetConfig(steps=40000), fl.FleetConfig(steps=10000)
+    assert a.run_id != b.run_id
+    assert fl.FleetConfig(branches=((1, 2), (3, 4))).run_id != fl.FleetConfig().run_id
+
+
+def test_grad_norms_match_reference():
+    cfg = fl.FleetConfig(arm="pk0120", model_seed=1, data_seed=1, **SMALL)
+    f = fl.Fleet([cfg])
+    t = fl.build_task(cfg)
+    lg = f.forward(t["a"][t["tr"]][None], t["b"][t["tr"]][None])
+    torch.nn.functional.cross_entropy(lg[0], t["y"][t["tr"]]).backward()
+    m = gk.build_model(gk.RunConfig(arm=cfg.arm, p=cfg.p, d=cfg.d, hidden=cfg.hidden, model_seed=cfg.model_seed))
+    loss = torch.nn.functional.cross_entropy(m(t["a"][t["tr"]], t["b"][t["tr"]]), t["y"][t["tr"]])
+    loss.backward()
+    gn = fl.grad_norms(f)[0]
+    for i in range(4):
+        r = (m.w1[i].weight.grad.pow(2).sum() + m.w2[i].weight.grad.pow(2).sum()).sqrt()
+        assert abs(float(gn[i]) - float(r)) < 1e-5

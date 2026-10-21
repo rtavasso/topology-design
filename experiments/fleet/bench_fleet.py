@@ -61,24 +61,32 @@ def main():
         active = torch.ones(R, dtype=torch.bool, device=dev)
         n = tr.shape[1]
 
-        def step():
+        grid["n_key"] = torch.bincount(tasks[0]["key"], minlength=cfgs[0].p).to(dev)
+
+        def step():  # identical work to train_fleet's step (including divergence masking)
             opt.zero_grad()
             lg = f.forward(a[tr], b[tr])
-            F.cross_entropy(lg.reshape(R * n, -1), Y.reshape(-1), reduction="none").view(R, n).mean(1).sum().backward()
+            per = F.cross_entropy(lg.reshape(R * n, -1), Y.reshape(-1), reduction="none").view(R, n).mean(1)
+            torch.where(active & torch.isfinite(per), per, torch.zeros_like(per)).sum().backward()
             opt.step(active)
 
-        for _ in range(3):
-            step()
-        sync(dev)
-        t = time.time()
-        for _ in range(args.steps):
-            step()
-        sync(dev)
-        ms = (time.time() - t) / args.steps * 1000
-        t = time.time()
-        fl.measure(f, grid)
-        sync(dev)
-        ev = (time.time() - t) * 1000
+        try:
+            for _ in range(3):
+                step()
+            fl.measure(f, grid)  # warm-up
+            sync(dev)
+            t = time.time()
+            for _ in range(args.steps):
+                step()
+            sync(dev)
+            ms = (time.time() - t) / args.steps * 1000
+            t = time.time()
+            fl.measure(f, grid)
+            sync(dev)
+            ev = (time.time() - t) * 1000
+        except RuntimeError as e:  # out of memory at this batch size
+            print(f"R={R}: {str(e)[:120]}")
+            break
         print(f"R={R:4d}: {ms:8.2f} ms/step  {R * 1000 / ms:9.0f} run-steps/s  "
               f"{ms / R:7.3f} ms per run-step  eval {ev:8.1f} ms ({ev / R:.2f} ms/run)", flush=True)
         del f, opt

@@ -52,6 +52,8 @@ def expand(grid: dict) -> list[fl.FleetConfig]:
         if grid.get("tie_data_seed"):
             kw["data_seed"] = kw["model_seed"]
         cfgs.append(fl.FleetConfig(**_tuplify(kw)))
+    ids = [c.run_id for c in cfgs]
+    assert len(ids) == len(set(ids)), "duplicate configurations in grid"
     return cfgs
 
 
@@ -71,6 +73,7 @@ def batches(cfgs: list[fl.FleetConfig], max_batch: int) -> list[list[fl.FleetCon
         groups.setdefault(fl.struct_key(c), []).append(c)
     out = []
     for g in groups.values():
+        g = sorted(g, key=lambda c: (c.lr, c.weight_decay, c.arm))  # similar run lengths together: less idle compute
         out += [g[i:i + max_batch] for i in range(0, len(g), max_batch)]
     return out
 
@@ -82,12 +85,16 @@ def main():
     ap.add_argument("--device", default="auto")
     ap.add_argument("--max-batch", type=int, default=0, help="runs per batch (0 = 256 cuda / 64 mps / 16 cpu)")
     ap.add_argument("--allow-tf32", action="store_true", help="faster on Ampere+ GPUs, less exact")
+    ap.add_argument("--deterministic", action="store_true", help="bitwise-reproducible CUDA (slower)")
     ap.add_argument("--dry", action="store_true")
     args = ap.parse_args()
     dev = pick_device(args.device)
     if dev == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = args.allow_tf32
         torch.backends.cudnn.allow_tf32 = args.allow_tf32
+        if args.deterministic:
+            os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+            torch.use_deterministic_algorithms(True)
     mb = args.max_batch or {"cuda": 256, "mps": 64}.get(dev, 16)
     cfgs = expand(json.load(open(args.grid)))
     os.makedirs(args.out, exist_ok=True)

@@ -82,6 +82,11 @@ class FleetConfig:
         parts += [f"m{self.model_seed}", f"d{self.data_seed}"]
         if self.tag:
             parts.append(self.tag)
+        # every field enters a short hash, so configs differing in anything (horizon, width, branches, ...) never collide
+        import hashlib
+        import json as _json
+        h = hashlib.sha1(_json.dumps(asdict(self), sort_keys=True, default=str).encode()).hexdigest()[:8]
+        parts.append(h)
         return "_".join(parts)
 
 
@@ -150,8 +155,7 @@ class Fleet:
         dt = singles[0].unembed.weight.dtype
         self.dtype = dt
         self.parents = torch.tensor([gk.arm_spec(c.arm)[0] for c in cfgs], dtype=torch.long, device=dev)  # (R, L)
-        self.shared_parents = [int(self.parents[0, i]) if bool((self.parents[:, i] == self.parents[0, i]).all())
-                               else None for i in range(self.L)]
+        self._refresh_shared_parents()
         self.alphas = torch.tensor([list(c.alphas) if c.alphas else list(gk.arm_spec(c.arm)[1]) for c in cfgs],
                                    dtype=dt, device=dev)  # (R, L)
         self.beta = torch.tensor([c.beta for c in cfgs], dtype=dt, device=dev)
@@ -176,6 +180,21 @@ class Fleet:
                 self.lr_t[k], self.wd_t[k] = lr * blr[:, i], wd * bwd[:, i]
             else:
                 self.lr_t[k], self.wd_t[k] = lr.clone(), wd.clone()
+
+    def _refresh_shared_parents(self):
+        self.shared_parents = [int(self.parents[0, i]) if bool((self.parents[:, i] == self.parents[0, i]).all())
+                               else None for i in range(self.L)]
+
+    def subset(self, idx: torch.Tensor):
+        """Keep only runs `idx` (a LongTensor on the device), in place. Used to compact a batch when runs finish."""
+        self.cfgs = [self.cfgs[int(j)] for j in idx.tolist()]
+        self.R = len(self.cfgs)
+        for k in list(self.params):
+            self.params[k] = self.params[k].detach()[idx].clone().requires_grad_(True)
+            self.lr_t[k], self.wd_t[k] = self.lr_t[k][idx], self.wd_t[k][idx]
+        self.parents, self.alphas = self.parents[idx], self.alphas[idx]
+        self.beta, self.out_scale = self.beta[idx], self.out_scale[idx]
+        self._refresh_shared_parents()
 
     def _select_parent(self, hs: list[torch.Tensor], i: int) -> torch.Tensor:
         k = self.shared_parents[i]
@@ -242,23 +261,40 @@ class FleetAdamW:
         self.v = {k: torch.zeros_like(v) for k, v in fleet.params.items()}
         self.t = 0
 
+    def subset(self, idx: torch.Tensor):
+        for k in list(self.m):
+            self.m[k], self.v[k] = self.m[k][idx], self.v[k][idx]
+
     @torch.no_grad()
     def step(self, active: torch.Tensor):
+        """Inactive runs are frozen exactly: parameters and moments unchanged (even if their gradients are NaN)."""
         self.t += 1
         bc1 = 1 - self.b1 ** self.t
         bc2_sqrt = (1 - self.b2 ** self.t) ** 0.5
-        act = active.to(self.f.dtype)
+        all_active = bool(active.all()) if active.numel() < 4096 else False
         for k, p in self.f.params.items():
             if p.grad is None:
                 continue
             shape = (-1,) + (1,) * (p.dim() - 1)
-            lr = (self.f.lr_t[k] * act).view(shape)
+            lr = self.f.lr_t[k].view(shape)
             wd = self.f.wd_t[k].view(shape)
-            p.mul_(1 - lr * wd)
-            self.m[k].lerp_(p.grad, 1 - self.b1)
-            self.v[k].mul_(self.b2).addcmul_(p.grad, p.grad, value=1 - self.b2)
-            denom = (self.v[k].sqrt() / bc2_sqrt).add_(self.eps)
-            p.sub_((lr / bc1) * self.m[k] / denom)
+            g = p.grad
+            if all_active:
+                p.mul_(1 - lr * wd)
+                self.m[k].lerp_(g, 1 - self.b1)
+                self.v[k].mul_(self.b2).addcmul_(g, g, value=1 - self.b2)
+                denom = (self.v[k].sqrt() / bc2_sqrt).add_(self.eps)
+                p.sub_((lr / bc1) * self.m[k] / denom)
+            else:
+                act = active.view(shape)
+                g = torch.where(act, g, torch.zeros_like(g))
+                m_new = torch.lerp(self.m[k], g, 1 - self.b1)
+                v_new = self.v[k] * self.b2 + (1 - self.b2) * g * g
+                denom = (v_new.sqrt() / bc2_sqrt).add_(self.eps)
+                p_new = p * (1 - lr * wd) - (lr / bc1) * m_new / denom
+                p.copy_(torch.where(act, p_new, p))
+                self.m[k] = torch.where(act, m_new, self.m[k])
+                self.v[k] = torch.where(act, v_new, self.v[k])
 
     def zero_grad(self):
         for p in self.f.params.values():
@@ -287,7 +323,7 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
     N = grid["a"].shape[0]
     dt = fleet.dtype
     z = lambda *shape: torch.zeros(*shape, device=dev, dtype=dt)
-    cnt = {s: grid[s].to(dt).sum(1).clamp_min(1.0) for s in sets}  # (R,)
+    cnt = {s: grid[s].to(dt).sum(1) for s in sets}  # (R,); an empty set (no exceptions) gives NaN -> None in records
     acc = {f"{s}_{m}": z(R) for s in sets for m in ("loss", "acc")}
     lab_sum = {s: z(R, L + 1) for s in sets}
     energy = z(R, L + 1)
@@ -362,7 +398,7 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
     out["rule_train_support"] = sup["rule_train"]
     out["part_rms"] = (energy / (N * p)).sqrt()
     # test-only rule projection: each grid point gets its key's test-mean; energy = sum_key N_key * |mu_key|^2
-    n_key = torch.bincount(grid["key"], minlength=p).to(rule_sum.dtype)  # grid points per key
+    n_key = grid["n_key"].to(rule_sum.dtype)  # grid points per key (precomputed on the host)
     mu = rule_sum / rule_cnt.clamp_min(1.0).unsqueeze(-1)
     out["rule_frac_test"] = (n_key.view(1, -1) * mu.pow(2).sum(-1)).sum(1) / zc_energy.clamp_min(1e-12)
     nb = L
@@ -399,14 +435,18 @@ def weight_norms(fleet: Fleet) -> torch.Tensor:
 # ---------------------------------------------------------------------------
 
 
-def _record(meas: dict, gn: torch.Tensor, wn: torch.Tensor, j: int, step: int, L: int) -> dict:
-    g = lambda k: meas[k][j].tolist() if meas[k].dim() > 1 else float(meas[k][j])
-    rec = {"step": step}
-    for k, v in meas.items():
-        rec[k] = g(k)
-    rec["grad_norms"] = gn[j].tolist()
-    rec["weight_norms"] = wn[j].tolist()
-    return rec
+def _clean(x):
+    if isinstance(x, list):
+        return [_clean(v) for v in x]
+    return None if (isinstance(x, float) and math.isnan(x)) else x
+
+
+def _records(meas: dict, gn: torch.Tensor, wn: torch.Tensor, step: int) -> list[dict]:
+    """One bulk host transfer per quantity; NaN (e.g. exception metrics without exceptions) becomes None."""
+    cols = {k: _clean(v.tolist()) for k, v in meas.items()}
+    cols["grad_norms"], cols["weight_norms"] = gn.tolist(), wn.tolist()
+    R = len(cols["grad_norms"])
+    return [{"step": step, **{k: v[j] for k, v in cols.items()}} for j in range(R)]
 
 
 def summarize(traj: list[dict], cfg: FleetConfig, diverged_at: int | None) -> dict:
@@ -415,34 +455,50 @@ def summarize(traj: list[dict], cfg: FleetConfig, diverged_at: int | None) -> di
     post = [r["train_acc"] for r in traj if t_fit is not None and r["step"] >= t_fit]
     n_coll = sum(1 for i in range(1, len(post)) if post[i] < 0.9 <= post[i - 1])
     last = traj[-1] if traj else {}
+    post_min = 0.0 if (diverged_at is not None or t_fit is None or not post) else min(post)  # as gk.stability_summary
     return {"t_fit": t_fit, "t_grok": t_grok,
             "grok_delay": (t_grok - t_fit) if (t_fit is not None and t_grok is not None) else None,
             "grokked": t_grok is not None, "final_train_acc": last.get("train_acc"),
             "final_test_acc": last.get("test_acc"), "final_exc_acc": last.get("exc_acc"),
-            "post_fit_min_train_acc": min(post) if post else 0.0, "n_collapses": n_coll,
-            "stable": diverged_at is None and t_fit is not None and bool(post) and min(post) >= 0.9,
+            "final_rule_frac_test": last.get("rule_frac_test"),
+            "post_fit_min_train_acc": post_min, "n_collapses": n_coll,
+            "stable": diverged_at is None and t_fit is not None and post_min >= 0.9,
             "diverged_at": diverged_at, "steps_run": last.get("step")}
 
 
-def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int = 1024, verbose: bool = False) -> list[dict]:
+def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int = 1024, verbose: bool = False,
+                compact_below: float = 0.5) -> list[dict]:
+    """Train all runs together. Finished (stop_after_grok) and diverged runs are frozen; when the active fraction
+    falls below `compact_below`, the batch is compacted to the active runs so their compute is not wasted."""
     t0 = time.time()
     fleet = Fleet(cfgs, device)
-    dev, R, c0 = fleet.device, fleet.R, cfgs[0]
+    dev, c0 = fleet.device, cfgs[0]
+    R0 = fleet.R
+    n_params = fleet.n_params
     tasks = [build_task(c) for c in cfgs]
     grid = {"a": tasks[0]["a"].to(dev), "b": tasks[0]["b"].to(dev), "key": tasks[0]["key"].to(dev),
+            "n_key": torch.bincount(tasks[0]["key"], minlength=c0.p).to(dev),
             "y": torch.stack([t["y"] for t in tasks]).to(dev)}
     for s in ("train", "test", "exc", "rule_train"):
         grid[s] = torch.stack([t[s] for t in tasks]).to(dev)
     tr = torch.stack([t["tr"] for t in tasks]).to(dev)  # (R, n): same n for all runs (same train_frac)
-    A, B = grid["a"][tr], grid["b"][tr]
-    Y = grid["y"].gather(1, tr)
     opt = FleetAdamW(fleet)
-    active = torch.ones(R, dtype=torch.bool, device=dev)
-    div_step = torch.full((R,), -1, dtype=torch.long, device=dev)
-    grok_step = [None] * R
-    trajs: list[list[dict]] = [[] for _ in range(R)]
+    orig = list(range(R0))  # current batch position -> original run index
+    active = torch.ones(R0, dtype=torch.bool, device=dev)
+    div_step = torch.full((R0,), -1, dtype=torch.long, device=dev)
+    grok_step: list[int | None] = [None] * R0
+    finished = [False] * R0
+    diverged: list[int | None] = [None] * R0
+    trajs: list[list[dict]] = [[] for _ in range(R0)]
+
+    def batch_inputs():
+        A, B = grid["a"][tr], grid["b"][tr]
+        return A, B, grid["y"].gather(1, tr)
+
+    A, B, Y = batch_inputs()
     n = A.shape[1]
     for step in range(c0.steps + 1):
+        R = fleet.R
         opt.zero_grad()
         logits = fleet.forward(A, B)
         per_run = F.cross_entropy(logits.reshape(R * n, -1), Y.reshape(-1), reduction="none").view(R, n).mean(1)
@@ -452,29 +508,49 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
         torch.where(active, per_run, torch.zeros_like(per_run)).sum().backward()
         if is_eval_step(step, c0):
             meas = measure(fleet, grid, measure_chunk)
-            gn, wn = grad_norms(fleet), weight_norms(fleet)
-            meas = {k: v.detach().cpu() for k, v in meas.items()}
-            gn, wn, act, divs = gn.cpu(), wn.cpu(), active.cpu(), div_step.cpu()
+            recs = _records({k: v.detach().cpu() for k, v in meas.items()}, grad_norms(fleet).cpu(),
+                            weight_norms(fleet).cpu(), step)
+            act, divs = active.cpu().tolist(), div_step.cpu().tolist()
             for j in range(R):
-                if not bool(act[j]) and (divs[j] >= 0 or (grok_step[j] is not None and c0.stop_after_grok)):
+                o = orig[j]
+                if divs[j] >= 0 and diverged[o] is None:
+                    diverged[o] = divs[j]
+                if not act[j]:
                     continue
-                rec = _record(meas, gn, wn, j, step, fleet.L)
-                trajs[j].append(rec)
-                if grok_step[j] is None and rec["test_acc"] >= c0.grok_thresh:
-                    grok_step[j] = step
-                if c0.stop_after_grok and grok_step[j] is not None and step - grok_step[j] >= c0.stop_after_grok:
-                    active[j] = False
+                trajs[o].append(recs[j])
+                if grok_step[o] is None and recs[j]["test_acc"] >= c0.grok_thresh:
+                    grok_step[o] = step
+                if c0.stop_after_grok and grok_step[o] is not None and step - grok_step[o] >= c0.stop_after_grok:
+                    finished[o] = True
+                    act[j] = False
+            active = torch.tensor(act, dtype=torch.bool, device=dev)
             if verbose:
-                print(f"step {step}: active {int(active.sum())}/{R}", flush=True)
-            if not bool(active.any()):
+                print(f"step {step}: active {sum(act)}/{R} (of {R0})", flush=True)
+            if not any(act):
                 break
+            if sum(act) < compact_below * R:
+                keep = torch.tensor([j for j in range(R) if act[j]], dtype=torch.long, device=dev)
+                fleet.subset(keep)
+                opt.subset(keep)
+                for k in ("y", "train", "test", "exc", "rule_train"):
+                    grid[k] = grid[k][keep]
+                tr = tr[keep]
+                orig = [orig[j] for j in keep.tolist()]
+                active, div_step = active[keep], div_step[keep]
+                A, B, Y = batch_inputs()
+                opt.zero_grad()
+                logits = fleet.forward(A, B)  # recompute this step's gradient for the compacted batch
+                per_run = F.cross_entropy(logits.reshape(fleet.R * n, -1), Y.reshape(-1), reduction="none").view(fleet.R, n).mean(1)
+                torch.where(active, per_run, torch.zeros_like(per_run)).sum().backward()
         opt.step(active)
     secs = time.time() - t0
-    divs = div_step.cpu().tolist()
+    for j in range(fleet.R):  # runs still in the batch that diverged after the last eval
+        d = int(div_step[j])
+        if d >= 0 and diverged[orig[j]] is None:
+            diverged[orig[j]] = d
     out = []
     for j, c in enumerate(cfgs):
-        d = divs[j] if divs[j] >= 0 else None
-        out.append({"config": asdict(c), "run_id": c.run_id, "n_params": fleet.n_params, "trajectory": trajs[j],
-                    "summary": summarize(trajs[j], c, d),
-                    "fleet": {"device": str(dev), "R": R, "seconds_batch": secs}})
+        out.append({"config": asdict(c), "run_id": c.run_id, "n_params": n_params, "trajectory": trajs[j],
+                    "summary": summarize(trajs[j], c, diverged[j]),
+                    "fleet": {"device": str(dev), "R": R0, "seconds_batch": secs}})
     return out
