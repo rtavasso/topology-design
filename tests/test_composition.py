@@ -92,3 +92,20 @@ def test_probe_split_covers_grid_and_decodes_planted_sum_at_high_train_frac():
     # least-squares one-vs-all readout of a circular code amid 124 distractor dims: well above chance (1/13), not perfect
     assert cp.ridge_decode_acc(0.01 * H, s, p, f, e) > 0.6
     assert cp.ridge_decode_acc(torch.randn(len(s), 128), s, p, f, e) < 0.15
+
+
+def test_stabilizers_default_off_and_change_behaviour():
+    base = cp.CompConfig(arm="pk012", p=5, d=16, hidden=32)
+    assert base.run_id == cp.CompConfig(arm="pk012", p=5, d=16, hidden=32, grad_clip=0.0).run_id  # old ids unchanged
+    assert "_gc1" in cp.CompConfig(grad_clip=1.0).run_id and "_bo0.1" in cp.CompConfig(block_out_init=0.1).run_id
+    assert "_ln" in cp.CompConfig(prenorm=True).run_id
+    a, b, c, s, y = cp.full_grid(5, "addmul")
+    m0, m1 = cp.build_model(base), cp.build_model(cp.CompConfig(arm="pk012", p=5, d=16, hidden=32, block_out_init=0.0))
+    _, parts1, _ = m1(a, b, c, return_parts=True)
+    assert parts1[1:].abs().max() == 0  # zero-init block outputs: blocks write nothing at init
+    m2 = cp.build_model(cp.CompConfig(arm="pk012", p=5, d=16, hidden=32, prenorm=True))
+    lg2, parts2, _ = m2(a, b, c, return_parts=True)
+    torch.testing.assert_close(parts2.sum(0), lg2, atol=1e-5, rtol=1e-5)  # decomposition stays exact with prenorm
+    assert not torch.allclose(lg2, m0(a, b, c))
+    res = cp.train_run(cp.CompConfig(arm="pk012", p=5, d=16, hidden=32, steps=20, eval_every=10, stop_after_grok=0, grad_clip=0.01))
+    assert all(r["grad_norm"] > 0 for r in res["trajectory"])

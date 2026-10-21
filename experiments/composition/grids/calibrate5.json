@@ -1,0 +1,9 @@
+{"_note": "Study 3 calibration round 5: which stabilizer (applied identically to both arms) lets the chain train without collapses on addmul? Not evidence about arms.",
+ "grids": [
+  {"base": {"task": "addmul", "p": 13, "train_frac": 0.9, "lr": 0.001, "weight_decay": 1.0, "steps": 50000, "eval_every": 100, "stop_after_grok": 1000, "tag": "cal5", "grad_clip": 1.0},
+   "tie_data_seed": true, "vary": {"arm": ["pk012", "pk000"], "model_seed": [0, 1]}},
+  {"base": {"task": "addmul", "p": 13, "train_frac": 0.9, "lr": 0.001, "weight_decay": 1.0, "steps": 50000, "eval_every": 100, "stop_after_grok": 1000, "tag": "cal5", "block_out_init": 0.1},
+   "tie_data_seed": true, "vary": {"arm": ["pk012", "pk000"], "model_seed": [0, 1]}},
+  {"base": {"task": "addmul", "p": 13, "train_frac": 0.9, "lr": 0.001, "weight_decay": 1.0, "steps": 50000, "eval_every": 100, "stop_after_grok": 1000, "tag": "cal5", "prenorm": true},
+   "tie_data_seed": true, "vary": {"arm": ["pk012", "pk000"], "model_seed": [0, 1]}}
+ ]}

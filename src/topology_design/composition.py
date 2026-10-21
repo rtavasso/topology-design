@@ -47,6 +47,10 @@ class CompConfig:
     model_seed: int = 0
     data_seed: int = 0
     init_scale: float = 1.0
+    # stabilizers (applied identically to every arm; defaults = off, so earlier runs are unchanged)
+    grad_clip: float = 0.0  # global grad-norm clip (0 = off)
+    block_out_init: float = 1.0  # multiplies each block's output weight w2 at init (ReZero/Fixup-style when small)
+    prenorm: bool = False  # LayerNorm (no affine) on each block's input
     stop_after_grok: int = 1000
     grok_thresh: float = 0.95
     tag: str = ""
@@ -54,8 +58,10 @@ class CompConfig:
 
     @property
     def run_id(self) -> str:
+        stab = (f"_gc{self.grad_clip:g}" if self.grad_clip else "") + \
+               (f"_bo{self.block_out_init:g}" if self.block_out_init != 1.0 else "") + ("_ln" if self.prenorm else "")
         return (f"{self.task}_{self.arm}_p{self.p}_wd{self.weight_decay:g}_lr{self.lr:g}_tf{self.train_frac:g}"
-                f"_os{self.out_scale:g}_b{self.beta:g}_m{self.model_seed}_d{self.data_seed}{('_' + self.tag) if self.tag else ''}")
+                f"_os{self.out_scale:g}_b{self.beta:g}{stab}_m{self.model_seed}_d{self.data_seed}{('_' + self.tag) if self.tag else ''}")
 
 
 # ---------------------------------------------------------------------------
@@ -89,14 +95,14 @@ def split(p: int, train_frac: float, data_seed: int):
 
 
 class RoutedMLP3(nn.Module):
-    def __init__(self, p, d, hidden, parents, alphas, beta=1.0, out_scale=1.0):
+    def __init__(self, p, d, hidden, parents, alphas, beta=1.0, out_scale=1.0, prenorm=False):
         super().__init__()
         for i, k in enumerate(parents, start=1):
             if not 0 <= k < i:
                 raise ValueError(f"parent k_{i}={k} must satisfy 0 <= k < {i}")
         self.p, self.L, self.parents = p, len(parents), tuple(parents)
         self.register_buffer("alphas", torch.tensor(alphas, dtype=torch.float32))
-        self.beta, self.out_scale = float(beta), float(out_scale)
+        self.beta, self.out_scale, self.prenorm = float(beta), float(out_scale), bool(prenorm)
         self.embed = nn.ModuleList([nn.Embedding(p, d) for _ in range(3)])
         self.w1 = nn.ModuleList([nn.Linear(d, hidden, bias=False) for _ in parents])
         self.w2 = nn.ModuleList([nn.Linear(hidden, d, bias=False) for _ in parents])
@@ -110,7 +116,8 @@ class RoutedMLP3(nn.Module):
         hs = [self.embed[0](a) + self.embed[1](b) + self.embed[2](c)]
         writes = []
         for i, k in enumerate(self.parents):
-            w = alphas[i] * self.w2[i](F.relu(self.w1[i](hs[k])))
+            x = F.layer_norm(hs[k], hs[k].shape[-1:]) if self.prenorm else hs[k]
+            w = alphas[i] * self.w2[i](F.relu(self.w1[i](x)))
             writes.append(w)
             hs.append(self.beta * hs[-1] + w)
         logits = self.out_scale * self.unembed(hs[-1])
@@ -131,11 +138,14 @@ class RoutedMLP3(nn.Module):
 def build_model(cfg: CompConfig) -> RoutedMLP3:
     parents, alphas = gk.arm_spec(cfg.arm)
     torch.manual_seed(cfg.model_seed)
-    m = RoutedMLP3(cfg.p, cfg.d, cfg.hidden, parents, alphas, cfg.beta, cfg.out_scale)
-    if cfg.init_scale != 1.0:
-        with torch.no_grad():
+    m = RoutedMLP3(cfg.p, cfg.d, cfg.hidden, parents, alphas, cfg.beta, cfg.out_scale, cfg.prenorm)
+    with torch.no_grad():
+        if cfg.init_scale != 1.0:
             for q in m.parameters():
                 q.mul_(cfg.init_scale)
+        if cfg.block_out_init != 1.0:
+            for w2 in m.w2:
+                w2.weight.mul_(cfg.block_out_init)
     return m
 
 
@@ -242,8 +252,9 @@ def train_run(cfg: CompConfig, verbose: bool = False) -> dict:
             diverged_at = step
             break
         loss.backward()
+        gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip if cfg.grad_clip else float("inf"))
         if step % cfg.eval_every == 0:
-            rec = {"step": step, **measure(model, tr, te, cfg.task)}
+            rec = {"step": step, "grad_norm": float(gnorm), **measure(model, tr, te, cfg.task)}
             traj.append(rec)
             if verbose:
                 print(f"{cfg.run_id} {step}: train {rec['train_acc']:.2f} test {rec['test_acc']:.2f} "

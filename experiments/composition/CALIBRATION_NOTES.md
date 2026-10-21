@@ -83,3 +83,10 @@ Task `addmul`: y = ((a+b) mod p)·c mod p, p = 13. Control `add3`: y = (a+b+c) m
   3. pre-block LayerNorm.
 
   LayerNorm is the most realistic option but changes the model that Phase 0 analyzes. The choice is the researcher's.
+
+**Round 5** (`grids/calibrate5.json`, 12 runs, about 30 min): the round-4 setting at wd 1. Each of three stabilizers is applied to both arms, 2 seeds each:
+- gradient-norm clip 1.0;
+- block output weights scaled ×0.1 at init;
+- pre-block LayerNorm.
+
+The gradient norm is now logged at each eval. Question: which stabilizer removes the chain's collapses with the least change to the model?
