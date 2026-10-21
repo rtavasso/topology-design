@@ -1,0 +1,5 @@
+{"_note": "Study 3 calibration round 3: find a regime where addmul generalizes within budget. Not evidence about arms.",
+ "base": {"task": "addmul", "p": 13, "d": 128, "hidden": 256, "weight_decay": 1.0, "steps": 50000, "eval_every": 100,
+          "stop_after_grok": 1000, "tag": "cal3"},
+ "tie_data_seed": true,
+ "vary": {"arm": ["pk012", "pk000"], "train_frac": [0.8, 0.9], "lr": [0.001, 0.0003], "model_seed": [0, 1]}}
