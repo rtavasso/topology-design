@@ -18,8 +18,12 @@ if code is None:  # Kaggle may have auto-extracted the archive
     if not hits:
         print("code not found under /kaggle/input:", glob.glob("/kaggle/input/**", recursive=True)[:50])
         sys.exit(1)
-    code = os.path.dirname(os.path.dirname(os.path.dirname(hits[0])))
+    src_root = os.path.dirname(os.path.dirname(os.path.dirname(hits[0])))
+    import shutil
+    code = os.path.join(W, "code")
+    shutil.copytree(src_root, code, dirs_exist_ok=True)  # writable copy (pytest cache etc.)
 os.chdir(code)
+print("code at", code, "results_data:", os.listdir(os.path.join(code, "experiments", "paths", "results_data")), flush=True)
 env = dict(os.environ, PYTHONPATH=os.path.join(code, "src"))
 
 

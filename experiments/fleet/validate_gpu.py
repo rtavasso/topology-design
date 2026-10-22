@@ -28,7 +28,24 @@ import torch  # noqa: E402
 from topology_design import fleet as fl  # noqa: E402
 from run_fleet import pick_device  # noqa: E402
 
-REF = os.path.join(os.path.dirname(__file__), "..", "paths", "results_data", "compact.json.gz")
+REF_DIR = os.path.join(os.path.dirname(__file__), "..", "paths", "results_data")
+
+
+def load_reference() -> dict:
+    """compact.json.gz, or compact.json if a platform decompressed it on upload (Kaggle auto-extracts archives)."""
+    import glob
+    for path in sorted(glob.glob(os.path.join(REF_DIR, "compact.json*"))):
+        if os.path.isdir(path):  # some extractors create a folder named after the archive
+            inner = [f for f in glob.glob(os.path.join(path, "*")) if os.path.isfile(f)]
+            if not inner:
+                continue
+            path = inner[0]
+        with open(path, "rb") as f:
+            magic = f.read(2)
+        opener = gzip.open if magic == b"\x1f\x8b" else open
+        with opener(path, "rt") as f:
+            return json.load(f)
+    raise FileNotFoundError(f"no compact.json(.gz) under {REF_DIR}")
 
 
 def iqr(v):
@@ -45,7 +62,7 @@ def main():
     dev = pick_device(args.device)
     if dev == "cuda":
         torch.backends.cuda.matmul.allow_tf32 = False
-    ref = {(r["arm"], r["seed"]): r for r in json.load(gzip.open(REF))["runs"] if r["arm"] in args.graphs}
+    ref = {(r["arm"], r["seed"]): r for r in load_reference()["runs"] if r["arm"] in args.graphs}
     cfgs = [fl.FleetConfig(arm=a, lr=r["lr"], weight_decay=1.0, steps=40000, stop_after_grok=5000, dense_early=True,
                            model_seed=s, data_seed=s, tag="validate") for (a, s), r in sorted(ref.items())]
     t = time.time()
