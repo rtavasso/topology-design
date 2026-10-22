@@ -1,5 +1,12 @@
 # Phase 5 design — fast and slow paths: time constants and routing of the learning signal
 
+> **Status (22 Oct 2026): stages B–D on hold after the pilot.**
+> - The preregistered learning-rate rule selects an unstable regime.
+> - The headline measure (composition at the end of training) saturates.
+> - The scale multipliers are ill-conditioned.
+>
+> See [PILOT.md](PILOT.md) and [docs/LEDGER.md](../../docs/LEDGER.md) (X9, H1–H3, I9). The design below is unchanged, for the record.
+
 **Status:** design, revision 3 (21 Oct 2026). Nothing has run.
 - Revision 1 was reviewed independently by two agents, one scientific and one technical with small numerical checks.
 - Revision 2 was re-reviewed by a third agent, with a real-network check.

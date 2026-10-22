@@ -29,6 +29,7 @@
 
 ## Repository map
 
+- [docs/LEDGER.md](docs/LEDGER.md): **start here.** What the program currently believes and how strongly: findings, failed predictions and refuted ideas, open hypotheses with falsifiers, ideas, and lessons about our process.
 - [docs/SPEC.md](docs/SPEC.md): active research spec (question, causal chain, rules, phases, instruments).
 - [docs/phase0_linear_theory.md](docs/phase0_linear_theory.md): derivations, with a test map.
 - [docs/literature_review.md](docs/literature_review.md): **literature review**: where the program sits in the field, niche map (occupied vs open), measurement validity across topologies, inference protocol, 13 predictions from prior theory. Source notes are in `docs/literature_review_notes/`.

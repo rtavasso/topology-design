@@ -206,6 +206,43 @@ The researcher proposed separating them by time constant: a fast path that memor
 - The rotation null's angle is passed in from the time arm's run (`route_rot_angle`). Matching it inside one batch would couple independent runs.
 - The first-order imprint keeps the centered true-label logit, consistent with the supports.
 
+## Entry 22 (22 Oct 2026): the pilot, a change of frame, and the ledger
+
+**Premise.** The Phase 5 pilot ([PILOT.md](../experiments/fastslow/PILOT.md)) was run on Kaggle before stage 1.
+
+**Evidence:**
+- The preregistered lr rule picks 4e-3, where asym collapses 30–61 times. asym is unstable at every lr tried; sym is stable at every lr.
+- End-of-run composition saturates at about +0.95 for every branch and arm, so ★H5B-1's effect size is unreachable.
+- The multipliers, read at a single step, are noise.
+
+Stage 1 was not launched; its grids were deleted.
+
+**Argument (discussion with the researcher):**
+- End-of-run readings discard the dynamics. The gradient during training is the object.
+- Under one shared error, credit for each function-space mode goes to whichever component is fastest along it (ledger H1). So "fast memorizer plus slow generalizer" is self-defeating under shared error. Complementary learning systems need a different organization of learning, such as replay.
+- The researcher: patching the backward graph would ignore that observation, so the frame changes instead.
+- The direction is restated as the researcher's end goal: a learner that sees the minimum by reasoning over the structure of its data, instead of walking the loss landscape. Toy tasks remain the way to isolate pieces.
+- Sharper framing from the discussion:
+  - the gradient is an averaging, single-path learner;
+  - statistical-query lower bounds show reasoning over relations between examples can be exponentially better for some structures;
+  - prequential surprise as an unmaskable criterion;
+  - structure search with competing (not summed) hypotheses;
+  - stability regions to separate structure from settings.
+
+**Decisions:**
+- **D29.** [LEDGER.md](LEDGER.md) is created and becomes the first file to read. It records every finding with an honest status, every failed prediction and refuted idea, open hypotheses with falsifiers, ideas, and process lessons. AGENTS.md now requires updating it.
+- **D30.** Phase 5 B–D are on hold. The negative results of Studies 1–4 and the pilot are consolidated in the ledger as results (X1–X10).
+- **D31.** The next step is chosen from the ledger's open hypotheses. The candidates judged most decision-relevant are:
+  - H5: how early the answer is visible inside training;
+  - H1: the credit-by-speed law;
+  - the information-gap metric for the vision (I10).
+
+**Rejected alternative:** fixing the pilot's problems and running Phase 5 B–D as designed. That would test time constants inside the shared-error structure that the pilot and H1 suggest cannot produce different roles.
+
+**Expected falsifiers:**
+- H1's shares are not ordered by η·λ.
+- The destination of training is not predictable early (H5 fails), which would mean walking does irreducible work.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

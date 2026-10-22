@@ -1,10 +1,12 @@
 # Coding-agent contract
 
-**Read first, in order:** [README](README.md) → [docs/SPEC.md](docs/SPEC.md) → [docs/phase0_linear_theory.md](docs/phase0_linear_theory.md). Consult the novelty boundary in [docs/literature.md](docs/literature.md) and the niche map in [docs/literature_review.md](docs/literature_review.md) before claiming anything is new. `archive/v0/` is historical: useful for task generators and caveats, **not** for priorities.
+**Read first, in order:** [docs/LEDGER.md](docs/LEDGER.md) (what we currently believe, what failed, open hypotheses) → [README](README.md) → [docs/SPEC.md](docs/SPEC.md) → [docs/phase0_linear_theory.md](docs/phase0_linear_theory.md). Consult the novelty boundary in [docs/literature.md](docs/literature.md) and the niche map in [docs/literature_review.md](docs/literature_review.md) before claiming anything is new. `archive/v0/` is historical: useful for task generators and caveats, **not** for priorities.
 
 ## Current priority
 
-Finish **Phase 0** in this order (SPEC §4):
+**Superseded (21–22 Oct 2026):** the researcher now sets direction directly; see [docs/LEDGER.md](docs/LEDGER.md) (Direction, open hypotheses) and [docs/history.md](docs/history.md) Entries 20–22. The Phase 0 list below is kept for reference.
+
+Previously: finish **Phase 0** in this order (SPEC §4):
 1. **Prop. 7** — analyse the coupled chain-plus-shortcut flow for mixed graphs, e.g. $k=(0,1,0,2)$ (the reduction is already proved). Explain the per-mode exceptions in `experiments/phase0/prop7_pathway_probe.py`.
 2. **Imbalanced (small random) initialization.**
 3. **Separable-data directional limits.**
@@ -39,6 +41,15 @@ Then **Phase 1**: replicate the neural-race result for gated deep linear network
    - results including nulls and failed predictions;
    - classification of the claim type.
 5. Append a dated entry to [docs/history.md](docs/history.md). Never rewrite past entries. Never create a second copy of an existing derivation; link to it.
+6. Update [docs/LEDGER.md](docs/LEDGER.md):
+   - new findings with an honest status;
+   - failed predictions moved to *Failed predictions and refuted ideas*, never deleted;
+   - status changes appended with a date;
+   - new ideas and process lessons.
+
+   Report what the data say about the hypothesis, including when it is against it.
+
+Before proposing any experiment, check the ledger and the literature docs for whether it is already answered, and confirm that its measure can detect the target effect on a planted case.
 
 ## Repository conventions
 
