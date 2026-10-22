@@ -11,8 +11,8 @@ W = "/kaggle/working"
 code = None
 for t in glob.glob("/kaggle/input/**/code.tar.gz", recursive=True):
     with tarfile.open(t) as tf:
-        tf.extractall(W)
-    code = os.path.join(W, "code")
+        tf.extractall("/tmp")
+    code = "/tmp/code"
 if code is None:  # Kaggle may have auto-extracted the archive
     hits = glob.glob("/kaggle/input/**/src/topology_design/fleet.py", recursive=True)
     if not hits:
@@ -20,8 +20,8 @@ if code is None:  # Kaggle may have auto-extracted the archive
         sys.exit(1)
     src_root = os.path.dirname(os.path.dirname(os.path.dirname(hits[0])))
     import shutil
-    code = os.path.join(W, "code")
-    shutil.copytree(src_root, code, dirs_exist_ok=True)  # writable copy (pytest cache etc.)
+    code = "/tmp/code"  # writable copy outside /kaggle/working, so outputs stay just the logs
+    shutil.copytree(src_root, code, dirs_exist_ok=True)
 os.chdir(code)
 print("code at", code, "results_data:", os.listdir(os.path.join(code, "experiments", "paths", "results_data")), flush=True)
 env = dict(os.environ, PYTHONPATH=os.path.join(code, "src"))
