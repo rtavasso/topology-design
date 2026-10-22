@@ -115,6 +115,14 @@ Kaggle's preinstalled torch is used. For a private repository, use a Kaggle secr
 
 **Modal:** the same commands inside a Modal function with `gpu="T4"`, or `"L4"` for more memory. A CPU-only Modal function can instead fan out the existing per-run CPU sweep across many containers.
 
+## Validation status
+
+**PASSED on a Kaggle T4, 21 Oct 2026** ([results/VALIDATION.md](results/VALIDATION.md)):
+- $t_\text{fit}$ matches exactly in 30 of 30 seed-paired runs;
+- $t_\text{grok}$ agrees within the seed spread in all three graphs;
+- tests pass on CUDA.
+- Throughput is about 640 run-steps/s and compute-bound from R ≈ 16, so the default CUDA batch is now 64.
+
 ## Validation plan before using it for a study
 
 1. `tests/test_fleet.py` passes on the target device. The MPS and CUDA equivalence tests run automatically when the device exists.

@@ -83,7 +83,7 @@ def main():
     ap.add_argument("--grid", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--device", default="auto")
-    ap.add_argument("--max-batch", type=int, default=0, help="runs per batch (0 = 256 cuda / 64 mps / 16 cpu)")
+    ap.add_argument("--max-batch", type=int, default=0, help="runs per batch (0 = 64 cuda / 64 mps / 16 cpu; a T4 is compute-bound by ~16)")
     ap.add_argument("--allow-tf32", action="store_true", help="faster on Ampere+ GPUs, less exact")
     ap.add_argument("--deterministic", action="store_true", help="bitwise-reproducible CUDA (slower)")
     ap.add_argument("--dry", action="store_true")
@@ -95,7 +95,7 @@ def main():
         if args.deterministic:
             os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
             torch.use_deterministic_algorithms(True)
-    mb = args.max_batch or {"cuda": 256, "mps": 64}.get(dev, 16)
+    mb = args.max_batch or {"cuda": 64, "mps": 64}.get(dev, 16)
     cfgs = expand(json.load(open(args.grid)))
     os.makedirs(args.out, exist_ok=True)
     todo = [c for c in cfgs if not os.path.exists(os.path.join(args.out, c.run_id + ".json"))]
