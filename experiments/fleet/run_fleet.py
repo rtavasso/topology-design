@@ -90,13 +90,16 @@ def pick_device(name: str) -> str:
     return "cpu"
 
 
-def batches(cfgs: list[fl.FleetConfig], max_batch: int) -> list[list[fl.FleetConfig]]:
+def batches(cfgs: list[fl.FleetConfig], max_batch: int, shard: tuple[int, int] = (0, 1)) -> list[list[fl.FleetConfig]]:
+    """Pack runs by struct key, sorted so similar run lengths share a batch. With shard (i, n), each struct group's
+    runs are dealt round-robin to n shards first, so n GPUs get equal work even when a group fits in one batch."""
+    si, sn = shard
     groups: dict[tuple, list] = {}
     for c in cfgs:
         groups.setdefault(fl.struct_key(c), []).append(c)
     out = []
     for g in groups.values():
-        g = sorted(g, key=lambda c: (c.lr, c.weight_decay, c.arm))  # similar run lengths together: less idle compute
+        g = sorted(g, key=lambda c: (c.lr, c.weight_decay, c.arm, c.tag, c.model_seed))[si::sn]
         out += [g[i:i + max_batch] for i in range(0, len(g), max_batch)]
     return out
 
@@ -124,9 +127,8 @@ def main():
     cfgs = expand(json.load(open(args.grid)))
     os.makedirs(args.out, exist_ok=True)
     todo = [c for c in cfgs if result_path(args.out, c.run_id) is None]
-    bs = batches(todo, mb)
     si, sn = (int(x) for x in args.shard.split("/"))
-    bs = bs[si::sn]
+    bs = batches(todo, mb, (si, sn))
     todo = [c for b in bs for c in b]
     print(f"{len(cfgs)} runs in grid, {len(todo)} to do in shard {si}/{sn}, {len(bs)} batches of up to {mb} on {dev}",
           flush=True)
