@@ -2,7 +2,7 @@
 
 **Goal.** Run hundreds of small, independent training runs at once on a GPU, so that a whole study (all arms × all seeds) finishes in minutes to an hour instead of overnight.
 
-**Code:** [`src/topology_design/fleet.py`](../../src/topology_design/fleet.py). **Driver:** [`run_fleet.py`](run_fleet.py). **Tests:** [`tests/test_fleet.py`](../../tests/test_fleet.py).
+**Code:** [`src/topology_design/fleet.py`](../../src/topology_design/fleet.py), plus [`fleet_signal.py`](../../src/topology_design/fleet_signal.py) for Phase 5A. **Driver:** [`run_fleet.py`](run_fleet.py). **Tests:** [`tests/test_fleet.py`](../../tests/test_fleet.py) and [`tests/test_fleet_p5.py`](../../tests/test_fleet_p5.py).
 
 ## Why this shape
 
@@ -77,15 +77,48 @@ Sets that are empty, such as exceptions on plain `modadd`, are recorded as `null
 
 `modadd` is exactly the `modadd_exc` setting at `exc_frac = 0`. The group-product composition task is the next addition; the task interface (`build_task`) is where it goes.
 
-## Not yet included (Phase 5 extensions)
+## Phase 5 extensions
 
-These are planned on top of this core:
-- Phase 5C: routing of the preconditioned update (EMA and agreement masks, norm-matched), plus group gradients via `torch.func`;
-- Phase 5B: the unmasked-branch loss arm;
-- Phase 5D: function-space consolidation;
-- Phase 5E: incremental training sets.
+All are `FleetConfig` fields, off by default. With none set, training takes the unchanged baseline path (`FleetAdamW._plain_step`), so the exactness results above still hold. Semantics follow [`../fastslow/DESIGN.md`](../fastslow/DESIGN.md). **Code:** `fleet.py`, plus `fleet_signal.py` for 5A. **Tests:** [`tests/test_fleet_p5.py`](../../tests/test_fleet_p5.py).
 
-The loss is computed in one place and the optimizer exposes the preconditioned update, so each is a local change.
+| study | fields | what it does |
+|---|---|---|
+| 5B time constants | `branch_lr_mult`, `branch_wd_mult`, `branch_alpha` | Per-branch multipliers, expanded onto each block of the branch. They multiply `block_lr_mult`, `block_wd_mult` and `alphas`. Scale matching uses `branch_alpha`. |
+| 5B unmasked arm | `unmask_branch = b` | Branch b's parameters learn only from CE(z₀ + z_b), so the other branches cannot mask their error signal. All other parameters learn from the full loss. Tested against a single model. |
+| 5C routing | `route` ∈ {`time`, `agree`, `rand`, `topk`, `rot`}, `route_branch`, `route_alpha`, `route_tau`, `groups` | Direction-only routing of the **preconditioned** AdamW update u, on the receiving branch only (one-sided). The routed direction replaces u, rescaled to the norm of u over that branch. Decoupled decay is unchanged. If the routed direction vanishes, u is used unchanged. |
+| 5D consolidation | `consolidate` (κ), `consolidate_to`, `consolidate_from`, `consolidate_beta`, `consolidate_null` | Adds κ · MSE between the receiver's centered training logits and an EMA (rate β) of the source's. The target is detached. The null uses targets from a fixed permutation of the training examples. |
+| 5A signal | `measure_signal` | At each eval, records the separation statistic S̃ for the actual update and for each mask, with matched nulls. |
+| 5E arrivals | `arrive_start`, `arrive_n`, `arrive_every` | The training set grows: first `arrive_start` pairs, then `arrive_n` more every `arrive_every` steps, in a seed-fixed order. |
+| 5E probes | `probe_steps`, `probe_pairs` | At the listed steps, records each unit's first-order imprint and transfer for held-out pairs. |
+
+**The 5C routing modes:**
+- `time`: the bias-corrected EMA of u (the low-frequency direction).
+- `agree`: u masked to the coordinates where at least a fraction τ of the gradient signs of `groups` random disjoint example groups agree. The groups are re-drawn every step.
+- `rand`: a random mask with the same density as the agreement mask.
+- `topk`: the largest-|u| mask with the same density.
+- `rot`: the null for `time`. It rotates u by the same angle that the EMA direction makes with it, in a random plane.
+
+Every mode records the realized angle between the routed and the original update (`route_angle`, at evals). Group routes need per-group gradients, so they are part of the struct key: a batch is either all group-routed or not group-routed at all.
+
+**Mixed batches.** Runs with different routing modes (other than group routes), different κ or different unmasked branches can share a batch. Each per-run choice is a mask over the run dimension.
+
+**Extra outputs:**
+- **Trajectory, at evals:**
+  - `sig_*` (5A): S̃ for the time, agreement, random, top-k and rotation directions, the same for u, agreement density, and the projections of gradient, decay and update onto the gen direction;
+  - `route_angle` (5C);
+  - `new_acc`, `old_loss`, `n_seen` (5E).
+- **Summary:** `latency` (5E). For each increment, the steps until 90% of its pairs are fitted; −1 if never.
+- **Result:** `probes` (5E).
+
+**5A leakage guard.** Test labels enter only the measured gen direction. They never enter anything used for training. A test checks that the measurement leaves every parameter's `.grad` untouched.
+
+**Cost per feature,** relative to plain training: see `bench_p5.py`. On CPU at R = 2:
+- per-branch settings and arrivals are free;
+- `time` routing costs about 1.1×;
+- `rot`, group routes, consolidation and the unmasked arm cost about 1.2–1.3×;
+- signal measurement costs about 1.3× at eval-every-100.
+
+GPU figures come from the Kaggle runner, which now also runs `bench_p5.py`.
 
 ## Running it
 
