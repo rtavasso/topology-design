@@ -11,6 +11,7 @@ horizon and eval schedule are packed together regardless of graph, lr, wd, multi
 from __future__ import annotations
 
 import argparse
+import gzip
 import itertools
 import json
 import os
@@ -22,7 +23,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 import torch  # noqa: E402
 
 from topology_design import fleet as fl  # noqa: E402
-from topology_design import grokking as gk  # noqa: E402
 
 TUPLE_FIELDS = ("alphas", "block_lr_mult", "block_wd_mult", "branches", "branch_lr_mult", "branch_wd_mult",
                 "branch_alpha", "probe_steps")
@@ -58,6 +58,28 @@ def expand(grid: dict) -> list[fl.FleetConfig]:
     return cfgs
 
 
+def result_path(out: str, run_id: str) -> str | None:
+    """Existing result file for a run (.json or .json.gz), else None."""
+    for ext in (".json", ".json.gz"):
+        p = os.path.join(out, run_id + ext)
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def save_result(res: dict, out: str, gz: bool) -> None:
+    path = os.path.join(out, res["run_id"] + (".json.gz" if gz else ".json"))
+    tmp = path + ".tmp"
+    with (gzip.open(tmp, "wt") if gz else open(tmp, "w")) as f:
+        json.dump(res, f)
+    os.replace(tmp, path)
+
+
+def load_result(path: str) -> dict:
+    with (gzip.open(path, "rt") if path.endswith(".gz") else open(path)) as f:
+        return json.load(f)
+
+
 def pick_device(name: str) -> str:
     if name != "auto":
         return name
@@ -88,6 +110,8 @@ def main():
     ap.add_argument("--allow-tf32", action="store_true", help="faster on Ampere+ GPUs, less exact")
     ap.add_argument("--deterministic", action="store_true", help="bitwise-reproducible CUDA (slower)")
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--gz", action="store_true", help="write results as .json.gz")
+    ap.add_argument("--shard", default="0/1", help="i/n: run only batches i, i+n, ... (one process per GPU)")
     args = ap.parse_args()
     dev = pick_device(args.device)
     if dev == "cuda":
@@ -99,9 +123,13 @@ def main():
     mb = args.max_batch or {"cuda": 64, "mps": 64}.get(dev, 16)
     cfgs = expand(json.load(open(args.grid)))
     os.makedirs(args.out, exist_ok=True)
-    todo = [c for c in cfgs if not os.path.exists(os.path.join(args.out, c.run_id + ".json"))]
+    todo = [c for c in cfgs if result_path(args.out, c.run_id) is None]
     bs = batches(todo, mb)
-    print(f"{len(cfgs)} runs in grid, {len(todo)} to do, {len(bs)} batches of up to {mb} on {dev}", flush=True)
+    si, sn = (int(x) for x in args.shard.split("/"))
+    bs = bs[si::sn]
+    todo = [c for b in bs for c in b]
+    print(f"{len(cfgs)} runs in grid, {len(todo)} to do in shard {si}/{sn}, {len(bs)} batches of up to {mb} on {dev}",
+          flush=True)
     if args.dry:
         for b in bs:
             print(len(b), b[0].run_id, "...")
@@ -112,9 +140,7 @@ def main():
         tb = time.time()
         results = fl.train_fleet(b, dev)
         for res in results:
-            path = os.path.join(args.out, res["run_id"] + ".json")
-            gk.save(res, path + ".tmp")
-            os.replace(path + ".tmp", path)
+            save_result(res, args.out, args.gz)
         done += len(b)
         steps = sum((r["summary"]["steps_run"] or 0) for r in results)
         dt = time.time() - tb

@@ -634,6 +634,8 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
     rule_cnt = z(R, p)
     zc_energy = z(R)
     br = fleet.cfgs[0].branches
+    br_blocks = [[j - 1 for j in s_] for s_ in br] if br else []
+    br_energy = z(R, len(br_blocks))
     abl_sets = [[i] for i in range(L)] + ([[j - 1 for j in s] for s in br] + [[j - 1 for s in br for j in s]] if br else [])
     abl_acc = {k: z(R, len(abl_sets)) for k in ("train_acc", "test_acc", "exc_acc", "train_loss", "test_loss")}
     abl_lab = {k: z(R, len(abl_sets)) for k in ("train", "test")}
@@ -653,6 +655,7 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
         hs = [h0]
         comp = osv * bview ** L * torch.bmm(h0, U)
         comp_labs = [lab_c(comp)]
+        br_sum = [None] * len(br_blocks)
         energy[:, 0] += (comp - comp.mean(-1, keepdim=True)).pow(2).sum((1, 2))
         for i in range(L):
             w = fleet.alphas[:, i, None, None] * fleet.block(i, fleet._select_parent(hs, i))
@@ -660,6 +663,12 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
             comp = osv * bview ** (L - 1 - i) * torch.bmm(w, U)
             comp_labs.append(lab_c(comp))
             energy[:, i + 1] += (comp - comp.mean(-1, keepdim=True)).pow(2).sum((1, 2))
+            for q, blocks in enumerate(br_blocks):
+                if i in blocks:
+                    br_sum[q] = comp if br_sum[q] is None else br_sum[q] + comp
+        for q in range(len(br_blocks)):
+            br_energy[:, q] += (br_sum[q] - br_sum[q].mean(-1, keepdim=True)).pow(2).sum((1, 2))
+        del br_sum
         logits = osv * torch.bmm(hs[-1], U)
         del hs, comp
         labs = torch.stack(comp_labs, 1)  # (R, L+1, n)
@@ -705,6 +714,8 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
     if "new" in sup:
         out["mem_new"] = sup["new"] - sup["test"]
     out["part_rms"] = (energy / (N * p)).sqrt()
+    if br_blocks:
+        out["branch_rms"] = (br_energy / (N * p)).sqrt()  # RMS of each branch's summed centered logits (scale matching)
     # test-only rule projection: each grid point gets its key's test-mean; energy = sum_key N_key * |mu_key|^2
     n_key = grid["n_key"].to(rule_sum.dtype)  # grid points per key (precomputed on the host)
     mu = rule_sum / rule_cnt.clamp_min(1.0).unsqueeze(-1)

@@ -1,4 +1,11 @@
-"""Launch the fleet validation on a Kaggle GPU via the Kaggle API, wait for it, and download the logs.
+"""Launch a fleet job on a Kaggle GPU via the Kaggle API, wait for it, and download logs and results.
+
+Jobs:
+  validation (default):  python experiments/fleet/kaggle/launch.py --user NAME
+  a grid:                python experiments/fleet/kaggle/launch.py --user NAME --grid experiments/fastslow/grids/pilot.json
+      Results arrive in --out (default results/kaggle_<grid name>)/results/*.json.gz. Results already there are
+      uploaded with the code, so relaunching the same command resumes an interrupted grid.
+  --no-wait: push and exit (e.g. before closing the laptop); later `--fetch` with the same arguments waits and downloads.
 
 Prerequisites:
   - Network access to www.kaggle.com and storage.googleapis.com (Kaggle stores uploads and outputs there).
@@ -8,7 +15,6 @@ Prerequisites:
   - kaggle CLI >= 1.7 (pip install -U kaggle) for KGAT tokens.
   - A phone-verified Kaggle account (required for GPU and internet in kernels).
 
-Usage (from the repo root):  python experiments/fleet/kaggle/launch.py [--out results/kaggle_validate]
 
 The code is uploaded as a private Kaggle dataset (so the GitHub repo can stay private), and a private GPU script kernel
 runs experiments/fleet/kaggle/run_on_kaggle.py against it.
@@ -27,8 +33,12 @@ import tempfile
 import time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "experiments/fleet", "experiments/paths/results_data/compact.json.gz",
-           "pyproject.toml"]
+INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "experiments/fleet", "pyproject.toml"]
+VALIDATE_EXTRA = ["experiments/paths/results_data/compact.json.gz"]
+
+
+def slug(s: str) -> str:
+    return "".join(ch if ch.isalnum() else "-" for ch in s.lower()).strip("-")
 
 
 def kaggle_exe() -> str:
@@ -55,12 +65,21 @@ def kaggle(*args, check=True):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=os.path.join(ROOT, "results", "kaggle_validate"))
-    ap.add_argument("--dataset", default="topology-design-code")
-    ap.add_argument("--kernel", default="topology-fleet-validate")
+    ap.add_argument("--grid", default=None, help="grid JSON (repo-relative) to run instead of the validation")
+    ap.add_argument("--max-batch", type=int, default=64)
+    ap.add_argument("--no-tests", action="store_true", help="grid jobs: skip the fleet tests before the grid")
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--dataset", default=None)
+    ap.add_argument("--kernel", default=None)
     ap.add_argument("--poll", type=int, default=60)
+    ap.add_argument("--no-wait", action="store_true", help="push the job and exit")
+    ap.add_argument("--fetch", action="store_true", help="do not launch; wait for the job and download its output")
     ap.add_argument("--user", default=os.environ.get("KAGGLE_USERNAME"))
     args = ap.parse_args()
+    name = "validate" if args.grid is None else os.path.splitext(os.path.basename(args.grid))[0]
+    args.out = args.out or os.path.join(ROOT, "results", f"kaggle_{name}")
+    args.kernel = args.kernel or ("topology-fleet-validate" if args.grid is None else f"topology-fleet-{slug(name)}")
+    args.dataset = args.dataset or ("topology-design-code" if args.grid is None else f"{args.kernel}-code")
     user = args.user
     if not user:
         cfg_dir = os.environ.get("KAGGLE_CONFIG_DIR", os.path.expanduser("~/.kaggle"))
@@ -68,13 +87,32 @@ def main():
         if not os.path.exists(legacy):
             sys.exit("Kaggle username needed: pass --user NAME or set KAGGLE_USERNAME")
         user = json.load(open(legacy))["username"]
+    if args.fetch:
+        return wait_and_fetch(args, user)
     tmp = tempfile.mkdtemp()
-    # 1. code snapshot as a private dataset
+    # 1. code snapshot (plus job description, grid and any prior results) as a private dataset
     ds = os.path.join(tmp, "dataset")
     os.makedirs(ds)
+    job = {"job": "validate"}
+    include = INCLUDE + VALIDATE_EXTRA
+    if args.grid is not None:
+        grid_rel = os.path.relpath(os.path.abspath(args.grid), ROOT)
+        if not os.path.exists(os.path.join(ROOT, grid_rel)):
+            sys.exit(f"grid not found: {args.grid}")
+        job = {"job": "grid", "grid": grid_rel, "max_batch": args.max_batch, "tests": not args.no_tests}
+        include = INCLUDE + [grid_rel]
+    jp = os.path.join(tmp, "job.json")
+    with open(jp, "w") as f:
+        json.dump(job, f)
+    prior_dir = os.path.join(args.out, "results")
+    prior = sorted(f for f in os.listdir(prior_dir) if f.endswith(".json.gz")) if os.path.isdir(prior_dir) else []
     with tarfile.open(os.path.join(ds, "code.tar.gz"), "w:gz") as tf:
-        for rel in INCLUDE:
+        for rel in include:
             tf.add(os.path.join(ROOT, rel), arcname=os.path.join("code", rel))
+        tf.add(jp, arcname="code/job.json")
+        for f in prior:
+            tf.add(os.path.join(prior_dir, f), arcname=os.path.join("code", "prior", f))
+    print(f"job {job}; {len(prior)} prior results uploaded for resume", flush=True)
     json.dump({"title": args.dataset, "id": f"{user}/{args.dataset}", "licenses": [{"name": "CC0-1.0"}]},
               open(os.path.join(ds, "dataset-metadata.json"), "w"))
     # the status call can return 403 for a dataset that does not exist yet, so try a new version first and fall back
@@ -95,7 +133,13 @@ def main():
                "enable_internet": True, "dataset_sources": [f"{user}/{args.dataset}"], "competition_sources": [],
                "kernel_sources": []}, open(os.path.join(kd, "kernel-metadata.json"), "w"))
     kaggle("kernels", "push", "-p", kd)
-    # 3. wait and fetch
+    if args.no_wait:
+        print(f"pushed. Later: the same command with --fetch downloads into {args.out}")
+        return
+    wait_and_fetch(args, user)
+
+
+def wait_and_fetch(args, user):
     while True:
         st = kaggle("kernels", "status", f"{user}/{args.kernel}", check=False).stdout.lower()
         if any(s in st for s in ("complete", "error", "cancel")):
@@ -103,7 +147,14 @@ def main():
         time.sleep(args.poll)
     os.makedirs(args.out, exist_ok=True)
     kaggle("kernels", "output", f"{user}/{args.kernel}", "-p", args.out)
-    print(f"logs in {args.out}")
+    res = os.path.join(args.out, "results")
+    loose = [f for f in os.listdir(args.out) if f.endswith(".json.gz")]
+    if loose:  # the CLI may flatten subdirectories
+        os.makedirs(res, exist_ok=True)
+        for f in loose:
+            os.replace(os.path.join(args.out, f), os.path.join(res, f))
+    n = len([f for f in os.listdir(res) if f.endswith(".json.gz")]) if os.path.isdir(res) else 0
+    print(f"logs in {args.out}" + (f"; {n} results in {res}" if n else ""))
 
 
 if __name__ == "__main__":

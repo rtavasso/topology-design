@@ -168,18 +168,15 @@ PYTHONPATH=src python experiments/fleet/bench_fleet.py --R 1 16 64 256
 PYTHONPATH=src python experiments/fleet/run_fleet.py --grid GRID.json --out results/NAME
 ```
 
-**Kaggle** (free T4 or P100), in a notebook with GPU enabled:
+**Kaggle** (free T4 or P100), driven from your machine by [`kaggle/launch.py`](kaggle/launch.py):
+- **Validation:** `python experiments/fleet/kaggle/launch.py --user NAME`. This runs the tests, the benchmarks and `validate_gpu.py`, about 25 minutes.
+- **Any grid:** add `--grid path/to/grid.json`.
+  - Runs that share a struct key go into one batch, and with several GPUs there is one process per GPU (`run_fleet.py --shard`).
+  - Results come back as `.json.gz` in `results/kaggle_<grid>/results/`. Relaunching resumes an interrupted grid.
+  - `--no-wait` pushes and exits; `--fetch` collects the results later.
+  - Phase 5's stages: [../fastslow/RUNNING.md](../fastslow/RUNNING.md).
 
-```
-!git clone -b claude/theory-first-restructure https://github.com/rtavasso/topology-design.git
-%cd topology-design
-!pip -q install pytest
-!PYTHONPATH=src python -m pytest -q tests/test_fleet.py
-!PYTHONPATH=src python experiments/fleet/bench_fleet.py --R 16 64 256 512
-!PYTHONPATH=src python experiments/fleet/validate_gpu.py
-```
-
-Kaggle's preinstalled torch is used. For a private repository, use a Kaggle secret holding a GitHub token. Results go to `/kaggle/working`; download them, or push them to a branch.
+The code goes up as a private Kaggle dataset, so the repository can stay private. The job runs in a private script kernel using Kaggle's preinstalled torch.
 
 **Modal:** the same commands inside a Modal function with `gpu="T4"`, or `"L4"` for more memory. A CPU-only Modal function can instead fan out the existing per-run CPU sweep across many containers.
 

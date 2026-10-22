@@ -1,0 +1,139 @@
+{
+ "_note": "Phase 5 pilot (DESIGN \u00a73, \u00a75): asym/sym at three lrs for the base-lr rule and seed SDs; unscaled memory arms of asym at the same lrs for the scale-matching multipliers.",
+ "grids": [
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "steps": 40000,
+    "stop_after_grok": 0,
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "tag": "p5pilot-base"
+   },
+   "vary": {
+    "arm": [
+     "pk012000",
+     "pk000000"
+    ],
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     490,
+     491,
+     492
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "steps": 40000,
+    "stop_after_grok": 0,
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "arm": "pk012000",
+    "tag": "p5pilot-mem4",
+    "branch_wd_mult": [
+     0.5,
+     2.0
+    ]
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     490,
+     491,
+     492
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "steps": 40000,
+    "stop_after_grok": 0,
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "arm": "pk012000",
+    "tag": "p5pilot-mem14",
+    "branch_wd_mult": [
+     2.0,
+     0.5
+    ]
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     490,
+     491,
+     492
+    ]
+   },
+   "tie_data_seed": true
+  }
+ ]
+}
