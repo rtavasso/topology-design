@@ -132,7 +132,12 @@ def main():
                "language": "python", "kernel_type": "script", "is_private": True, "enable_gpu": True,
                "enable_internet": True, "dataset_sources": [f"{user}/{args.dataset}"], "competition_sources": [],
                "kernel_sources": []}, open(os.path.join(kd, "kernel-metadata.json"), "w"))
-    kaggle("kernels", "push", "-p", kd)
+    pr = kaggle("kernels", "push", "-p", kd, check=False)
+    if pr.returncode != 0 or "error" in pr.stdout.lower():
+        msg = pr.stdout.strip().splitlines()[-1] if pr.stdout.strip() else "unknown error"
+        hint = (" Kaggle allows 2 GPU sessions at once: relaunch this same command when one of your running jobs "
+                "finishes (check with: kaggle kernels list --mine).") if "session count" in pr.stdout.lower() else ""
+        sys.exit(f"NOT launched: {msg}.{hint}")
     if args.no_wait:
         print(f"pushed. Later: the same command with --fetch downloads into {args.out}")
         return
