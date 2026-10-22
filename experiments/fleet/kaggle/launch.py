@@ -32,9 +32,15 @@ INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "experiments/
 
 
 def kaggle_exe() -> str:
-    """The kaggle CLI next to this Python (e.g. .venv/bin/kaggle), else whatever is on PATH."""
-    here = os.path.join(os.path.dirname(sys.executable), "kaggle")
-    return here if os.path.exists(here) else (shutil.which("kaggle") or "kaggle")
+    """The kaggle CLI next to this Python (e.g. .venv/bin/kaggle), else in ./.venv, else whatever is on PATH."""
+    for here in (os.path.join(os.path.dirname(sys.executable), "kaggle"), os.path.join(ROOT, ".venv", "bin", "kaggle")):
+        if os.path.exists(here):
+            return here
+    found = shutil.which("kaggle")
+    if not found:
+        sys.exit("kaggle CLI not found. Run this with the Python that has it installed (e.g. .venv/bin/python ...), "
+                 "or install it here: python -m pip install -U kaggle")
+    return found
 
 
 def kaggle(*args, check=True):
