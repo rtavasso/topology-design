@@ -1,0 +1,275 @@
+{
+ "_note": "E1 information gap: prequential code length of gradient descent on a stream vs a program-prior learner (computed in analysis).",
+ "grids": [
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 10150,
+    "stop_after_grok": 0,
+    "arrive_start": 32,
+    "arrive_n": 32,
+    "arrive_every": 50,
+    "tag": "wE1-asym-b50"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     600,
+     601,
+     602,
+     603,
+     604
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 10150,
+    "stop_after_grok": 0,
+    "arrive_start": 32,
+    "arrive_n": 32,
+    "arrive_every": 50,
+    "tag": "wE1-sym-b50"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     600,
+     601,
+     602,
+     603,
+     604
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 16600,
+    "stop_after_grok": 0,
+    "arrive_start": 32,
+    "arrive_n": 32,
+    "arrive_every": 200,
+    "tag": "wE1-asym-b200"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     600,
+     601,
+     602,
+     603,
+     604
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 16600,
+    "stop_after_grok": 0,
+    "arrive_start": 32,
+    "arrive_n": 32,
+    "arrive_every": 200,
+    "tag": "wE1-sym-b200"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     600,
+     601,
+     602,
+     603,
+     604
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 42400,
+    "stop_after_grok": 0,
+    "arrive_start": 32,
+    "arrive_n": 32,
+    "arrive_every": 800,
+    "tag": "wE1-asym-b800"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     600,
+     601,
+     602,
+     603,
+     604
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 42400,
+    "stop_after_grok": 0,
+    "arrive_start": 32,
+    "arrive_n": 32,
+    "arrive_every": 800,
+    "tag": "wE1-sym-b800"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     600,
+     601,
+     602,
+     603,
+     604
+    ]
+   },
+   "tie_data_seed": true
+  }
+ ]
+}

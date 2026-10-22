@@ -166,6 +166,7 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
   - "fast memorizer plus slow generalizer" being self-defeating (H2).
 - **Falsifier:** measured shares are not ordered by η·λ; a slower component wins a mode it is slower on.
 - **Cheapest test:** during training, measure each branch's credit share along the rule direction and along per-example directions, across learning rates and wirings. Compare with the formula on Study 4 graphs.
+- *2026-10-22:* argument → **preregistered as E3** ([walk/PREREGISTRATION.md](../experiments/walk/PREREGISTRATION.md)): direct manipulation of the branch speed ratio ρ at fixed lr·wd. P1: shares rise with ρ. P2: co-location at every ρ.
 
 **H2 — Under shared error, a fast memorizer takes every mode, the rule included.** *Argument (corollary of H1).*
 - **Claim:** complementary learning systems work in brains because the cortex learns from replay, not from an error it shares with the hippocampus.
@@ -186,6 +187,11 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 - **Claim:** the final generalizing solution is predictable early in training from signals the learner already has: cross-example gradient agreement, internal representations, the direction of drift.
 - **Falsifier:** prediction quality stays near chance until close to grokking. That would mean the walk is doing irreducible work.
 - **Why it matters:** it decides whether "seeing instead of walking" is possible from information a learner already holds. It is the most decision-relevant open question.
+- *2026-10-22:* **partly prior art.** [Two Speeds of Learning](https://arxiv.org/abs/2605.27078) finds that representations improve before the test-accuracy jump, using linear probes on frozen features. [Canalization Before Generalization](https://arxiv.org/abs/2608.25813) detects the coming generalization about 4,000 epochs early, from weight-decay perturbation responses, while static progress measures lag.
+- *2026-10-22:* **preregistered as E2**, adding what those papers lack:
+  - the timing of a lead, from cheap static operators (logistic readout refit, drift extrapolation);
+  - an intervention: jumping ahead along the drift.
+  - Instrument pilot (p = 23, 2–3 seeds; not evidence): the refit readout tracks the network with no lead, which points to the features rather than the readout as the bottleneck. Drift jumps saved 100–400 steps in sym and nothing in asym.
 
 **H6 — Agreement across halves separates the signals without labels.** *Argument (derivation).*
 - **Claim:** for disjoint halves A and B of the training set, E⟨G_A, G_B⟩ measures the shared (population) part of the gradient, and ‖G_A‖² − ⟨G_A, G_B⟩ measures the memorizing part.
@@ -201,6 +207,7 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 - **Claim:** with μP-style depth scaling, the optimal lr is shared across structures, so any remaining instability differences are structural.
 - **Falsifier:** optimal lrs still differ by structure under that parameterization.
 - **Cheapest test:** a learning-rate sweep per structure, with and without the scaling.
+- *2026-10-22:* **preregistered as E4.** Stability regions for C = 1–4 under std, uniform 1/√L and per-block 1/√depth output multipliers, on an lr × wd grid. Depth-μP's known result is transfer across depth; whether it transfers across wirings at fixed depth is the open part.
 
 **H9 — Competing hypotheses scored by prequential surprise avoid masking.** *Argument.*
 - **Claim:** if hypotheses are not summed or trained jointly, each predicts alone and is scored by its surprise on each example *before* learning from it. Then memorization earns nothing at the level of which structures survive. Masking inside a branch disappears if the branch cannot express the shortcut, and true exceptions go to a separate memory store.
@@ -225,7 +232,7 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | I7 | Group-product composition task (abelian control vs S4), gated on all-short networks failing | Phase 5 discussion | Open. |
 | I8 | Topology as a hypothesis about how the data is generated: a learner discovers its own wiring from per-example surprise | 22 Oct discussion | Open. Crosses the repo's "no architecture search" rule; that boundary is the researcher's to redraw. |
 | I9 | Phase 5 B–D as designed: per-branch time constants, update routing, consolidation, within one shared loss | Phase 5 design | **On hold** (X9, H1–H2). Stage-1 grids deleted unlaunched. |
-| I10 | Measure how much information a training run has versus what it uses: steps or examples needed to determine the function, versus to produce it | 22 Oct discussion | Open. Candidate headline metric for the vision. |
+| I10 | Measure how much information a training run has versus what it uses: steps or examples needed to determine the function, versus to produce it | 22 Oct discussion | **Preregistered as E1** (22 Oct): prequential code length of gradient descent on a stream vs a program-prior learner; primary question is whether more steps per example reduce gradient descent's sample need. Nearest prior art (weight-compression complexity of grokking) has no ideal-learner reference. |
 
 ---
 
@@ -242,3 +249,4 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | L7 | Proposed patching the backward graph to rescue a hypothesis | When an observation says the frame is wrong, change the frame; don't patch around the observation. |
 | L8 | Structure comparisons at fixed settings mixed "bad structure" with "bad settings" | Compare structures by their stability regions, or at each one's best, or under a parameterization that aligns them. |
 | L9 | Implementation ran ahead of the question several times; the researcher had to pull the discussion back to the central goal | Before any implementation, state the question, what each outcome would change, and the cheapest decisive test. |
+| L10 | E2's first readout operator (least-squares refit) was a weaker classifier than the network's own readout (0.88–0.91 vs 0.99–1.0 after grokking), so it could never show a lead. Caught by a sanity run before Kaggle (22 Oct). | Check every "what could the network do now" operator against the network itself on a grokked checkpoint: it must at least match it. |

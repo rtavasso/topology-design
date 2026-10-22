@@ -1,0 +1,525 @@
+{
+ "_note": "E3 credit by speed: branch 0 steps rho times faster than branch 1 at equal lr*wd.",
+ "grids": [
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     0.5,
+     2.0
+    ],
+    "branch_wd_mult": [
+     2.0,
+     0.5
+    ],
+    "tag": "wE3-asym-rho0.25"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     0.7071067811865476,
+     1.414213562373095
+    ],
+    "branch_wd_mult": [
+     1.414213562373095,
+     0.7071067811865476
+    ],
+    "tag": "wE3-asym-rho0.5"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     1.0,
+     1.0
+    ],
+    "branch_wd_mult": [
+     1.0,
+     1.0
+    ],
+    "tag": "wE3-asym-rho1"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     1.4142135623730951,
+     0.7071067811865475
+    ],
+    "branch_wd_mult": [
+     0.7071067811865475,
+     1.4142135623730951
+    ],
+    "tag": "wE3-asym-rho2"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     2.0,
+     0.5
+    ],
+    "branch_wd_mult": [
+     0.5,
+     2.0
+    ],
+    "tag": "wE3-asym-rho4"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     0.5,
+     2.0
+    ],
+    "branch_wd_mult": [
+     2.0,
+     0.5
+    ],
+    "tag": "wE3-sym-rho0.25"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     0.7071067811865476,
+     1.414213562373095
+    ],
+    "branch_wd_mult": [
+     1.414213562373095,
+     0.7071067811865476
+    ],
+    "tag": "wE3-sym-rho0.5"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     1.0,
+     1.0
+    ],
+    "branch_wd_mult": [
+     1.0,
+     1.0
+    ],
+    "tag": "wE3-sym-rho1"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     1.4142135623730951,
+     0.7071067811865475
+    ],
+    "branch_wd_mult": [
+     0.7071067811865475,
+     1.4142135623730951
+    ],
+    "tag": "wE3-sym-rho2"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 30000,
+    "stop_after_grok": 0,
+    "branch_lr_mult": [
+     2.0,
+     0.5
+    ],
+    "branch_wd_mult": [
+     0.5,
+     2.0
+    ],
+    "tag": "wE3-sym-rho4"
+   },
+   "vary": {
+    "model_seed": [
+     620,
+     621,
+     622,
+     623,
+     624,
+     625,
+     626,
+     627,
+     628,
+     629
+    ]
+   },
+   "tie_data_seed": true
+  }
+ ]
+}

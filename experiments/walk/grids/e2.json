@@ -1,0 +1,207 @@
+{
+ "_note": "E2 visibility: logistic readout refit and drift extrapolation at evals; drift-jump interventions paired with the base runs of the same seed.",
+ "grids": [
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 40000,
+    "stop_after_grok": 3000,
+    "measure_horizon": true,
+    "arm": "pk012000",
+    "tag": "wE2-asym"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 40000,
+    "stop_after_grok": 3000,
+    "measure_horizon": true,
+    "arm": "pk000000",
+    "tag": "wE2-sym"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 40000,
+    "stop_after_grok": 3000,
+    "measure_horizon": true,
+    "arm": "pk000000",
+    "lr": 0.002,
+    "tag": "wE2jump-sym"
+   },
+   "vary": {
+    "drift_jump_at": [
+     1000,
+     2000
+    ],
+    "drift_jump_h": [
+     500,
+     2000
+    ],
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "steps": 40000,
+    "stop_after_grok": 3000,
+    "measure_horizon": true,
+    "arm": "pk012000",
+    "lr": 0.001,
+    "tag": "wE2jump-asym"
+   },
+   "vary": {
+    "drift_jump_at": [
+     4000,
+     8000
+    ],
+    "drift_jump_h": [
+     1000,
+     4000
+    ],
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  }
+ ]
+}

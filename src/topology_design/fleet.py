@@ -79,6 +79,12 @@ class FleetConfig:
     probe_steps: tuple | None = None  # 5E: steps at which first-order probes run
     probe_pairs: int = 50
     probe_matched: int = 0  # 5E protocol-matched probes: AdamW steps on copies with the pair added (0 = off; design 50)
+    # ---- "diagnose the walk" (experiments/walk/PREREGISTRATION.md) ----
+    measure_horizon: bool = False  # E2: closed-form readout refit + drift extrapolation at evals
+    horizon_extrap: tuple = (1000, 4000, 16000)  # E2: extrapolation horizons (steps) along the parameter drift
+    readout_swap_at: int | None = None  # E2 intervention: at this step replace the readout by the refit readout
+    drift_jump_at: int | None = None  # E2 intervention: at this step jump theta += H * drift (needs measure_horizon)
+    drift_jump_h: int = 1000
     model_seed: int = 0
     data_seed: int = 0
     tag: str = ""
@@ -119,7 +125,7 @@ class FleetConfig:
 
 STRUCT_FIELDS = ("task", "p", "train_frac", "d", "hidden", "steps", "eval_every", "dense_early", "stop_after_grok",
                  "grok_thresh", "branches", "measure_signal", "arrive_start", "arrive_n", "arrive_every", "probe_steps",
-                 "probe_pairs", "probe_matched", "groups")
+                 "probe_pairs", "probe_matched", "groups", "measure_horizon", "horizon_extrap")
 GROUP_ROUTES = ("agree", "rand", "topk")  # routing modes that need per-step group gradients
 
 
@@ -278,9 +284,11 @@ class Fleet:
         z = torch.relu(torch.bmm(x, P[f"w1_{i}"].transpose(1, 2)))
         return torch.bmm(z, P[f"w2_{i}"].transpose(1, 2))
 
-    def forward(self, A: torch.Tensor, B: torch.Tensor, alphas: torch.Tensor | None = None, parts: bool = False):
+    def forward(self, A: torch.Tensor, B: torch.Tensor, alphas: torch.Tensor | None = None, parts: bool = False,
+                stream: bool = False):
         """A, B: (R, n) or (n,) token indices. Returns logits (R, n, p), and if parts=True the per-component
-        direct contributions as a list of L+1 tensors (R, n, p) [embedding path, block 1..L] (they sum to logits)."""
+        direct contributions as a list of L+1 tensors (R, n, p) [embedding path, block 1..L] (they sum to logits).
+        stream=True returns (logits, final residual stream (R, n, d)) instead."""
         P = self.params
         al = self.alphas if alphas is None else alphas
         if A.dim() == 1:
@@ -297,6 +305,8 @@ class Fleet:
         U = P["unembed"].transpose(1, 2)
         osv = self.out_scale.view(-1, 1, 1)
         logits = osv * torch.bmm(hs[-1], U)
+        if stream:
+            return logits, hs[-1]
         if not parts:
             return logits
         Lb = self.L
@@ -953,6 +963,7 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
                 compact_below: float = 0.5) -> list[dict]:
     """Train all runs together. Finished (stop_after_grok) and diverged runs are frozen; when the active fraction
     falls below `compact_below`, the batch is compacted to the active runs so their compute is not wasted."""
+    from . import fleet_horizon as fh
     from . import fleet_signal as fs
     t0 = time.time()
     fleet = Fleet(cfgs, device)
@@ -991,12 +1002,37 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
             gp = torch.Generator().manual_seed(50_000 + c.data_seed)
             pp.append(t["te"][torch.randperm(len(t["te"]), generator=gp)[:c0.probe_pairs]])
         st["probe_pairs"] = torch.stack(pp).to(dev)
+    if K > 0:  # prequential (predict-then-learn) code length: each pair's CE at the step it arrives, before training
+        st["preq_nats"] = torch.zeros(R0, K + 1, dtype=fleet.dtype, device=dev)
+        st["preq_cor"] = torch.zeros(R0, K + 1, dtype=fleet.dtype, device=dev)
+        st["preq_n"] = torch.zeros(R0, K + 1, dtype=fleet.dtype, device=dev)
+    hz = c0.measure_horizon
+    swap = any(c.readout_swap_at is not None for c in cfgs)
+    if hz or swap:
+        st["hz_val"] = fh.holdout_mask(cfgs, grid["a"].shape[0], dev)
+    if swap:
+        st["swap_at"] = torch.tensor([c.readout_swap_at if c.readout_swap_at is not None else -1 for c in cfgs],
+                                     dtype=torch.long, device=dev)
+        st["swap_acc"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
+        st["swap_scale"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
+    vel, t_vel = ({k: torch.zeros_like(v) for k, v in fleet.params.items()}, 0) if hz else (None, 0)
+    jump = any(c.drift_jump_at is not None for c in cfgs)
+    if jump:
+        if not hz:
+            raise ValueError("drift_jump_at needs measure_horizon (the drift estimate)")
+        st["jump_at"] = torch.tensor([c.drift_jump_at if c.drift_jump_at is not None else -1 for c in cfgs],
+                                     dtype=torch.long, device=dev)
+        st["jump_h"] = torch.tensor([float(c.drift_jump_h) for c in cfgs], dtype=fleet.dtype, device=dev)
+        st["jump_acc_before"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
+        st["jump_acc_after"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
     orig = list(range(R0))
     grok_step: list[int | None] = [None] * R0
     diverged: list[int | None] = [None] * R0
     trajs: list[list[dict]] = [[] for _ in range(R0)]
     probes: list[list[dict]] = [[] for _ in range(R0)]
     saved_lat: dict[int, list] = {}
+    saved_extra: dict[int, dict] = {}  # per-run end-of-run state of runs compacted away
+    END_KEYS = ("preq_nats", "preq_cor", "preq_n", "swap_acc", "swap_scale", "jump_acc_before", "jump_acc_after")
     inc_steps = torch.arange(K + 1, device=dev) * max(c0.arrive_every, 0)
 
     def batch_tensors():
@@ -1008,11 +1044,36 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
     for step in range(c0.steps + 1):
         R = fleet.R
         w = (st["arrive"] <= step).to(fleet.dtype) if K > 0 else None
+        if swap and bool((st["swap_at"] == step).any()):  # E2 intervention, before this step's update
+            if K > 0:
+                seen = torch.zeros_like(grid["train"])
+                seen.scatter_(1, st["tr"], st["arrive"] <= step)
+                grid["train"], grid["rule_train"] = seen, seen & ~grid["exc"]
+            runs = (st["swap_at"] == step) & st["active"]
+            sw = fh.swap_readout(fleet, opt, grid, st["hz_val"], runs, A, B, Y, w)
+            st["swap_acc"] = torch.where(runs, sw["refit_test_acc"], st["swap_acc"])
+            st["swap_scale"] = torch.where(runs, sw["scale"], st["swap_scale"])
+        if jump and bool((st["jump_at"] == step).any()) and t_vel > 0:  # E2 intervention: skip ahead along the drift
+            runs = (st["jump_at"] == step) & st["active"]
+            before = fh.test_acc(fleet, grid)
+            corr = 1.0 - fh.DRIFT_BETA ** t_vel
+            with torch.no_grad():
+                for k, v in fleet.params.items():
+                    sh = (-1,) + (1,) * (v.dim() - 1)
+                    v.add_(torch.where(runs.view(sh), (st["jump_h"].view(sh) / corr) * vel[k], torch.zeros_like(v)))
+            after = fh.test_acc(fleet, grid)
+            st["jump_acc_before"] = torch.where(runs, before, st["jump_acc_before"])
+            st["jump_acc_after"] = torch.where(runs, after, st["jump_acc_after"])
         opt.zero_grad()
         per_run, ce, cor = _loss_and_grads(fleet, opt, A, B, Y, w, st["active"], st)
         finite = torch.isfinite(per_run)
         st["div_step"] = torch.where((~finite) & (st["div_step"] < 0), torch.full_like(st["div_step"], step), st["div_step"])
         st["active"] = st["active"] & finite
+        if K > 0:
+            newly = (st["arrive"] == step).to(fleet.dtype) * st["active"].to(fleet.dtype).view(-1, 1)
+            st["preq_nats"] = st["preq_nats"].scatter_add(1, st["inc"], torch.nan_to_num(ce.detach(), nan=0.0) * newly)
+            st["preq_cor"] = st["preq_cor"].scatter_add(1, st["inc"], cor.to(fleet.dtype) * newly)
+            st["preq_n"] = st["preq_n"].scatter_add(1, st["inc"], newly)
         if K > 0:  # memorization latency per increment, from this step's training logits
             arrived = st["arrive"] <= step
             cnt = torch.zeros(R, K + 1, device=dev, dtype=fleet.dtype).scatter_add_(1, st["inc"], arrived.to(fleet.dtype))
@@ -1041,6 +1102,11 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
                 extra.update(opt.take_angle())
             if opt.path_eff:
                 extra["path_eff"] = opt.path_efficiency()
+            if hz:
+                rf = fh.refit_readout(fleet, grid, st["hz_val"])
+                extra.update({k: rf[k] for k in ("refit_test_acc", "refit_train_acc", "refit_lam", "ridge_test_acc",
+                                                 "ridge_train_acc")})
+                extra.update(fh.extrapolated_acc(fleet, grid, vel, t_vel, c0.horizon_extrap))
             if K > 0:
                 extra["old_loss"] = (ce * is_old).sum(1) / is_old.sum(1).clamp_min(1)
                 extra["n_seen"] = (st["arrive"] <= step).sum(1).to(fleet.dtype)
@@ -1067,9 +1133,13 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
             if sum(act) < compact_below * R:
                 keep = torch.tensor([j for j in range(R) if act[j]], dtype=torch.long, device=dev)
                 lat_now = st["lat"].cpu().tolist()
+                ends = {k: st[k].cpu().tolist() for k in END_KEYS if k in st}
                 for j in range(R):
                     if not act[j]:
                         saved_lat[orig[j]] = lat_now[j]
+                        saved_extra[orig[j]] = {k: v[j] for k, v in ends.items()}
+                if vel is not None:
+                    vel = {k: v[keep] for k, v in vel.items()}
                 fleet.subset(keep)
                 opt.subset(keep)
                 for k in ("y", "train", "test", "exc", "rule_train", "new"):
@@ -1094,11 +1164,20 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
             for j in range(fleet.R):
                 if act[j]:
                     probes[orig[j]].append({"step": step, **{k: v[j] for k, v in prl.items()}})
+        if hz:
+            prev = {k: v.detach().clone() for k, v in fleet.params.items()}
         opt.step(st["active"])
+        if hz:  # drift: bias-corrected EMA of the per-step parameter change (E2 extrapolation)
+            with torch.no_grad():
+                for k, v in fleet.params.items():
+                    vel[k] = fh.DRIFT_BETA * vel[k] + (1 - fh.DRIFT_BETA) * (v.detach() - prev[k])
+            t_vel += 1
     secs = time.time() - t0
     divs = st["div_step"].cpu().tolist()
     lat = st["lat"].cpu().tolist()
     lat_by_orig = {**saved_lat, **{orig[j]: lat[j] for j in range(fleet.R)}}
+    ends = {k: st[k].cpu().tolist() for k in END_KEYS if k in st}
+    extra_by_orig = {**saved_extra, **{orig[j]: {k: v[j] for k, v in ends.items()} for j in range(fleet.R)}}
     for j in range(fleet.R):  # runs still in the batch that diverged after the last eval
         if divs[j] >= 0 and diverged[orig[j]] is None:
             diverged[orig[j]] = divs[j]
@@ -1107,6 +1186,19 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
         summ = summarize(trajs[j], c, diverged[j])
         if K > 0:
             summ["latency"] = lat_by_orig.get(j)  # per increment (index 0 = initial set); -1 = never reached 90%
+            e = extra_by_orig.get(j, {})
+            if "preq_n" in e:  # per increment: summed CE (nats) at arrival, before training on it; n; accuracy
+                summ["prequential"] = {"nats": e["preq_nats"], "n": e["preq_n"],
+                                       "acc": [h / max(n_, 1.0) for h, n_ in zip(e["preq_cor"], e["preq_n"])]}
+        if c.readout_swap_at is not None:
+            e = extra_by_orig.get(j, {})
+            summ["swap"] = {"step": c.readout_swap_at, "refit_test_acc": _clean([e.get("swap_acc")])[0],
+                            "scale": _clean([e.get("swap_scale")])[0]}
+        if c.drift_jump_at is not None:
+            e = extra_by_orig.get(j, {})
+            summ["jump"] = {"step": c.drift_jump_at, "h": c.drift_jump_h,
+                            "test_acc_before": _clean([e.get("jump_acc_before")])[0],
+                            "test_acc_after": _clean([e.get("jump_acc_after")])[0]}
         res = {"config": asdict(c), "run_id": c.run_id, "n_params": n_params, "trajectory": trajs[j], "summary": summ,
                "fleet": {"device": str(dev), "R": R0, "seconds_batch": secs}}
         if c0.probe_steps:
