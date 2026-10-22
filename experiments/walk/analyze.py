@@ -258,10 +258,12 @@ def e2(rdir):
         b = base_by.get((c["tag"].split("-")[1], c["model_seed"]))
         if b is None:
             return None, None, None
-        tb, tj_ = sustained_grok(b["trajectory"]), sustained_grok(r["trajectory"])
-        tb = c["steps"] if tb is None else tb
-        tj_ = c["steps"] if tj_ is None else tj_
-        eligible = sustained_grok(b["trajectory"]) is None or sustained_grok(b["trajectory"]) > c["drift_jump_at"]
+        tb0, tj0 = sustained_grok(b["trajectory"]), sustained_grok(r["trajectory"])
+        tb = c["steps"] if tb0 is None else tb0
+        tj_ = c["steps"] if tj0 is None else tj0
+        # eligible: the jump came before the base's sustained grokking, and at least one of the pair grokked
+        # (if neither did, both are censored at the horizon and the pair carries no information)
+        eligible = (tb0 is None or tb0 > c["drift_jump_at"]) and (tb0 is not None or tj0 is not None)
         return tb - tj_, eligible, r["summary"]["n_collapses"] - b["summary"]["n_collapses"]
 
     noise_d = defaultdict(list)

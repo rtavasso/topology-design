@@ -98,7 +98,7 @@ The pre-run review showed that the original primary prediction could not fail. E
   - a Holm-adjusted sign test on sustained-grokking steps saved, p < 0.05, in the positive direction;
   - median saving above the median |Δ| of the noise-floor runs;
   - median change in collapse count ≤ 0.
-  - Only jumps made before the paired base run's sustained grokking count. A cell needs ≥ 5 such runs to be testable.
+  - Only jumps made before the paired base run's sustained grokking count, and only pairs where at least one of the two runs reaches sustained grokking; otherwise both are censored at the horizon and the pair carries no information. A cell needs ≥ 5 such runs to be testable.
   - *Falsifier:* no cell qualifies. The answer may be visible, but a learner cannot skip ahead to it this way.
 - *Exploratory:* the decay-aware operator; longer horizons; sym vs asym.
 
