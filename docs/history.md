@@ -173,6 +173,39 @@ The researcher proposed separating them by time constant: a fast path that memor
 - Removing signal masking does not change L's composition.
 - No routed split beats its matched null.
 
+## Entry 21 (21 Oct 2026): Phase 5 instrumentation in the fleet trainer
+
+**Premise.** The Phase 5 studies need features the batched trainer lacked: per-branch time constants, the unmasked arm, update routing, consolidation, arrivals and probes. Each must be checked before any result is read.
+
+**Evidence.**
+- Code: `src/topology_design/fleet.py` and `fleet_signal.py`.
+- Tests: `tests/test_fleet_p5.py`, 46 tests. Each mechanism is checked against a direct single-model computation, and float64 bitwise tests cover the exactness claims.
+- Documentation: [experiments/fleet/DESIGN.md](../experiments/fleet/DESIGN.md), section "Phase 5 extensions".
+
+**Independent review of the first version: six confirmed bugs, all fixed with tests that fail on the old code.**
+1. The 5A gradient projection lacked the lr factor. H5A-4's decay-versus-gradient comparison would have been decided by units.
+2. Consolidation averaged over classes. The design squares the norm, so κ was effectively 59 times weaker than preregistered.
+3. Consolidation was silently dropped when combined with group routing. The combination is now rejected.
+4. One consolidation EMA was initialized from the first (to, from) pair's logits for every run.
+5. Compaction advanced the consolidation EMA twice in a step.
+6. Exactness:
+   - a changed loss layout made plain training differ in the last bits;
+   - plain runs batched with routed or measured runs took different arithmetic;
+   - measurement shifted the routing nulls' random draws.
+
+**Also changed after the review:**
+- the 5A time splits now include the current step;
+- agreement groups are drawn from the present examples only;
+- the permutation null is a derangement;
+- the masking measure uses the CE gradient alone;
+- added `S_u_topk`.
+
+**Added from the design:** the Grokfast positive control, a fixed-angle rotation null (matched to the time arm's measured angle), path efficiency, branch-alone losses, per-component mem of new pairs, and protocol-matched probes.
+
+**Decisions.**
+- The rotation null's angle is passed in from the time arm's run (`route_rot_angle`). Matching it inside one batch would couple independent runs.
+- The first-order imprint keeps the centered true-label logit, consistent with the supports.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

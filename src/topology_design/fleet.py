@@ -61,6 +61,11 @@ class FleetConfig:
     route_branch: int = 0  # receiving branch (0-based)
     route_alpha: float = 0.998  # EMA rate of the preconditioned update (time routing, rotation null)
     route_tau: float = 0.75  # sign-agreement threshold for the agreement mask
+    route_rot_angle: float | None = None  # rot null: fixed rotation angle in degrees (the time arm's median angle, as
+    #   DESIGN 5C specifies); None -> each step's own angle between u and EMA(u)
+    grokfast: float = 0.0  # lambda of uniform Grokfast-EMA (g + lambda*EMA(g)) on all params: 5C positive control
+    grokfast_alpha: float = 0.98
+    measure_path_eff: bool = False  # path efficiency ||sum u|| / sum ||u|| per branch (cumulative), at evals
     groups: int = 8  # training-set groups for agreement masks (resampled every step)
     consolidate: float = 0.0  # kappa of function-space consolidation (5D)
     consolidate_to: int = 0  # receiving branch
@@ -73,6 +78,7 @@ class FleetConfig:
     arrive_every: int = 0  # steps between increments
     probe_steps: tuple | None = None  # 5E: steps at which first-order probes run
     probe_pairs: int = 50
+    probe_matched: int = 0  # 5E protocol-matched probes: AdamW steps on copies with the pair added (0 = off; design 50)
     model_seed: int = 0
     data_seed: int = 0
     tag: str = ""
@@ -113,7 +119,7 @@ class FleetConfig:
 
 STRUCT_FIELDS = ("task", "p", "train_frac", "d", "hidden", "steps", "eval_every", "dense_early", "stop_after_grok",
                  "grok_thresh", "branches", "measure_signal", "arrive_start", "arrive_n", "arrive_every", "probe_steps",
-                 "probe_pairs", "groups")
+                 "probe_pairs", "probe_matched", "groups")
 GROUP_ROUTES = ("agree", "rand", "topk")  # routing modes that need per-step group gradients
 
 
@@ -144,8 +150,10 @@ def validate_config(cfg: FleetConfig) -> None:
             raise ValueError("route_branch out of range")
     if cfg.consolidate and not (0 <= cfg.consolidate_to < nb and 0 <= cfg.consolidate_from < nb):
         raise ValueError("consolidate_to/from out of range")
-    if cfg.unmask_branch is not None and cfg.route in GROUP_ROUTES:
-        raise ValueError("unmask_branch cannot be combined with group-gradient routing")
+    if cfg.route in GROUP_ROUTES and (cfg.unmask_branch is not None or cfg.consolidate):
+        raise ValueError("unmask_branch / consolidate cannot be combined with group-gradient routing")
+    if cfg.route_rot_angle is not None and cfg.route != "rot":
+        raise ValueError("route_rot_angle applies to route='rot' only")
     if cfg.arrive_start and (cfg.arrive_n <= 0 or cfg.arrive_every <= 0):
         raise ValueError("arrivals need arrive_n and arrive_every")
 
@@ -316,6 +324,10 @@ class Fleet:
 ROUTE_CODES = {None: 0, "time": 1, "agree": 2, "rand": 3, "topk": 4, "rot": 5}
 
 
+def _bshape(x: torch.Tensor) -> tuple:
+    return (-1,) + (1,) * (x.dim() - 1)
+
+
 class FleetAdamW:
     """torch.optim.AdamW (betas 0.9/0.98, eps 1e-8) with per-run, per-tensor lr and weight decay.
 
@@ -323,13 +335,16 @@ class FleetAdamW:
 
     Phase 5C routing (per run, on its receiving branch only): the preconditioned update u = m_hat/(sqrt(v_hat)+eps),
     computed from moments of the RAW gradient, is replaced by a G-part rescaled to the norm of u over the branch
-    (direction-only, one-sided, hard). Modes: time = EMA_alpha(u) (bias-corrected); agree = u * agreement mask from
-    group-gradient signs; rand = u * random mask of the same density; topk = the same number of largest-|u|
-    coordinates; rot = u rotated toward a random orthogonal direction by the angle between u and EMA(u). If the G-part
-    is empty (norm < 1e-12) the unrouted update is used. Decay is unchanged. The angle between routed and unrouted
-    update (degrees) is accumulated per run as the manipulation check.
+    (direction-only, one-sided, hard). Modes: time = EMA_alpha(u) (bias-corrected, including the current u); agree =
+    u * agreement mask from group-gradient signs; rand = u * random mask of the same density; topk = the same number of
+    largest-|u| coordinates; rot = u rotated toward a random orthogonal direction by the angle between u and EMA(u), or
+    by the fixed `route_rot_angle`. If the G-part is empty (norm < 1e-12) the unrouted update is used. Decay is
+    unchanged. Coordinates that are not routed are updated with exactly the plain AdamW arithmetic, so an unrouted run
+    is bit-identical whatever else shares its batch. The angle between routed and unrouted update (degrees) is
+    recorded per run and step (manipulation check).
 
-    Also maintains, when requested, EMAs of the raw gradient (5A time splits) and of u (time routing / rotation null)."""
+    Also: uniform Grokfast-EMA (5C positive control), EMAs of the raw gradient (5A time splits) and of u, and
+    cumulative path efficiency per branch. Random draws use the optimizer's own generator."""
 
     def __init__(self, fleet: Fleet, betas=(0.9, 0.98), eps: float = 1e-8):
         self.f, self.b1, self.b2, self.eps = fleet, betas[0], betas[1], eps
@@ -338,6 +353,9 @@ class FleetAdamW:
         self.t = 0
         cf = fleet.cfgs
         dev, dt = fleet.device, fleet.dtype
+        import hashlib
+        seed = int(hashlib.sha1("|".join(c.run_id for c in cf).encode()).hexdigest()[:8], 16)
+        self.gen = make_generator(dev, seed)
         self.mode = torch.tensor([ROUTE_CODES[c.route] for c in cf], device=dev)
         self.recv = torch.zeros(fleet.R, fleet.L, dtype=torch.bool, device=dev)
         for r, c in enumerate(cf):
@@ -345,14 +363,24 @@ class FleetAdamW:
                 self.recv[r, branch_blocks(c)[c.route_branch]] = True
         self.route_alpha = torch.tensor([c.route_alpha for c in cf], dtype=dt, device=dev)
         self.tau = torch.tensor([c.route_tau for c in cf], dtype=dt, device=dev)
+        self.rot_angle = torch.tensor([math.radians(c.route_rot_angle) if c.route_rot_angle is not None else math.nan
+                                       for c in cf], dtype=dt, device=dev)
         self.routing = bool((self.mode > 0).any())
-        self.track_u = self.routing and bool(((self.mode == 1) | (self.mode == 5)).any()) or any(c.measure_signal for c in cf)
+        self.track_u = (self.routing and bool(((self.mode == 1) | (self.mode == 5)).any())) or any(c.measure_signal for c in cf)
         self.track_g = any(c.measure_signal for c in cf)
         self.ema_u = {k: torch.zeros_like(v) for k, v in fleet.params.items()} if self.track_u else None
         self.ema_g = ({a: {k: torch.zeros_like(v) for k, v in fleet.params.items()} for a in (0.98, 0.998)}
                       if self.track_g else None)
-        self.angle_sum = torch.zeros(fleet.R, dtype=dt, device=dev)
-        self.angle_n = torch.zeros(fleet.R, dtype=dt, device=dev)
+        self.gf_lam = torch.tensor([c.grokfast for c in cf], dtype=dt, device=dev)
+        self.gf_alpha = torch.tensor([c.grokfast_alpha for c in cf], dtype=dt, device=dev)
+        self.grokfast = bool((self.gf_lam > 0).any())
+        self.gf_h = {k: torch.zeros_like(v) for k, v in fleet.params.items()} if self.grokfast else None
+        self.path_eff = any(c.measure_path_eff for c in cf)
+        self.units = branch_blocks(cf[0]) or [[i] for i in range(fleet.L)]
+        if self.path_eff:
+            self.pe_sum = {k: torch.zeros_like(v) for k, v in fleet.params.items() if k.startswith("w")}
+            self.pe_norm = torch.zeros(fleet.R, len(self.units), dtype=dt, device=dev)
+        self.angles: list[torch.Tensor] = []
         self.sign_sum = None  # set by the trainer each step for group routes: {param: (R, ...) sum of group signs}
         self.n_groups = cf[0].groups
 
@@ -364,9 +392,19 @@ class FleetAdamW:
             if self.ema_g is not None:
                 for a in self.ema_g:
                     self.ema_g[a][k] = self.ema_g[a][k][idx]
+            if self.gf_h is not None:
+                self.gf_h[k] = self.gf_h[k][idx]
+        if self.path_eff:
+            self.pe_sum = {k: v[idx] for k, v in self.pe_sum.items()}
+            self.pe_norm = self.pe_norm[idx]
         self.mode, self.recv = self.mode[idx], self.recv[idx]
-        self.route_alpha, self.tau = self.route_alpha[idx], self.tau[idx]
-        self.angle_sum, self.angle_n = self.angle_sum[idx], self.angle_n[idx]
+        self.route_alpha, self.tau, self.rot_angle = self.route_alpha[idx], self.tau[idx], self.rot_angle[idx]
+        self.gf_lam, self.gf_alpha = self.gf_lam[idx], self.gf_alpha[idx]
+        self.angles = [a[idx] for a in self.angles]
+
+    def _moments(self, k: str, g: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Next moments, with exactly the arithmetic of torch AdamW (lerp; mul + addcmul)."""
+        return torch.lerp(self.m[k], g, 1 - self.b1), torch.addcmul(self.v[k] * self.b2, g, g, value=1 - self.b2)
 
     def preconditioned(self, grads: dict | None = None) -> dict:
         """The update u this optimizer would apply at the next step given gradients (default p.grad), without changing
@@ -376,59 +414,89 @@ class FleetAdamW:
         out = {}
         for k, p in self.f.params.items():
             g = p.grad if grads is None else grads[k]
-            m = torch.lerp(self.m[k], g, 1 - self.b1)
-            v = self.v[k] * self.b2 + (1 - self.b2) * g * g
+            m, v = self._moments(k, g)
             out[k] = (m / bc1) / ((v.sqrt() / bc2_sqrt) + self.eps)
         return out
+
+    def _grokfast(self, active):
+        for k, p in self.f.params.items():
+            if p.grad is None:
+                continue
+            sh = _bshape(p)
+            a, lam = self.gf_alpha.view(sh), self.gf_lam.view(sh)
+            on = (active & (self.gf_lam > 0)).view(sh)
+            self.gf_h[k] = torch.where(on, self.gf_h[k] * a + (1 - a) * p.grad, self.gf_h[k])
+            p.grad = torch.where(on, p.grad + lam * self.gf_h[k], p.grad)
 
     @torch.no_grad()
     def step(self, active: torch.Tensor):
         self.t += 1
         bc1 = 1 - self.b1 ** self.t
         bc2_sqrt = (1 - self.b2 ** self.t) ** 0.5
-        if self.track_g:
+        if self.track_g:  # EMAs of the raw (CE + any auxiliary) gradient, before Grokfast
             for a, store in self.ema_g.items():
                 for k, p in self.f.params.items():
                     if p.grad is not None:
-                        act = active.view((-1,) + (1,) * (p.dim() - 1))
+                        act = active.view(_bshape(p))
                         store[k] = torch.where(act, store[k] * a + (1 - a) * torch.nan_to_num(p.grad), store[k])
-        if not self.routing and not self.track_u:
+        if self.grokfast:
+            self._grokfast(active)
+        if not self.routing and not self.track_u and not self.path_eff:
             return self._plain_step(active, bc1, bc2_sqrt)
-        # general path: compute u for all tensors, update EMAs, route, then apply
-        U, M, V = {}, {}, {}
+        # general path: moments and u for all tensors, EMAs, routing; non-routed coordinates use the plain arithmetic
+        U, M, V, D = {}, {}, {}, {}
         for k, p in self.f.params.items():
             if p.grad is None:
                 continue
-            act = active.view((-1,) + (1,) * (p.dim() - 1))
+            act = active.view(_bshape(p))
             g = torch.where(act, p.grad, torch.zeros_like(p.grad))
-            M[k] = torch.lerp(self.m[k], g, 1 - self.b1)
-            V[k] = self.v[k] * self.b2 + (1 - self.b2) * g * g
-            U[k] = (M[k] / bc1) / ((V[k].sqrt() / bc2_sqrt) + self.eps)
+            M[k], V[k] = self._moments(k, g)
+            D[k] = (V[k].sqrt() / bc2_sqrt) + self.eps
+            U[k] = (M[k] / bc1) / D[k]
         if self.track_u:
             for k in U:
-                shape = (-1,) + (1,) * (U[k].dim() - 1)
-                a = self.route_alpha.view(shape)
-                act = active.view(shape)
-                self.ema_u[k] = torch.where(act, self.ema_u[k] * a + (1 - a) * U[k], self.ema_u[k])
+                sh = _bshape(U[k])
+                a = self.route_alpha.view(sh)
+                self.ema_u[k] = torch.where(active.view(sh), self.ema_u[k] * a + (1 - a) * U[k], self.ema_u[k])
+        used = {}
         if self.routing:
-            U = self._route(U)
+            Ur, used = self._route(U, active)
         for k, p in self.f.params.items():
             if k not in U:
                 continue
-            shape = (-1,) + (1,) * (p.dim() - 1)
-            act = active.view(shape)
-            lr, wd = self.f.lr_t[k].view(shape), self.f.wd_t[k].view(shape)
-            p_new = p * (1 - lr * wd) - lr * U[k]
+            sh = _bshape(p)
+            act = active.view(sh)
+            lr, wd = self.f.lr_t[k].view(sh), self.f.wd_t[k].view(sh)
+            term = (lr / bc1) * M[k] / D[k]
+            if k in used:
+                term = torch.where(used[k].view(sh), lr * Ur[k], term)
+                U[k] = torch.where(used[k].view(sh), Ur[k], U[k])
+            p_new = p * (1 - lr * wd) - term
             p.copy_(torch.where(act, p_new, p))
             self.m[k] = torch.where(act, M[k], self.m[k])
             self.v[k] = torch.where(act, V[k], self.v[k])
+        if self.path_eff:
+            for q, blocks in enumerate(self.units):
+                names = [f"w1_{i}" for i in blocks] + [f"w2_{i}" for i in blocks]
+                sq = sum(U[k].flatten(1).pow(2).sum(1) for k in names)
+                self.pe_norm[:, q] += torch.where(active, sq.sqrt(), torch.zeros_like(sq))
+                for k in names:
+                    self.pe_sum[k] = torch.where(active.view(_bshape(U[k])), self.pe_sum[k] + U[k], self.pe_sum[k])
+
+    def path_efficiency(self) -> torch.Tensor:
+        """(R, units): ||sum_t u_t|| / sum_t ||u_t|| per branch (or block), cumulative since step 1 (u as applied)."""
+        out = []
+        for q, blocks in enumerate(self.units):
+            names = [f"w1_{i}" for i in blocks] + [f"w2_{i}" for i in blocks]
+            out.append(sum(self.pe_sum[k].flatten(1).pow(2).sum(1) for k in names).sqrt() / self.pe_norm[:, q].clamp_min(1e-30))
+        return torch.stack(out, 1)
 
     def _plain_step(self, active, bc1, bc2_sqrt):
         all_active = bool(active.all()) if active.numel() < 4096 else False
         for k, p in self.f.params.items():
             if p.grad is None:
                 continue
-            shape = (-1,) + (1,) * (p.dim() - 1)
+            shape = _bshape(p)
             lr = self.f.lr_t[k].view(shape)
             wd = self.f.wd_t[k].view(shape)
             g = p.grad
@@ -441,15 +509,15 @@ class FleetAdamW:
             else:
                 act = active.view(shape)
                 g = torch.where(act, g, torch.zeros_like(g))
-                m_new = torch.lerp(self.m[k], g, 1 - self.b1)
-                v_new = self.v[k] * self.b2 + (1 - self.b2) * g * g
+                m_new, v_new = self._moments(k, g)
                 denom = (v_new.sqrt() / bc2_sqrt).add_(self.eps)
                 p_new = p * (1 - lr * wd) - (lr / bc1) * m_new / denom
                 p.copy_(torch.where(act, p_new, p))
                 self.m[k] = torch.where(act, m_new, self.m[k])
                 self.v[k] = torch.where(act, v_new, self.v[k])
 
-    def _route(self, U: dict) -> dict:
+    def _route(self, U: dict, active: torch.Tensor) -> tuple[dict, dict]:
+        """Returns (routed updates for the receiving tensors, per-tensor (R,) mask of runs whose update was routed)."""
         f, R, L = self.f, self.f.R, self.f.L
         dt, dev = f.dtype, f.device
         names = [(i, f"w1_{i}") for i in range(L)] + [(i, f"w2_{i}") for i in range(L)]
@@ -462,25 +530,24 @@ class FleetAdamW:
         md = self.mode
         if bool((md == 1).any()) or bool((md == 5).any()):
             corr = (1 - self.route_alpha ** self.t)
-            E = {k: self.ema_u[k] / corr.view((-1,) + (1,) * (U[k].dim() - 1)) for _, k in names}
+            E = {k: self.ema_u[k] / corr.view(_bshape(U[k])) for _, k in names}
         if bool((md == 1).any()):
             for _, k in names:
-                G[k] = torch.where((md == 1).view((-1,) + (1,) * (U[k].dim() - 1)), E[k], G[k])
+                G[k] = torch.where((md == 1).view(_bshape(U[k])), E[k], G[k])
         if bool(((md == 2) | (md == 3) | (md == 4)).any()):
             if self.sign_sum is None:
                 raise RuntimeError("group-gradient routing needs sign_sum from the trainer")
-            amask = {k: (self.sign_sum[k].abs() / self.n_groups) >= self.tau.view((-1,) + (1,) * (U[k].dim() - 1))
-                     for _, k in names}
+            amask = {k: (self.sign_sum[k].abs() / self.n_groups) >= self.tau.view(_bshape(U[k])) for _, k in names}
             count = sum(flat(amask[k]).sum(1).to(dt) * rmask[k] for _, k in names)
             total = sum(torch.full((R,), float(flat(U[k]).shape[1]), dtype=dt, device=dev) * rmask[k] for _, k in names)
             density = count / total.clamp_min(1.0)
             if bool((md == 2).any()):
                 for _, k in names:
-                    G[k] = torch.where((md == 2).view((-1,) + (1,) * (U[k].dim() - 1)), U[k] * amask[k], G[k])
+                    G[k] = torch.where((md == 2).view(_bshape(U[k])), U[k] * amask[k], G[k])
             if bool((md == 3).any()):
                 for _, k in names:
-                    sh = (-1,) + (1,) * (U[k].dim() - 1)
-                    rnd = torch.rand_like(U[k]) < density.view(sh)
+                    sh = _bshape(U[k])
+                    rnd = rand_like_gen(U[k], self.gen) < density.view(sh)
                     G[k] = torch.where((md == 3).view(sh), U[k] * rnd, G[k])
             if bool((md == 4).any()):
                 allabs = torch.cat([flat(U[k]).abs() * rmask[k].view(-1, 1) - (~rmask[k]).view(-1, 1).to(dt)
@@ -490,45 +557,45 @@ class FleetAdamW:
                 thr = srt.gather(1, kk.view(-1, 1)).squeeze(1)
                 thr = torch.where(count > 0, thr, torch.full_like(thr, float("inf")))
                 for _, k in names:
-                    sh = (-1,) + (1,) * (U[k].dim() - 1)
+                    sh = _bshape(U[k])
                     G[k] = torch.where((md == 4).view(sh), U[k] * (U[k].abs() >= thr.view(sh)), G[k])
         if bool((md == 5).any()):
             ue = dot(U, E)
             e_sq = dot(E, E)
             cos_t = (ue / (u_sq.sqrt() * e_sq.sqrt()).clamp_min(1e-30)).clamp(-1.0, 1.0)
-            theta = torch.arccos(cos_t)
-            Rn = {k: torch.randn_like(U[k]) for _, k in names}
+            theta = torch.where(torch.isnan(self.rot_angle), torch.arccos(cos_t), self.rot_angle)
+            Rn = {k: rand_like_gen(U[k], self.gen, normal=True) for _, k in names}
             ru = dot(Rn, U)
-            Rp = {k: Rn[k] - (ru / u_sq.clamp_min(1e-30)).view((-1,) + (1,) * (U[k].dim() - 1)) * U[k] for _, k in names}
+            Rp = {k: Rn[k] - (ru / u_sq.clamp_min(1e-30)).view(_bshape(U[k])) * U[k] for _, k in names}
             rp_norm = dot(Rp, Rp).sqrt().clamp_min(1e-30)
             un = u_sq.sqrt().clamp_min(1e-30)
             for _, k in names:
-                sh = (-1,) + (1,) * (U[k].dim() - 1)
+                sh = _bshape(U[k])
                 rot = torch.cos(theta).view(sh) * U[k] / un.view(sh) + torch.sin(theta).view(sh) * Rp[k] / rp_norm.view(sh)
                 G[k] = torch.where((md == 5).view(sh), rot, G[k])
         g_sq = dot(G, G)
         ok = (g_sq > 1e-24) & (self.mode > 0)
         scale = torch.where(ok, (u_sq / g_sq.clamp_min(1e-30)).sqrt(), torch.zeros_like(u_sq))
-        out = dict(U)
+        out, used = {}, {}
         for _, k in names:
-            sh = (-1,) + (1,) * (U[k].dim() - 1)
-            use = (rmask[k] & ok).view(sh)
-            out[k] = torch.where(use, G[k] * scale.view(sh), U[k])
-        # manipulation check: angle between routed and unrouted update on the receiving branch
-        cosang = dot(out, U) / (dot(out, out).sqrt() * u_sq.sqrt()).clamp_min(1e-30)
+            sh = _bshape(U[k])
+            used[k] = rmask[k] & ok
+            out[k] = torch.where(used[k].view(sh), G[k] * scale.view(sh), U[k])
+        # manipulation check: angle between routed and unrouted update on the receiving branch (NaN if not routed)
+        full = {k: out.get(k, U[k]) for _, k in names}
+        cosang = dot(full, U) / (dot(full, full).sqrt() * u_sq.sqrt()).clamp_min(1e-30)
         ang = torch.rad2deg(torch.arccos(cosang.clamp(-1.0, 1.0)))
-        routed = self.mode > 0
-        self.angle_sum = self.angle_sum + torch.where(routed, ang, torch.zeros_like(ang))
-        self.angle_n = self.angle_n + routed.to(dt)
-        return out
+        self.angles.append(torch.where((self.mode > 0) & active, ang, torch.full_like(ang, float("nan"))))
+        return out, used
 
-    def take_angle(self) -> torch.Tensor:
-        """Mean routing angle (degrees) since the last call, per run (NaN if not routed)."""
-        a = self.angle_sum / self.angle_n.clamp_min(1.0)
-        a = torch.where(self.angle_n > 0, a, torch.full_like(a, float("nan")))
-        self.angle_sum.zero_()
-        self.angle_n.zero_()
-        return a
+    def take_angle(self) -> dict:
+        """Median and mean routing angle (degrees) over the steps since the last call, per run (NaN if not routed)."""
+        if not self.angles:
+            nan = torch.full((self.f.R,), float("nan"), dtype=self.f.dtype, device=self.f.device)
+            return {"route_angle": nan, "route_angle_mean": nan.clone()}
+        a = torch.stack(self.angles, 1)
+        self.angles = []
+        return {"route_angle": a.nanmedian(1).values, "route_angle_mean": a.nanmean(1)}
 
     def zero_grad(self):
         for p in self.f.params.values():
@@ -547,10 +614,12 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
     grid: tokens a, b and rule key (N,); per-run labels y (R, N) and masks (R, N) 'train', 'test', 'exc', 'rule_train'.
     Per run: loss/accuracy on each set; per-component (embedding path, blocks) leak-free supports
     gen = mean test-label centered logit, mem = mean train-label centered logit - gen, exception support;
-    per-component logit RMS; test-only rule fraction; single-block and branch ablations (accuracy, gen, mem)."""
+    per-component logit RMS; test-only rule fraction; single-block and branch ablations (accuracy, train/test loss,
+    gen, mem). If grid has a 'new' mask (5E: the latest increment), also mem_new = per-component mean new-pair
+    centered logit - gen, and new_acc / new_loss."""
     R, L, p = fleet.R, fleet.L, fleet.p
     dev = fleet.device
-    sets = ["train", "test", "rule_train", "exc"]
+    sets = ["train", "test", "rule_train", "exc"] + (["new"] if "new" in grid else [])
     P = fleet.params
     U = P["unembed"].transpose(1, 2)
     osv, bview = fleet.out_scale.view(-1, 1, 1), fleet.beta.view(-1, 1, 1)
@@ -566,7 +635,7 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
     zc_energy = z(R)
     br = fleet.cfgs[0].branches
     abl_sets = [[i] for i in range(L)] + ([[j - 1 for j in s] for s in br] + [[j - 1 for s in br for j in s]] if br else [])
-    abl_acc = {k: z(R, len(abl_sets)) for k in ("train_acc", "test_acc", "exc_acc")}
+    abl_acc = {k: z(R, len(abl_sets)) for k in ("train_acc", "test_acc", "exc_acc", "train_loss", "test_loss")}
     abl_lab = {k: z(R, len(abl_sets)) for k in ("train", "test")}
 
     def h0_of(a, b):
@@ -614,7 +683,10 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
                 hs2.append(bview * hs2[-1] + w)
             lg = osv * torch.bmm(hs2[-1], U)
             c2 = (lg.argmax(-1) == y).to(dt)
+            ce2 = F.cross_entropy(lg.transpose(1, 2), y, reduction="none")
             l2 = lab_c(lg)
+            abl_acc["train_loss"][:, q] += (ce2 * m["train"]).sum(1)
+            abl_acc["test_loss"][:, q] += (ce2 * m["test"]).sum(1)
             abl_acc["train_acc"][:, q] += (c2 * m["train"]).sum(1)
             abl_acc["test_acc"][:, q] += (c2 * m["test"]).sum(1)
             abl_acc["exc_acc"][:, q] += (c2 * m["exc"]).sum(1)
@@ -630,6 +702,8 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
     out["mem"] = sup["train"] - sup["test"]
     out["exc_support"] = sup["exc"]
     out["rule_train_support"] = sup["rule_train"]
+    if "new" in sup:
+        out["mem_new"] = sup["new"] - sup["test"]
     out["part_rms"] = (energy / (N * p)).sqrt()
     # test-only rule projection: each grid point gets its key's test-mean; energy = sum_key N_key * |mu_key|^2
     n_key = grid["n_key"].to(rule_sum.dtype)  # grid points per key (precomputed on the host)
@@ -640,7 +714,9 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
     mem_abl = abl_lab["train"] / cnt["train"].unsqueeze(1) - gen_abl
     for k, v in (("train_acc", abl_acc["train_acc"] / cnt["train"].unsqueeze(1)),
                  ("test_acc", abl_acc["test_acc"] / cnt["test"].unsqueeze(1)),
-                 ("exc_acc", abl_acc["exc_acc"] / cnt["exc"].unsqueeze(1)), ("gen", gen_abl), ("mem", mem_abl)):
+                 ("exc_acc", abl_acc["exc_acc"] / cnt["exc"].unsqueeze(1)), ("gen", gen_abl), ("mem", mem_abl),
+                 ("train_loss", abl_acc["train_loss"] / cnt["train"].unsqueeze(1)),
+                 ("test_loss", abl_acc["test_loss"] / cnt["test"].unsqueeze(1))):
         out[f"abl_block_{k}"] = v[:, :nb]
         if br:
             out[f"abl_branch_{k}"] = v[:, nb:]  # each branch, then all branches together
@@ -700,6 +776,52 @@ def summarize(traj: list[dict], cfg: FleetConfig, diverged_at: int | None) -> di
             "diverged_at": diverged_at, "steps_run": last.get("step")}
 
 
+def _ce(logits: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
+    """Per-example CE (R, n), in the flat layout of the baseline trainer (bit-identical to it)."""
+    R, n, p = logits.shape
+    return F.cross_entropy(logits.reshape(R * n, p), Y.reshape(-1), reduction="none").view(R, n)
+
+
+def _run_loss(ce: torch.Tensor, w: torch.Tensor | None) -> torch.Tensor:
+    """Per-run mean CE over the present examples. w=None: all present (exactly the baseline's .mean(1))."""
+    if w is None:
+        return ce.mean(1)
+    return (ce * w).sum(1) / w.sum(1).clamp_min(1e-12)
+
+
+def make_generator(device, seed: int) -> torch.Generator:
+    """A generator on `device` if the backend supports it, else on the CPU (draws are then moved)."""
+    try:
+        g = torch.Generator(device=device)
+    except RuntimeError:
+        g = torch.Generator()
+    g.manual_seed(seed)
+    return g
+
+
+def rand_like_gen(x: torch.Tensor, gen: torch.Generator, normal: bool = False) -> torch.Tensor:
+    f = torch.randn if normal else torch.rand
+    dt = x.dtype if x.is_floating_point() else torch.float32
+    return f(x.shape, generator=gen, device=gen.device, dtype=dt).to(x.device)
+
+
+def seen_groups(w: torch.Tensor, m: int, gen: torch.Generator) -> list[torch.Tensor]:
+    """m disjoint groups of positions (R, ~n/m each), drawn at random from the present examples (w > 0): present
+    positions are shuffled to the front and dealt round-robin, so every group gets an equal share (+-1) of them."""
+    R, n = w.shape
+    key = rand_like_gen(w, gen) + (w <= 0).to(w.dtype if w.is_floating_point() else torch.float32) * 2.0
+    order = torch.argsort(key, 1)
+    return [order[:, j::m] for j in range(m)]
+
+
+def derangement(n: int, gen: torch.Generator) -> torch.Tensor:
+    """A uniformly random permutation with no fixed points (rejection sampling; ~e tries)."""
+    while True:
+        perm = torch.randperm(n, generator=gen)
+        if not bool((perm == torch.arange(n)).any()):
+            return perm
+
+
 def _arrivals(cfgs: list[FleetConfig], n: int, device) -> tuple[torch.Tensor, torch.Tensor, int]:
     """Per run: arrival step of each training position (R, n) and its increment index (0 = initial set)."""
     c0 = cfgs[0]
@@ -719,25 +841,30 @@ def _arrivals(cfgs: list[FleetConfig], n: int, device) -> tuple[torch.Tensor, to
     return torch.stack(arr).to(device), torch.stack(inc).to(device), K
 
 
-def _loss_and_grads(fleet: Fleet, opt: FleetAdamW, A, B, Y, w, active, st: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def _loss_and_grads(fleet: Fleet, opt: FleetAdamW, A, B, Y, w, active, st: dict, update_state: bool = True,
+                    wc: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Forward + backward for one step. Fills p.grad. Returns per-run loss (R,), per-example CE (R, n) and correctness
-    (R, n) (both detached). Handles group gradients (agreement routing), the unmasked-branch arm and consolidation."""
+    (R, n) (both detached). Handles group gradients (agreement routing), the unmasked-branch arm and consolidation.
+
+    w: (R, n) presence weights, or None when every position is present (then the loss is exactly the baseline's).
+    wc: weights for the consolidation term (default w). update_state=False leaves the consolidation EMA unchanged
+    (used when a step's gradient is recomputed after compaction)."""
     R, n = A.shape
     c0 = fleet.cfgs[0]
     P = fleet.params
     keys = list(P)
-    wsum = w.sum(1).clamp_min(1e-12)
-    if c0.route in GROUP_ROUTES:  # whole batch is group-routed (struct key)
-        order = torch.argsort(torch.rand(R, n, device=A.device), 1)
+    if c0.route in GROUP_ROUTES:  # whole batch is group-routed (struct key); no unmasked arm / consolidation
+        wf = torch.ones(R, n, device=A.device, dtype=fleet.dtype) if w is None else w
+        wsum = wf.sum(1).clamp_min(1e-12)
         ce_all = torch.zeros(R, n, device=A.device, dtype=fleet.dtype)
         cor_all = torch.zeros(R, n, device=A.device, dtype=torch.bool)
         total = torch.zeros(R, device=A.device, dtype=fleet.dtype)
         grads = {k: torch.zeros_like(P[k]) for k in keys}
         signs = {k: torch.zeros_like(P[k]) for k in keys if k.startswith("w")}
-        for idx in torch.tensor_split(order, c0.groups, dim=1):
-            Ak, Bk, Yk, wk = A.gather(1, idx), B.gather(1, idx), Y.gather(1, idx), w.gather(1, idx)
+        for idx in seen_groups(wf, c0.groups, opt.gen):
+            Ak, Bk, Yk, wk = A.gather(1, idx), B.gather(1, idx), Y.gather(1, idx), wf.gather(1, idx)
             lg = fleet.forward(Ak, Bk)
-            ce = F.cross_entropy(lg.transpose(1, 2), Yk, reduction="none")
+            ce = _ce(lg, Yk)
             omega = wk.sum(1) / wsum
             loss_k = (ce * wk).sum(1) / wk.sum(1).clamp_min(1e-12)
             total = total + omega * loss_k.detach()
@@ -758,8 +885,8 @@ def _loss_and_grads(fleet: Fleet, opt: FleetAdamW, A, B, Y, w, active, st: dict)
         logits, comps = fleet.forward(A, B, parts=True)
     else:
         logits = fleet.forward(A, B)
-    ce = F.cross_entropy(logits.transpose(1, 2), Y, reduction="none")
-    per_run = (ce * w).sum(1) / wsum
+    ce = _ce(logits, Y)
+    per_run = _run_loss(ce, w)
     ok = active & torch.isfinite(per_run)
     torch.where(ok, per_run, torch.zeros_like(per_run)).sum().backward(retain_graph=need_parts)
     if need_parts:
@@ -769,38 +896,44 @@ def _loss_and_grads(fleet: Fleet, opt: FleetAdamW, A, B, Y, w, active, st: dict)
             flag = torch.tensor([c.unmask_branch == b for c in fleet.cfgs], device=A.device)
             blocks = brs[[i for i, c in enumerate(fleet.cfgs) if c.unmask_branch == b][0]][b]
             part = comps[0] + sum(comps[i + 1] for i in blocks)
-            cep = F.cross_entropy(part.transpose(1, 2), Y, reduction="none")
-            lp = (cep * w).sum(1) / wsum
+            lp = _run_loss(_ce(part, Y), w)
             names = [f"w1_{i}" for i in blocks] + [f"w2_{i}" for i in blocks]
             gp = torch.autograd.grad(torch.where(flag & ok, lp, torch.zeros_like(lp)).sum(), [P[k] for k in names],
                                      retain_graph=True)
             for k, gk_ in zip(names, gp):
                 P[k].grad = torch.where(flag.view((-1,) + (1,) * (gk_.dim() - 1)), gk_, P[k].grad)
-        # consolidation: receiving branch pulled toward the EMA of the source branch's centered logits
+        # consolidation: kappa * ||z_to - sg(EMA of z_from)||^2 (centered direct logits, summed over classes),
+        # averaged over present training examples
         kappa = st.get("kappa")
         if kappa is not None and bool((kappa > 0).any()):
+            wcon = wc if wc is not None else (torch.ones(R, n, device=A.device, dtype=fleet.dtype) if w is None else w)
+            wcsum = wcon.sum(1).clamp_min(1e-12)
             pairs = sorted({(c.consolidate_to, c.consolidate_from) for c in fleet.cfgs if c.consolidate})
             for to_b, from_b in pairs:
                 sel = torch.tensor([bool(c.consolidate) and (c.consolidate_to, c.consolidate_from) == (to_b, from_b)
                                     for c in fleet.cfgs], device=A.device)
-                r0 = [i for i, c in enumerate(fleet.cfgs) if c.consolidate and (c.consolidate_to, c.consolidate_from) == (to_b, from_b)][0]
+                r0 = int(sel.nonzero()[0])
                 to_blocks, from_blocks = brs[r0][to_b], brs[r0][from_b]
                 zt = sum(comps[i + 1] for i in to_blocks)
                 zt = zt - zt.mean(-1, keepdim=True)
                 zs = sum(comps[i + 1] for i in from_blocks).detach()
                 zs = zs - zs.mean(-1, keepdim=True)
                 if st["cons_ema"] is None:
-                    st["cons_ema"] = zs.clone()
-                tgt = st["cons_ema"].gather(1, st["cons_perm"].unsqueeze(-1).expand(-1, -1, zs.shape[-1]))
-                lc = (((zt - tgt) ** 2).mean(-1) * w).sum(1) / wsum
+                    st["cons_ema"] = torch.zeros_like(zs)
+                first = (sel & ~st["cons_init"]).view(-1, 1, 1)  # EMA starts at this run's own source logits
+                ema = torch.where(first, zs, st["cons_ema"])
+                tgt = ema.gather(1, st["cons_perm"].unsqueeze(-1).expand(-1, -1, zs.shape[-1]))
+                lc = (((zt - tgt) ** 2).sum(-1) * wcon).sum(1) / wcsum
                 names = [f"w1_{i}" for i in to_blocks] + [f"w2_{i}" for i in to_blocks]
                 gc = torch.autograd.grad(torch.where(sel & ok, kappa * lc, torch.zeros_like(lc)).sum(),
                                          [P[k] for k in names], retain_graph=True)
                 for k, gk_ in zip(names, gc):
                     P[k].grad = P[k].grad + gk_
-                beta = st["cons_beta"].view(-1, 1, 1)
-                upd = (sel & active).view(-1, 1, 1)
-                st["cons_ema"] = torch.where(upd, beta * st["cons_ema"] + (1 - beta) * zs, st["cons_ema"])
+                if update_state:
+                    beta = st["cons_beta"].view(-1, 1, 1)
+                    upd = (sel & active).view(-1, 1, 1)
+                    st["cons_ema"] = torch.where(upd, beta * ema + (1 - beta) * zs, ema)
+                    st["cons_init"] = st["cons_init"] | sel
         del comps
     return per_run.detach(), ce.detach(), (logits.argmax(-1) == Y).detach()
 
@@ -834,12 +967,13 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
         st["cons_beta"] = torch.tensor([c.consolidate_beta for c in cfgs], dtype=fleet.dtype, device=dev)
         perms = []
         for c in cfgs:
-            if c.consolidate_null:
-                perms.append(torch.randperm(n, generator=torch.Generator().manual_seed(60_000 + c.data_seed)))
+            if c.consolidate_null:  # each example's target is a *different* example's
+                perms.append(derangement(n, torch.Generator().manual_seed(60_000 + c.data_seed)))
             else:
                 perms.append(torch.arange(n))
         st["cons_perm"] = torch.stack(perms).to(dev)
         st["cons_ema"] = None
+        st["cons_init"] = torch.zeros(R0, dtype=torch.bool, device=dev)
     if c0.probe_steps:
         pp = []
         for c, t in zip(cfgs, tasks):
@@ -862,7 +996,7 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
     exc_tr = None
     for step in range(c0.steps + 1):
         R = fleet.R
-        w = (st["arrive"] <= step).to(fleet.dtype)
+        w = (st["arrive"] <= step).to(fleet.dtype) if K > 0 else None
         opt.zero_grad()
         per_run, ce, cor = _loss_and_grads(fleet, opt, A, B, Y, w, st["active"], st)
         finite = torch.isfinite(per_run)
@@ -880,18 +1014,23 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
                 seen = torch.zeros_like(grid["train"])
                 seen.scatter_(1, st["tr"], st["arrive"] <= step)
                 grid["train"], grid["rule_train"] = seen, seen & ~grid["exc"]
-            meas = measure(fleet, grid, measure_chunk)
-            extra = {}
-            if c0.measure_signal:
-                sig = fs.signal_measure(fleet, opt, grid, {"A": A, "B": B, "Y": Y, "w": w}, st["active"])
-                extra.update({f"sig_{k}": v for k, v in sig.items()})
-            if opt.routing:
-                extra["route_angle"] = opt.take_angle()
-            if K > 0:
                 latest = st["inc"].masked_fill(st["arrive"] > step, -1).max(1).values  # (R,)
                 is_new = (st["inc"] == latest.view(-1, 1)) & (st["arrive"] <= step)
                 is_old = (st["inc"] < latest.view(-1, 1)) & (st["arrive"] <= step)
-                extra["new_acc"] = (cor & is_new).sum(1).to(fleet.dtype) / is_new.sum(1).clamp_min(1)
+                newset = torch.zeros_like(grid["train"])
+                newset.scatter_(1, st["tr"], is_new)
+                grid["new"] = newset  # latest increment: per-component mem attribution (mem_new) in measure()
+            meas = measure(fleet, grid, measure_chunk)
+            extra = {}
+            if c0.measure_signal:
+                wb = w if w is not None else torch.ones(A.shape, dtype=fleet.dtype, device=dev)
+                sig = fs.signal_measure(fleet, opt, grid, {"A": A, "B": B, "Y": Y, "w": wb}, st["active"], st)
+                extra.update({f"sig_{k}": v for k, v in sig.items()})
+            if opt.routing:
+                extra.update(opt.take_angle())
+            if opt.path_eff:
+                extra["path_eff"] = opt.path_efficiency()
+            if K > 0:
                 extra["old_loss"] = (ce * is_old).sum(1) / is_old.sum(1).clamp_min(1)
                 extra["n_seen"] = (st["arrive"] <= step).sum(1).to(fleet.dtype)
             meas.update(extra)
@@ -922,23 +1061,28 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
                         saved_lat[orig[j]] = lat_now[j]
                 fleet.subset(keep)
                 opt.subset(keep)
-                for k in ("y", "train", "test", "exc", "rule_train"):
-                    grid[k] = grid[k][keep]
+                for k in ("y", "train", "test", "exc", "rule_train", "new"):
+                    if k in grid:
+                        grid[k] = grid[k][keep]
                 for k, v in list(st.items()):
                     if isinstance(v, torch.Tensor) and v.dim() >= 1 and v.shape[0] == R:
                         st[k] = v[keep]
                 orig = [orig[j] for j in keep.tolist()]
                 A, B, Y = batch_tensors()
-                w = (st["arrive"] <= step).to(fleet.dtype)
+                if w is not None:
+                    w = w[keep]
                 opt.zero_grad()
-                _loss_and_grads(fleet, opt, A, B, Y, w, st["active"], st)  # this step's gradient for the compacted batch
+                # this step's gradient for the compacted batch (the consolidation EMA was already advanced)
+                _loss_and_grads(fleet, opt, A, B, Y, w, st["active"], st, update_state=False)
         if c0.probe_steps and step in c0.probe_steps:
             pr = fs.probe(fleet, grid, st["probe_pairs"])
-            imp, tra = pr["imprint"].cpu().tolist(), pr["transfer"].cpu().tolist()
+            if c0.probe_matched:
+                pr.update(fs.matched_probe(fleet, opt, grid, st, A, B, Y, w, step, c0.probe_matched))
+            prl = {k: v.cpu().tolist() for k, v in pr.items()}
             act = st["active"].cpu().tolist()
             for j in range(fleet.R):
                 if act[j]:
-                    probes[orig[j]].append({"step": step, "imprint": imp[j], "transfer": tra[j]})
+                    probes[orig[j]].append({"step": step, **{k: v[j] for k, v in prl.items()}})
         opt.step(st["active"])
     secs = time.time() - t0
     divs = st["div_step"].cpu().tolist()

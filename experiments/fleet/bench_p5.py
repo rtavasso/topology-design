@@ -28,6 +28,8 @@ FEATURES = {
     "route agree (group grads)": dict(route="agree"),
     "signal measurement (5A)": dict(measure_signal=True),
     "arrivals (5E)": dict(arrive_start=348, arrive_n=35, arrive_every=10),
+    "grokfast (5C control)": dict(grokfast=2.0),
+    "path efficiency": dict(measure_path_eff=True),
 }
 
 
