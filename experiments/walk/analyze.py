@@ -98,21 +98,53 @@ def fmt(x, nd=2):
     return "—" if x is None else (f"{x:.{nd}f}" if isinstance(x, float) else str(x))
 
 
-# ---------------------------------------------------------------------------- E1
+def sustained_grok(traj, th=0.95, hold=2000):
+    """First step t with test_acc >= th at every eval in [t, t + hold] (None if never, or not observed long enough)."""
+    steps = [r["step"] for r in traj]
+    accs = [r["test_acc"] for r in traj]
+    for i, t in enumerate(steps):
+        if accs[i] < th or steps[-1] < t + hold:
+            continue
+        if all(a >= th for s_, a in zip(steps[i:], accs[i:]) if s_ <= t + hold):
+            return t
+    return None
+
+
+def verdict(ok, testable=True, why=""):
+    if not testable:
+        return f"**untestable**{(' (' + why + ')') if why else ''}"
+    return "**supported**" if ok else "**NOT supported**"
+
+
+def holm(ps):
+    order = sorted(range(len(ps)), key=lambda i: ps[i])
+    adj, run = [1.0] * len(ps), 0.0
+    for rank, i in enumerate(order):
+        run = max(run, min(1.0, (len(ps) - rank) * ps[i]))
+        adj[i] = run
+    return adj
+
+
+def logit(x, lo=0.02):
+    x = min(1 - lo, max(lo, x))
+    return math.log(x / (1 - x))
+
+
+# ---------------------------------------------------------------------------- E1 (measurement)
 
 
 def e1(rdir):
-    runs = load(rdir, "wE1")
-    rng = random.Random(0)
-    lines = ["# E1 — information gap (prequential code length)\n", f"{len(runs)} runs.\n"]
-    prog_cache = {}
-    rows = []
-    for r in runs:
+    allr = load(rdir, "wE1")
+    streams = [r for r in allr if r["config"]["tag"].startswith("wE1-")]
+    floor = [r for r in allr if r["config"]["tag"].startswith("wE1floor")]
+    lines = ["# E1 — information gap (measurement)\n", f"{len(streams)} stream runs, {len(floor)} data-floor runs.\n"]
+    prog_cache, rows = {}, []
+    for r in streams:
         c = cfg_of(r)
         pq = r["summary"]["prequential"]
         n_tot = int(sum(pq["n"]))
         cum = np.cumsum([0] + pq["n"][:-1])
-        prod = next((int(cum[k]) for k in range(len(pq["n"])) if pq["n"][k] > 0 and pq["acc"][k] >= 0.9), None)
+        prod = next((int(cum[k]) for k in range(1, len(pq["n"])) if pq["n"][k] > 0 and pq["acc"][k] >= 0.9), None)
         key = (c.data_seed, c.p, c.train_frac, c.arrive_start, c.arrive_n)
         if key not in prog_cache:
             t = fl.build_task(c)
@@ -128,40 +160,49 @@ def e1(rdir):
             res_e = pp.prequential(T, logm, [order[i:i + 1] for i in range(m)], [y[order[i:i + 1]] for i in range(m)],
                                    c.p, true_fn=y)
             k_star = next((i + 1 for i, v in enumerate(res_e["post_true"]) if v >= 0.99), None)
-            prog_cache[key] = {"nats": sum(res_b["nats"]), "k_star": k_star, "uniform": n * math.log(c.p)}
+            prog_cache[key] = {"nats": sum(res_b["nats"]), "k_star": k_star, "uniform": n * math.log(c.p),
+                               "start": c.arrive_start}
         pr = prog_cache[key]
-        graph = r["config"]["tag"].split("-")[1]
-        rows.append({"graph": graph, "lr": c.lr, "budget": c.arrive_every, "seed": c.model_seed,
-                     "gd_nats": sum(pq["nats"]), "prog_nats": pr["nats"], "uniform": pr["uniform"],
-                     "k_star": pr["k_star"], "prod": prod, "n_tot": n_tot})
-    lines.append("| graph | lr | steps per increment | GD code length (nats, median) | program prior | uniform | "
-                 "GD / program | GD production point (examples; median, censored) |")
-    lines.append("|---|---|---|---|---|---|---|---|")
+        rows.append({"graph": r["config"]["tag"].split("-")[1], "lr": c.lr, "budget": c.arrive_every,
+                     "seed": c.model_seed, "gd_nats": sum(pq["nats"]), "prog_nats": pr["nats"],
+                     "uniform": pr["uniform"], "k_star": pr["k_star"], "prod": prod, "n_tot": n_tot})
+    lines += ["## Streams (32 new pairs per increment, after an initial 140)\n",
+              "| graph | lr | steps per increment | GD code length (nats) | program prior | uniform | GD / program | "
+              "GD production point (examples; median) | censored |", "|---|---|---|---|---|---|---|---|---|"]
     cells = defaultdict(list)
     for x in rows:
         cells[(x["graph"], x["lr"], x["budget"])].append(x)
     for (g, lr, b), xs in sorted(cells.items()):
         prods = [x["prod"] if x["prod"] is not None else x["n_tot"] for x in xs]
-        cens = sum(x["prod"] is None for x in xs)
         lines.append(f"| {g} | {lr:g} | {b} | {med([x['gd_nats'] for x in xs]):.0f} | {med([x['prog_nats'] for x in xs]):.0f} | "
                      f"{med([x['uniform'] for x in xs]):.0f} | {med([x['gd_nats'] / x['prog_nats'] for x in xs]):.1f} | "
-                     f"{med(prods)} ({cens}/{len(xs)} censored) |")
-    ks = [x["k_star"] for x in rows]
-    p1 = all(k is not None and k <= 16 for k in ks)
-    ratios = [x["gd_nats"] / x["prog_nats"] for x in rows]
-    p2 = all(q >= 5 for q in ratios)
-    prods = [x["prod"] if x["prod"] is not None else x["n_tot"] for x in rows]
-    tau, pval = perm_tau([x["budget"] for x in rows], prods, [(x["graph"], x["lr"], x["seed"]) for x in rows], rng)
-    p3 = tau < 0 and pval < 0.05
-    lines += ["", "## Verdicts (preregistered)",
-              f"- **P1** program prior determines the rule within 16 examples (posterior ≥ 0.99) for every stream: "
-              f"k* = {sorted(set(k for k in ks if k is not None))} → **{'supported' if p1 else 'NOT supported'}**",
-              f"- **P2** GD code length ≥ 5× the program prior's in every run: min ratio {min(ratios):.1f} → "
-              f"**{'supported' if p2 else 'NOT supported'}**",
-              f"- **P3 (primary)** more steps per example lowers GD's production point: Kendall τ(budget, production "
-              f"point) = {tau:+.3f}, permutation p = {pval:.4f} (within graph × lr × seed) → "
-              f"**{'supported' if p3 else 'NOT supported'}**"]
-    return lines, {"rows": rows, "P1": p1, "P2": p2, "P3": {"tau": tau, "p": pval, "supported": p3}}
+                     f"{med(prods)} | {sum(x['prod'] is None for x in xs)}/{len(xs)} |")
+    fl_rows = defaultdict(list)
+    for r in floor:
+        c = r["config"]
+        ok = r["summary"]["t_grok"] is not None and (r["summary"]["final_test_acc"] or 0) >= 0.9
+        fl_rows[(c["tag"].split("-")[1], c["train_frac"])].append(ok)
+    lines += ["", "## Data floor (fixed dataset, up to 60,000 steps)\n", "| graph | train fraction | examples | grokked |",
+              "|---|---|---|---|"]
+    floors = {}
+    for (g, f_), oks in sorted(fl_rows.items()):
+        lines.append(f"| {g} | {f_:g} | {round(f_ * 59 * 59)} | {sum(oks)}/{len(oks)} |")
+        if sum(oks) >= 2 and (g not in floors or f_ < floors[g]):
+            floors[g] = f_
+    ks = sorted(set(x["k_star"] for x in rows if x["k_star"] is not None))
+    lines += ["", "## Measurements",
+              f"- Program prior: the rule is pinned down (posterior ≥ 0.99) after k* = {ks} examples "
+              f"(calibration check, expected ≤ 16: {'passed' if ks and max(ks) <= 16 else 'FAILED'}).",
+              f"- Gradient descent's code length is {fmt(min(x['gd_nats'] / x['prog_nats'] for x in rows), 1)}–"
+              f"{fmt(max(x['gd_nats'] / x['prog_nats'] for x in rows), 1)}× the program prior's.",
+              "- Data floor (smallest training fraction where ≥ 2 of 3 seeds grok): " +
+              ", ".join(f"{g}: {f_:g} ({round(f_ * 59 * 59)} examples, {round(f_ * 59 * 59 / max(ks) if ks else float('nan'))}× k*)"
+                        for g, f_ in sorted(floors.items())) +
+              ("" if floors else "none within the sweep"),
+              "- Walk versus data: compare the production point at 400 vs 1,600 steps per increment (a drop means more "
+              "walking per example helps) and both against the data floor."]
+    return lines, {"rows": rows, "floor": {f"{k[0]}|{k[1]}": v for k, v in fl_rows.items()}, "floors": floors,
+                   "k_star": ks}
 
 
 # ---------------------------------------------------------------------------- E2
@@ -171,82 +212,108 @@ def e2(rdir):
     allr = load(rdir, "wE2")
     base = [r for r in allr if r["config"]["tag"].startswith("wE2-")]
     jumps = [r for r in allr if r["config"]["tag"].startswith("wE2jump")]
+    noise = [r for r in allr if r["config"]["tag"].startswith("wE2noise")]
     lines = ["# E2 — is the answer visible before the network produces it, and can a learner act on it?\n",
-             f"{len(base)} base runs, {len(jumps)} drift-jump runs.\n"]
+             f"{len(base)} base runs, {len(jumps)} jump runs, {len(noise)} noise-floor runs.\n"]
     rows = []
     by_cell = defaultdict(list)
     for r in base:
         c, tj = r["config"], r["trajectory"]
         row = {"graph": c["tag"].split("-")[1], "lr": c["lr"], "seed": c["model_seed"],
-               "collapses": r["summary"]["n_collapses"], "t_grok": r["summary"]["t_grok"]}
+               "collapses": r["summary"]["n_collapses"], "t_sus": sustained_grok(tj)}
         for th in (0.5, 0.9):
             row[f"model_{th}"] = first_step(tj, "test_acc", th)
             row[f"refit_{th}"] = first_step(tj, "refit_test_acc", th)
             for H in c["horizon_extrap"]:
                 row[f"ex{H}_{th}"] = first_step(tj, f"extrap_acc_{H}", th)
+                row[f"exd{H}_{th}"] = first_step(tj, f"extrapd_acc_{H}", th)
         rows.append(row)
-        by_cell[(row["graph"], row["lr"])].append(row)
+        by_cell[row["graph"]].append(row)
 
     def lead_stats(key, th):
         d, rel = [], []
         for x in rows:
-            tm, tk = x[f"model_{th}"], x[f"{key}_{th}"]
+            tm, tk = x[f"model_{th}"], x.get(f"{key}_{th}")
             if tm is not None and tk is not None:
                 d.append(tm - tk)
                 rel.append((tm - tk) / tm if tm > 0 else 0.0)
         pos, neg, p = sign_test(d)
-        return med(rel), pos, neg, p
+        return {"median_rel": med(rel), "pos": pos, "neg": neg, "p": p, "n": len(d)}
 
-    lines.append("| graph | lr | runs | model reaches 0.5 / 0.9 (median step) | refit readout 0.5 / 0.9 | "
-                 "drift-extrapolated (H = 1000) 0.5 / 0.9 | grokked |")
-    lines.append("|---|---|---|---|---|---|---|")
-    for (g, lr), xs in sorted(by_cell.items()):
+    lines.append("| graph | runs | model 0.5 / 0.9 (median step) | refit readout 0.5 / 0.9 | linear jump-ahead H=1000 "
+                 "0.5 / 0.9 | sustained grok |")
+    lines.append("|---|---|---|---|---|---|")
+    for g, xs in sorted(by_cell.items()):
         f2 = lambda k: f"{med([x[k + '_0.5'] for x in xs])} / {med([x[k + '_0.9'] for x in xs])}"
-        lines.append(f"| {g} | {lr:g} | {len(xs)} | {f2('model')} | {f2('refit')} | {f2('ex1000')} | "
-                     f"{sum(x['t_grok'] is not None for x in xs)}/{len(xs)} |")
-    r9 = lead_stats("refit", 0.9)
-    e5 = lead_stats("ex1000", 0.5)
-    p1 = r9[0] is not None and r9[0] >= 0.2 and r9[1] > r9[2] and r9[3] < 0.05
-    p1b = e5[0] is not None and e5[0] >= 0.1 and e5[1] > e5[2] and e5[3] < 0.05
-    # jumps
-    base_by = {(r["config"]["tag"].split("-")[1], r["config"]["lr"], r["config"]["model_seed"]): r for r in base}
-    jrows = []
+        lines.append(f"| {g} | {len(xs)} | {f2('model')} | {f2('refit')} | {f2('ex1000')} | "
+                     f"{sum(x['t_sus'] is not None for x in xs)}/{len(xs)} |")
+    r9, e5 = lead_stats("refit", 0.9), lead_stats("ex1000", 0.5)
+    p1_ok = r9["median_rel"] is not None and r9["median_rel"] >= 0.2 and r9["pos"] > r9["neg"] and r9["p"] < 0.05
+    p1b_ok = e5["median_rel"] is not None and e5["median_rel"] >= 0.1 and e5["pos"] > e5["neg"] and e5["p"] < 0.05
+    # jumps vs paired base, with the H = 0 noise floor
+    base_by = {(r["config"]["tag"].split("-")[1], r["config"]["model_seed"]): r for r in base}
+
+    def delta(r):
+        c = r["config"]
+        b = base_by.get((c["tag"].split("-")[1], c["model_seed"]))
+        if b is None:
+            return None, None, None
+        tb, tj_ = sustained_grok(b["trajectory"]), sustained_grok(r["trajectory"])
+        tb = c["steps"] if tb is None else tb
+        tj_ = c["steps"] if tj_ is None else tj_
+        eligible = sustained_grok(b["trajectory"]) is None or sustained_grok(b["trajectory"]) > c["drift_jump_at"]
+        return tb - tj_, eligible, r["summary"]["n_collapses"] - b["summary"]["n_collapses"]
+
+    noise_d = defaultdict(list)
+    for r in noise:
+        d, _, _ = delta(r)
+        if d is not None:
+            noise_d[r["config"]["tag"].split("-")[1]].append(abs(d))
+    cells = defaultdict(list)
     for r in jumps:
         c = r["config"]
-        b = base_by.get((c["tag"].split("-")[1], c["lr"], c["model_seed"]))
-        tg_j = r["summary"]["t_grok"] if r["summary"]["t_grok"] is not None else c["steps"]
-        tg_b = None if b is None else (b["summary"]["t_grok"] if b["summary"]["t_grok"] is not None else c["steps"])
+        d, el, dc = delta(r)
         jm = r["summary"]["jump"]
-        jrows.append({"graph": c["tag"].split("-")[1], "lr": c["lr"], "seed": c["model_seed"], "at": c["drift_jump_at"],
-                      "h": c["drift_jump_h"], "before": jm["test_acc_before"], "after": jm["test_acc_after"],
-                      "delta": None if tg_b is None else tg_b - tg_j,
-                      "already_grokked": b is not None and b["summary"]["t_grok"] is not None and b["summary"]["t_grok"] <= c["drift_jump_at"],
-                      "collapses": r["summary"]["n_collapses"]})
-    lines += ["", "| graph | lr | jump at | H | runs | test acc before → right after (median) | median steps saved vs "
-              "paired base | collapses (median) |", "|---|---|---|---|---|---|---|---|"]
-    cells = defaultdict(list)
-    for x in jrows:
-        cells[(x["graph"], x["lr"], x["at"], x["h"])].append(x)
-    for (g, lr, at, h), xs in sorted(cells.items()):
-        lines.append(f"| {g} | {lr:g} | {at} | {h} | {len(xs)} | {fmt(med([x['before'] for x in xs]))} → "
-                     f"{fmt(med([x['after'] for x in xs]))} | {med([x['delta'] for x in xs])} | {med([x['collapses'] for x in xs])} |")
-    elig = [x for x in jrows if x["delta"] is not None and not x["already_grokked"]]
-    jp, jn, jpv = sign_test([x["delta"] for x in elig])
-    p2 = jp > jn and jpv < 0.05
+        cells[(c["tag"].split("-")[1], c["drift_jump_at"], c["drift_jump_h"])].append(
+            {"d": d, "eligible": el, "dcoll": dc, "before": jm["test_acc_before"], "after": jm["test_acc_after"]})
+    keys = sorted(cells)
+    pvals, stats = [], []
+    for k in keys:
+        xs = [x for x in cells[k] if x["eligible"] and x["d"] is not None]
+        pos, neg, p = sign_test([x["d"] for x in xs])
+        stats.append((xs, pos, neg, p))
+        pvals.append(p if not math.isnan(p) else 1.0)
+    adj = holm(pvals) if pvals else []
+    lines += ["", "| graph | jump at | H | eligible | test acc before → right after | median steps saved | Holm p | "
+              "median Δ collapses | noise floor (median abs Δ, H = 0) | cell supports |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
+    any_support, any_testable = False, False
+    for k, (xs, pos, neg, p), pa in zip(keys, stats, adj):
+        g = k[0]
+        nf = med(noise_d.get(g, []))
+        md, mc = med([x["d"] for x in xs]), med([x["dcoll"] for x in xs])
+        testable = len(xs) >= 5
+        any_testable |= testable
+        sup = testable and pa < 0.05 and md is not None and md > 0 and (nf is None or md > nf) and (mc is None or mc <= 0)
+        any_support |= sup
+        lines.append(f"| {g} | {k[1]} | {k[2]} | {len(xs)} | {fmt(med([x['before'] for x in cells[k]]))} → "
+                     f"{fmt(med([x['after'] for x in cells[k]]))} | {md} | {fmt(pa, 4)} | {mc} | {nf} | "
+                     f"{'yes' if sup else ('—' if not testable else 'no')} |")
     lines += ["", "## Verdicts (preregistered)",
-              f"- **P1 (readout visibility)** the refit readout reaches 0.9 test accuracy earlier than the model, median "
-              f"relative lead ≥ 0.2 with a sign test: median {fmt(r9[0])}, +{r9[1]}/−{r9[2]}, p = {fmt(r9[3], 4)} → "
-              f"**{'supported' if p1 else 'NOT supported'}** (pilot expectation: not supported)",
-              f"- **P1b (drift visibility)** jumping 1,000 steps ahead along the drift reaches 0.5 test accuracy earlier "
-              f"than the model, median relative lead ≥ 0.1 with a sign test: median {fmt(e5[0])}, +{e5[1]}/−{e5[2]}, "
-              f"p = {fmt(e5[3], 4)} → **{'supported' if p1b else 'NOT supported'}**",
-              f"- **P2 (actionability)** a drift jump made before grokking makes the run grok earlier than its paired "
-              f"base ({len(elig)} eligible runs): +{jp}/−{jn}, p = {fmt(jpv, 4)} → **{'supported' if p2 else 'NOT supported'}**",
-              "- *Exploratory:* longer horizons (4,000 and 16,000 steps), the 0.5 threshold for the readout, and "
-              "sym vs asym leads are in the json."]
-    return lines, {"base": rows, "jumps": jrows, "P1": p1, "P1b": p1b, "P2": p2,
+              f"- **P1 (readout visibility):** refit reaches test accuracy 0.9 earlier than the model, median relative "
+              f"lead ≥ 0.2 with a sign test: median {fmt(r9['median_rel'])}, +{r9['pos']}/−{r9['neg']}, p = {fmt(r9['p'], 4)} "
+              f"→ {verdict(p1_ok, r9['n'] >= 5, 'fewer than 5 runs reach 0.9')} (pilot expectation: not supported)",
+              f"- **P1b (drift visibility):** the linear jump-ahead (H = 1,000) reaches 0.5 earlier than the model, median "
+              f"relative lead ≥ 0.1 with a sign test: median {fmt(e5['median_rel'])}, +{e5['pos']}/−{e5['neg']}, "
+              f"p = {fmt(e5['p'], 4)} → {verdict(p1b_ok, e5['n'] >= 5, 'fewer than 5 runs reach 0.5')}",
+              f"- **P2 (actionability):** at least one jump cell groks (sustained) earlier than its paired bases "
+              f"(Holm-adjusted sign test p < 0.05), by more than the H = 0 noise floor, without more collapses → "
+              f"{verdict(any_support, any_testable, 'no cell has 5 eligible runs')}",
+              "- *Exploratory:* the decay-aware operator (extrapd), longer horizons, and refit at 0.5 are in the json."]
+    return lines, {"base": rows, "P1": p1_ok, "P1b": p1b_ok, "P2": any_support,
                    "leads": {"refit_0.9": r9, "ex1000_0.5": e5, "refit_0.5": lead_stats("refit", 0.5),
-                             **{f"ex{H}_{th}": lead_stats(f"ex{H}", th) for H in (1000, 4000, 16000) for th in (0.5, 0.9)}}}
+                             **{f"{op}{H}_{th}": lead_stats(f"{op}{H}", th) for op in ("ex", "exd")
+                                for H in (250, 1000, 4000) for th in (0.5, 0.9)}}}
 
 
 # ---------------------------------------------------------------------------- E3
@@ -263,59 +330,102 @@ def e3(rdir):
     rows = []
     for r in runs:
         c, tj = r["config"], r["trajectory"]
-        rho = c["branch_lr_mult"][0] / c["branch_lr_mult"][1]
+        kind = c["tag"].split("-")[0]  # wE3 / wE3lr / wE3wd
+        lm = c.get("branch_lr_mult") or [1.0, 1.0]
+        wm = c.get("branch_wd_mult") or [1.0, 1.0]
+        rho = float(c["tag"].split("rho")[1])
         tot_mem = [sum(x["mem"]) for x in tj]
-        i_mem = int(np.argmax(tot_mem))
-        rm = tj[i_mem]
+        rm = tj[int(np.argmax(tot_mem))]
         ma, mb = _branch(rm, "mem", A), _branch(rm, "mem", B)
         tail = [x for x in tj if x["step"] > c["steps"] - 2000]
+        if not tail:
+            continue
         ga = stt.fmean(_branch(x, "gen", A) for x in tail)
         gb = stt.fmean(_branch(x, "gen", B) for x in tail)
-        clip = lambda v: max(-1.0, min(2.0, v))
-        s_mem = clip(ma / (ma + mb)) if (ma + mb) != 0 else float("nan")
-        s_gen = clip(ga / (ga + gb)) if (ga + gb) != 0 else float("nan")
-        rows.append({"graph": c["tag"].split("-")[1], "rho": rho, "seed": c["model_seed"], "s_gen": s_gen,
-                     "s_mem": s_mem, "t_mem": rm["step"], "collapses": r["summary"]["n_collapses"],
-                     "grokked": r["summary"]["grokked"]})
-    lines = ["# E3 — credit by speed\n", f"{len(rows)} runs. Branch 0 (blocks 1–3) steps ρ× faster than branch 1 at "
-             "equal lr·wd.\n", "| graph | ρ | share of gen (end) | share of mem (peak) | median |gen − mem| | "
-             "collapses (median) | grokked |", "|---|---|---|---|---|---|---|"]
-    verdict = {}
+        tg = r["summary"]["t_grok"]
+        stable_tail = min(x["train_acc"] for x in tail) >= 0.9
+        no_cancel = abs(ga + gb) >= 0.5 * (abs(ga) + abs(gb)) and abs(ma + mb) >= 0.5 * (abs(ma) + abs(mb))
+        eligible = (tg is not None and tg <= c["steps"] - 5000 and stable_tail and no_cancel
+                    and r["summary"]["diverged_at"] is None)
+        rows.append({"graph": c["tag"].split("-")[1], "kind": kind, "rho": rho, "seed": c["model_seed"],
+                     "s_gen": ga / (ga + gb) if ga + gb else float("nan"),
+                     "s_mem": ma / (ma + mb) if ma + mb else float("nan"),
+                     "eligible": eligible, "collapses": r["summary"]["n_collapses"]})
+    lines = ["# E3 — credit by speed\n", f"{len(rows)} runs. Main arms: branch 0 (blocks 1–3) steps ρ× faster than branch 1 "
+             "at equal lr·wd. Controls: lr-only and wd-only at ρ = ¼ and 4.\n",
+             "| graph | arm | ρ | eligible | share of gen (end, median) | share of mem (peak) | collapses (median) |",
+             "|---|---|---|---|---|---|---|"]
     for g in sorted({x["graph"] for x in rows}):
-        xs = [x for x in rows if x["graph"] == g]
-        for rho in sorted({x["rho"] for x in xs}):
-            ys = [x for x in xs if x["rho"] == rho]
-            lines.append(f"| {g} | {rho:g} | {fmt(med([y['s_gen'] for y in ys]))} | {fmt(med([y['s_mem'] for y in ys]))} | "
-                         f"{fmt(med([abs(y['s_gen'] - y['s_mem']) for y in ys]))} | {med([y['collapses'] for y in ys])} | "
-                         f"{sum(y['grokked'] for y in ys)}/{len(ys)} |")
-        ok = [x for x in xs if not (math.isnan(x["s_gen"]) or math.isnan(x["s_mem"]))]
-        tg, pg = perm_tau([x["rho"] for x in ok], [x["s_gen"] for x in ok], [x["seed"] for x in ok], rng)
-        tm, pm = perm_tau([x["rho"] for x in ok], [x["s_mem"] for x in ok], [x["seed"] for x in ok], rng)
-        diffs = {rho: med([abs(x["s_gen"] - x["s_mem"]) for x in ok if x["rho"] == rho]) for rho in sorted({x["rho"] for x in ok})}
-        p1 = tg > 0 and pg < 0.05 and tm > 0 and pm < 0.05
-        p2 = all(d is not None and d < 0.15 for d in diffs.values())
-        split = (diffs.get(1.0) is not None and diffs[1.0] < 0.15
-                 and any(d is not None and d >= 0.15 for r_, d in diffs.items() if r_ != 1.0))
-        # exploratory: logit slope of the share against log rho
-        def slope(key):
-            xv = [math.log(x["rho"]) for x in ok]
-            yv = [math.log(min(0.98, max(0.02, x[key])) / (1 - min(0.98, max(0.02, x[key])))) for x in ok]
-            return float(np.polyfit(xv, yv, 1)[0]) if len(set(xv)) > 1 else float("nan")
-        verdict[g] = {"tau_gen": tg, "p_gen": pg, "tau_mem": tm, "p_mem": pm, "P1": p1, "P2": p2, "role_split": split,
-                      "diffs": diffs, "kappa_gen": slope("s_gen"), "kappa_mem": slope("s_mem")}
+        for kind in ("wE3", "wE3lr", "wE3wd"):
+            for rho in sorted({x["rho"] for x in rows if x["graph"] == g and x["kind"] == kind}):
+                ys = [x for x in rows if x["graph"] == g and x["kind"] == kind and x["rho"] == rho]
+                el = [y for y in ys if y["eligible"]]
+                lines.append(f"| {g} | { {'wE3': 'main', 'wE3lr': 'lr-only', 'wE3wd': 'wd-only'}[kind]} | {rho:g} | {len(el)}/{len(ys)} | "
+                             f"{fmt(med([y['s_gen'] for y in el]))} | {fmt(med([y['s_mem'] for y in el]))} | "
+                             f"{med([y['collapses'] for y in ys])} |")
+    verdicts = {}
     lines.append("\n## Verdicts (preregistered)")
-    for g, v in verdict.items():
-        lines.append(f"- **{g}, P1** shares rise with ρ: τ(gen) = {v['tau_gen']:+.3f} (p = {v['p_gen']:.4f}), "
-                     f"τ(mem) = {v['tau_mem']:+.3f} (p = {v['p_mem']:.4f}) → **{'supported' if v['P1'] else 'NOT supported'}**")
-        lines.append(f"- **{g}, P2** co-location at every ρ (median |gen − mem| < 0.15): "
-                     f"{ {k: fmt(d) for k, d in v['diffs'].items()} } → **{'supported' if v['P2'] else 'NOT supported'}**"
-                     + (" — **speed induced a role split (falsifies H1)**" if v["role_split"] else ""))
-        lines.append(f"- *{g}, exploratory:* logit slope κ(gen) = {v['kappa_gen']:.2f}, κ(mem) = {v['kappa_mem']:.2f} "
-                     "(lazy-regime prediction for sym: 1; > 1 means rich-get-richer).")
-    return lines, {"rows": rows, "verdict": verdict}
+    for g in sorted({x["graph"] for x in rows}):
+        main = [x for x in rows if x["graph"] == g and x["kind"] == "wE3" and x["eligible"]]
+        testable_rhos = [rho for rho in sorted({x["rho"] for x in main}) if sum(x["rho"] == rho for x in main) >= 6]
+        main_t = [x for x in main if x["rho"] in testable_rhos]
+        t1 = len(testable_rhos) >= 3
+        if t1:
+            tg_, pg = perm_tau([x["rho"] for x in main_t], [logit(x["s_gen"]) for x in main_t], [x["seed"] for x in main_t], rng)
+            tm_, pm = perm_tau([x["rho"] for x in main_t], [logit(x["s_mem"]) for x in main_t], [x["seed"] for x in main_t], rng)
+        else:
+            tg_ = pg = tm_ = pm = float("nan")
+        p1 = t1 and tg_ > 0 and pg < 0.05 and tm_ > 0 and pm < 0.05
+        dmed = {rho: med([logit(x["s_gen"]) - logit(x["s_mem"]) for x in main_t if x["rho"] == rho]) for rho in testable_rhos}
+        t2 = t1 and 1.0 in testable_rhos
+        if t2:
+            td, pdv = perm_tau([x["rho"] for x in main_t], [logit(x["s_gen"]) - logit(x["s_mem"]) for x in main_t],
+                               [x["seed"] for x in main_t], rng)
+            shifts = {rho: dmed[rho] - dmed[1.0] for rho in testable_rhos}
+            big = any(abs(v) >= 0.5 for v in shifts.values())
+            p2 = "supported" if (pdv >= 0.05 and not big) else ("FALSIFIED (speed induces a role split)" if (pdv < 0.05 and big) else "inconclusive")
+        else:
+            td = pdv = float("nan")
+            shifts, p2 = {}, "untestable"
+        lr_arm = [x for x in rows if x["graph"] == g and x["kind"] == "wE3lr" and x["eligible"]]
+        by_seed = defaultdict(dict)
+        for x in lr_arm:
+            by_seed[x["seed"]][x["rho"]] = x
+        pairs = [(v[4.0], v[0.25]) for v in by_seed.values() if 4.0 in v and 0.25 in v]
+        t3 = len(pairs) >= 6
+        sg = sign_test([logit(a["s_gen"]) - logit(b["s_gen"]) for a, b in pairs])
+        sm = sign_test([logit(a["s_mem"]) - logit(b["s_mem"]) for a, b in pairs])
+        p3 = t3 and sg[0] > sg[1] and sg[2] < 0.05 and sm[0] > sm[1] and sm[2] < 0.05
+
+        def effect(kind):
+            xs = [x for x in rows if x["graph"] == g and x["kind"] == kind and x["eligible"]]
+            hi = med([logit(x["s_gen"]) for x in xs if x["rho"] == 4.0])
+            lo = med([logit(x["s_gen"]) for x in xs if x["rho"] == 0.25])
+            return None if hi is None or lo is None else hi - lo
+        verdicts[g] = {"P1": p1, "P2": p2, "P3": p3, "tau_gen": tg_, "tau_mem": tm_, "d_shifts": shifts,
+                       "effect_main": effect("wE3"), "effect_lr": effect("wE3lr"), "effect_wd": effect("wE3wd")}
+        lines += [f"- **{g}, P1** shares rise with ρ (testable ρ: {testable_rhos}): τ(gen) = {fmt(tg_, 3)} (p = {fmt(pg, 4)}), "
+                  f"τ(mem) = {fmt(tm_, 3)} (p = {fmt(pm, 4)}) → {verdict(p1, t1, 'fewer than 3 ρ cells with 6 eligible runs')}",
+                  f"- **{g}, P2** co-location persists (logit gen − logit mem): trend τ = {fmt(td, 3)} (p = {fmt(pdv, 4)}), "
+                  f"shifts vs ρ = 1: { {f'{k:g}': fmt(v) for k, v in shifts.items()} } → **{p2}**",
+                  f"- **{g}, P3** step size alone moves credit (lr-only arm, ρ = 4 vs ¼, paired): gen +{sg[0]}/−{sg[1]} "
+                  f"(p = {fmt(sg[2], 4)}), mem +{sm[0]}/−{sm[1]} (p = {fmt(sm[2], 4)}) → {verdict(p3, t3, 'fewer than 6 eligible pairs')}",
+                  f"- *{g}, diagnostic:* logit-share effect ρ 4 vs ¼ — main {fmt(verdicts[g]['effect_main'])}, lr-only "
+                  f"{fmt(verdicts[g]['effect_lr'])}, wd-only {fmt(verdicts[g]['effect_wd'])}"]
+    return lines, {"rows": rows, "verdict": verdicts}
 
 
 # ---------------------------------------------------------------------------- E4
+
+
+def window_stable(r, window=6000):
+    s, tj = r["summary"], r["trajectory"]
+    t_fit = s["t_fit"]
+    if t_fit is None or t_fit > r["config"]["steps"] - window:
+        return False
+    if s["diverged_at"] is not None and s["diverged_at"] <= t_fit + window:
+        return False
+    return min(x["train_acc"] for x in tj if t_fit <= x["step"] <= t_fit + window) >= 0.9
 
 
 def e4(rdir):
@@ -325,13 +435,18 @@ def e4(rdir):
     spec.loader.exec_module(mg)
     runs = load(rdir, "wE4")
     cell = defaultdict(list)
+    deep = defaultdict(list)
     for r in runs:
         c, s = r["config"], r["summary"]
-        stable = s["grokked"] and s["diverged_at"] is None and (s["post_fit_min_train_acc"] or 0) >= 0.9
-        cell[(c["tag"].split("-")[1], c["arm"], c["weight_decay"], c["lr"])].append((stable, s["t_grok"]))
+        st_ = window_stable(r)
+        cell[(c["tag"].split("-")[1], c["arm"], c["weight_decay"], c["lr"])].append((st_, s["t_grok"] is not None))
+        if c["arm"] == "pk0123" and st_ and r["trajectory"]:
+            deep[c["tag"].split("-")[1]].append(r["trajectory"][-1]["abl_block_test_acc"][3])
     params, arms = ["std", "P1", "P2"], list(mg.E4_ARMS)
-    lines = ["# E4 — stability regions\n", f"{len(runs)} runs. A cell is stable if ≥ 2 of 3 seeds grok with no "
-             "post-fit collapse below 0.9 train accuracy and no divergence.\n"]
+    okc = lambda v: len(v) >= 2 and sum(x[0] for x in v) >= 2
+    lines = ["# E4 — stability regions\n", f"{len(runs)} runs. Stable cell: ≥ 2 of 3 seeds fit and keep train accuracy "
+             "≥ 0.9 for 6,000 steps after first fitting, without diverging (Study 2's window). Grokking within 12,000 steps "
+             "is reported separately (g).\n"]
     out = {}
     for pn in params:
         lines += [f"\n## {pn}\n", "| arm (C) | wd | " + " | ".join(f"{lr:g}" for lr in mg.E4_LRS) + " | lr* |",
@@ -341,32 +456,37 @@ def e4(rdir):
                 marks, lstar = [], None
                 for lr in mg.E4_LRS:
                     v = cell.get((pn, arm, wd, lr), [])
-                    ok = len(v) >= 2 and sum(x[0] for x in v) >= 2
-                    marks.append("✓" if ok else "·")
+                    ok = okc(v)
+                    gk_ = len(v) >= 2 and sum(x[1] for x in v) >= 2
+                    marks.append(("✓" if ok else "·") + ("g" if gk_ else ""))
                     if ok:
                         lstar = lr
                 out[(pn, arm, wd)] = lstar
                 lines.append(f"| {arm} ({mg.E4_ARMS[arm]}) | {wd:g} | " + " | ".join(marks) + f" | {fmt(lstar)} |")
-    steps = lambda a, b: None if (a is None or b is None) else round(math.log2(a / b))
+    top, bottom = mg.E4_LRS[-1], mg.E4_LRS[0] / 2
+
+    def gap(pn):
+        l1, l4 = out[(pn, "pk0000", 1.0)], out[(pn, "pk0123", 1.0)]
+        if l1 is None:
+            return None, l1, l4
+        return round(math.log2(l1 / (l4 if l4 is not None else bottom))), l1, l4
     lines.append("\n## Verdicts (preregistered, wd = 1)")
     res = {}
-    for pn in params:
-        l1, l4 = out[(pn, "pk0000", 1.0)], out[(pn, "pk0123", 1.0)]
-        okc = lambda v: len(v) >= 2 and sum(x[0] for x in v) >= 2
-        st1 = {(lr, wd) for lr in mg.E4_LRS for wd in mg.E4_WDS if okc(cell.get((pn, "pk0000", wd, lr), []))}
-        st4 = {(lr, wd) for lr in mg.E4_LRS for wd in mg.E4_WDS if okc(cell.get((pn, "pk0123", wd, lr), []))}
-        jac = len(st1 & st4) / len(st1 | st4) if (st1 | st4) else None
-        taus = kendall([mg.E4_ARMS[a] for a in arms], [math.log(out[(pn, a, 1.0)]) if out[(pn, a, 1.0)] else math.log(mg.E4_LRS[0] / 2) for a in arms])
-        res[pn] = {"lr*_C1": l1, "lr*_C4": l4, "grid_steps_C1_minus_C4": steps(l1, l4) if l4 else (None if l1 is None else 99),
-                   "jaccard_lr_sets": jac, "tau_C_loglr*": taus}
-        lines.append(f"- {pn}: lr*(C1) = {fmt(l1)}, lr*(C4) = {fmt(l4)}, gap = {res[pn]['grid_steps_C1_minus_C4']} grid steps; "
-                     f"τ(C, log lr*) over the 4 arms = {taus:+.2f}; Jaccard of stable (lr, wd) cells C1 vs C4 = {fmt(jac)}")
-    std_gap = res["std"]["grid_steps_C1_minus_C4"]
+    g0, l1, l4 = gap("std")
+    p0_testable = l1 is not None and not (l1 == top and l4 == top)
+    p0 = p0_testable and g0 is not None and g0 >= 2
+    res["P0"] = {"gap": g0, "lr*_C1": l1, "lr*_C4": l4, "supported": p0}
+    lines.append(f"- **P0 (replicates Study 2):** under std, lr*(C1) = {fmt(l1)}, lr*(C4) = {fmt(l4)}, gap = {g0} grid steps "
+                 f"(need ≥ 2) → {verdict(p0, p0_testable, 'C1 never stable, or both at the top of the grid')}")
     for pn in ("P1", "P2"):
-        g = res[pn]["grid_steps_C1_minus_C4"]
-        sup = std_gap is not None and std_gap >= 2 and g is not None and g <= 1
-        res[pn]["H8_supported"] = sup
-        lines.append(f"- **H8 under {pn}:** standard gap ≥ 2 steps and {pn} gap ≤ 1 step → **{'supported' if sup else 'NOT supported'}**")
+        gp, a1, a4 = gap(pn)
+        testable = p0 and a1 is not None and not (a1 == top and (a4 == top or (gp is not None and abs(gp) <= 1)))
+        sup = testable and gp is not None and abs(gp) <= 1
+        res[pn] = {"gap": gp, "lr*_C1": a1, "lr*_C4": a4, "H8_supported": sup}
+        lines.append(f"- **H8 under {pn}:** lr*(C1) = {fmt(a1)}, lr*(C4) = {fmt(a4)}, |gap| = {None if gp is None else abs(gp)} "
+                     f"(need ≤ 1, with P0 supported) → {verdict(sup, testable, 'P0 not supported, C1 never stable, or C1 censored at the top of the grid')}")
+    lines.append(f"- *Silencing check (exploratory):* test accuracy with the deepest block of pk0123 removed, in stable "
+                 f"runs (lower = the block matters): " + ", ".join(f"{pn} {fmt(med(deep.get(pn, [])))}" for pn in params))
     return lines, {"cells": {str(k): v for k, v in out.items()}, "verdict": res}
 
 

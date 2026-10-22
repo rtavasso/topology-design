@@ -105,18 +105,32 @@ def test_extrapolation_zero_horizon_and_exact_jump():
     cfgs = [fl.FleetConfig(arm="pk012000", branches=BR, model_seed=s, data_seed=0, **SMALL) for s in (0, 1)]
     f = fl.Fleet(cfgs)
     grid, _ = _grid(cfgs)
-    vel = {k: torch.zeros_like(v) for k, v in f.params.items()}
+    zero = {k: torch.zeros_like(v) for k, v in f.params.items()}
     cur = fh.test_acc(f, grid)
-    out = fh.extrapolated_acc(f, grid, vel, 10, (0, 100))
-    assert torch.equal(out["extrap_acc_0"], cur) and torch.equal(out["extrap_acc_100"], cur)
-    # drift pointing exactly from run 0's params to run 1's: a jump of H lands on run 1
+    out = fh.extrapolated_acc(f, grid, zero, zero, 10, (0, 100))
+    assert torch.equal(out["extrap_acc_0"], cur) and torch.equal(out["extrapd_acc_0"], cur)
+    assert torch.equal(out["extrap_acc_100"], cur)  # linear: no drift, no move
+    # linear drift pointing from run 0's params to run 1's: a jump of H lands on run 1 (guard inactive: no sign
+    # crossings are pushed through zero when the target is reached exactly... check on coordinates not crossing zero)
     H, t = 50, 10
     corr = 1 - fh.DRIFT_BETA ** t
-    vel = {k: torch.stack([(v[1] - v[0]).detach(), torch.zeros_like(v[1])]) * corr / H for k, v in f.params.items()}
-    out = fh.extrapolated_acc(f, grid, vel, t, (H,))
-    assert abs(float(out[f"extrap_acc_{H}"][0]) - float(cur[1])) < 1e-6
-    for k, v in f.params.items():  # parameters restored
+    vlin = {k: torch.stack([(v[1] - v[0]).detach(), torch.zeros_like(v[1])]) * corr / H for k, v in f.params.items()}
+    tgt = fh.extrapolate_linear(f, vlin, t, H)
+    for k, v in f.params.items():
+        same_sign = (v[0] * v[1] > 0)
+        assert torch.allclose(tgt[k][0][same_sign], v[1].detach()[same_sign], atol=1e-6)
+        assert bool((tgt[k][0][~same_sign] == 0).all())  # crossings stop at zero
         assert v.requires_grad
+
+
+def test_decay_aware_extrapolation_is_exact_for_pure_decay():
+    """With no gradient-driven drift, theta_H = exp(-lr*wd*H) theta exactly (the straight line would overshoot)."""
+    cfg = fl.FleetConfig(arm="pk012000", branches=BR, lr=0.01, weight_decay=2.0, **SMALL)
+    f = fl.Fleet([cfg])
+    zero = {k: torch.zeros_like(v) for k, v in f.params.items()}
+    out = fh.extrapolate(f, zero, 100, 300.0)
+    for k, v in f.params.items():
+        torch.testing.assert_close(out[k], math.exp(-0.02 * 300) * v.detach(), rtol=1e-5, atol=1e-7)
 
 
 def test_swap_replaces_only_chosen_runs_and_resets_their_moments():
@@ -175,7 +189,7 @@ def test_block_depths_and_grid_sizes():
     from run_fleet import expand
     assert mg.block_depths("pk0123") == [1, 2, 3, 4] and mg.block_depths("pk0120") == [1, 2, 3, 1]
     assert mg.block_depths("pk012000") == [1, 2, 3, 1, 1, 1]
-    sizes = {"e1": 60, "e2": 120, "e3": 100, "e4": 648}
+    sizes = {"e1": 70, "e2": 120, "e3": 180, "e4": 864}
     for name, n in sizes.items():
         cfgs = expand(getattr(mg, name)())
         assert len(cfgs) == n and len({c.run_id for c in cfgs}) == n, name
@@ -184,7 +198,7 @@ def test_block_depths_and_grid_sizes():
     assert math.isclose(c.branch_lr_mult[0] / c.branch_lr_mult[1], 4.0)
     assert math.isclose(c.branch_lr_mult[0] * c.branch_wd_mult[0], 1.0)  # lr*wd fixed per branch
     e2 = expand(mg.e2())
-    assert len({fl.struct_key(c) for c in e2}) == 1  # interventions batch with their paired base runs
+    assert all(c.measure_refit == c.tag.startswith("wE2-") for c in e2)  # refit only in base runs
 
 
 def test_end_to_end_horizon_swap_and_stream():
@@ -193,7 +207,8 @@ def test_end_to_end_horizon_swap_and_stream():
                            **SMALL) for sw in (None, 12)]
     out = fl.train_fleet(cfgs)
     rec = out[0]["trajectory"][-1]
-    for k in ("refit_test_acc", "refit_train_acc", "refit_lam", "ridge_test_acc", "extrap_acc_10", "extrap_acc_40"):
+    for k in ("refit_test_acc", "refit_train_acc", "refit_lam", "ridge_test_acc", "extrap_acc_10", "extrap_acc_40",
+              "extrapd_acc_10"):
         assert k in rec and rec[k] is not None
     assert "swap" not in out[0]["summary"] and out[1]["summary"]["swap"]["step"] == 12
     assert out[1]["summary"]["swap"]["refit_test_acc"] is not None

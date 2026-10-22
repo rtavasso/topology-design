@@ -6,8 +6,14 @@ can a learner act on it?
                   the network; a convex problem, solved by full-batch Adam. The L2 strength is chosen on a fixed
                   20% holdout of the current training set. Test labels are used only to score. A closed-form ridge
                   (least-squares) refit is also reported; it is a weaker classifier and is secondary.
-  extrapolated_acc  test accuracy after jumping H steps ahead along the recent parameter drift (bias-corrected
-                  EMA of per-step parameter change, time constant ~500 steps).
+  extrapolated_acc  test accuracy after jumping H steps ahead, two operators:
+                  linear (primary): theta + H * v, v = bias-corrected EMA (~500 steps) of delta_theta, with a guard
+                    that stops a coordinate at zero instead of pushing it through zero;
+                  decay-aware (secondary): theta' = -lam*theta + g, lam = lr*wd exact, g = EMA of the gradient-driven
+                    step (delta_theta + lam*theta_prev), solved exactly over H steps.
+                  On a held-out pilot seed, the linear operator predicted future test accuracy in sym (e.g. 0.54 now,
+                  predicted 0.98 vs actual 1.00 at +1000 steps) but overshoots in parameter space early and in asym;
+                  the decay-aware operator relaxes toward the recent past and predicted nothing. Both are recorded.
   swap_readout    intervention: replace the readout by the refit readout (rescaled to minimise train CE) and reset
                   that tensor's Adam moments, then keep training.
 """
@@ -130,19 +136,58 @@ def test_acc(fleet, grid: dict, chunk: int = 1024) -> torch.Tensor:
     return hit / grid["test"].to(fleet.dtype).sum(1).clamp_min(1.0)
 
 
+def drift_increment(fleet, k: str, new: torch.Tensor, prev: torch.Tensor) -> torch.Tensor:
+    """The gradient-driven part of one AdamW step: delta_theta + lam * theta_prev (removes the decoupled decay)."""
+    sh = (-1,) + (1,) * (new.dim() - 1)
+    lam = (fleet.lr_t[k] * fleet.wd_t[k]).view(sh)
+    return (new - prev) + lam * prev
+
+
+def extrapolate_linear(fleet, vlin: dict, t_vel: int, H) -> dict:
+    """theta + H * v per tensor (H scalar or (R,)), with coordinates stopped at zero rather than pushed through it."""
+    corr = 1.0 - DRIFT_BETA ** t_vel
+    out = {}
+    for k, th in fleet.params.items():
+        sh = (-1,) + (1,) * (th.dim() - 1)
+        Ht = torch.as_tensor(H, dtype=th.dtype, device=th.device)
+        Ht = Ht.view(sh) if Ht.dim() == 1 else Ht
+        v = vlin[k] / corr
+        x = th.detach()
+        nxt = x + Ht * v
+        out[k] = torch.where((nxt * x < 0) & (v * x < 0), torch.zeros_like(x), nxt)
+    return out
+
+
+def extrapolate(fleet, vel: dict, t_vel: int, H) -> dict:
+    """Decay-aware extrapolation of every tensor by H steps (H scalar or (R,) tensor)."""
+    corr = 1.0 - DRIFT_BETA ** t_vel
+    out = {}
+    for k, th in fleet.params.items():
+        sh = (-1,) + (1,) * (th.dim() - 1)
+        lam = (fleet.lr_t[k] * fleet.wd_t[k]).view(sh)
+        Ht = torch.as_tensor(H, dtype=th.dtype, device=th.device)
+        Ht = Ht.view(sh) if Ht.dim() == 1 else Ht
+        g = vel[k] / corr
+        decay = torch.exp(-lam * Ht)
+        gain = torch.where(lam > 0, (1 - decay) / lam.clamp_min(1e-30), Ht * torch.ones_like(lam))
+        out[k] = decay * th.detach() + gain * g
+    return out
+
+
 @torch.no_grad()
-def extrapolated_acc(fleet, grid: dict, vel: dict, t_vel: int, horizons) -> dict:
-    """Test accuracy of theta + H * drift for each H (drift = bias-corrected EMA of per-step parameter change)."""
+def extrapolated_acc(fleet, grid: dict, vlin: dict, vel: dict, t_vel: int, horizons) -> dict:
+    """Test accuracy after each horizon H: extrap_acc_H (linear, primary) and extrapd_acc_H (decay-aware)."""
     out = {}
     if t_vel == 0:
         cur = test_acc(fleet, grid)
-        return {f"extrap_acc_{H}": cur.clone() for H in horizons}
-    corr = 1.0 - DRIFT_BETA ** t_vel
+        return {**{f"extrap_acc_{H}": cur.clone() for H in horizons}, **{f"extrapd_acc_{H}": cur.clone() for H in horizons}}
     P0 = fleet.params
     try:
         for H in horizons:
-            fleet.params = {k: P0[k].detach() + (H / corr) * vel[k] for k in P0}
+            fleet.params = extrapolate_linear(fleet, vlin, t_vel, float(H))
             out[f"extrap_acc_{H}"] = test_acc(fleet, grid)
+            fleet.params = extrapolate(fleet, vel, t_vel, float(H))
+            out[f"extrapd_acc_{H}"] = test_acc(fleet, grid)
     finally:
         fleet.params = P0
     return out

@@ -25,7 +25,7 @@ import torch  # noqa: E402
 from topology_design import fleet as fl  # noqa: E402
 
 TUPLE_FIELDS = ("alphas", "block_lr_mult", "block_wd_mult", "branches", "branch_lr_mult", "branch_wd_mult",
-                "branch_alpha", "probe_steps")
+                "branch_alpha", "probe_steps", "horizon_extrap")
 
 
 def _tuplify(kw: dict) -> dict:

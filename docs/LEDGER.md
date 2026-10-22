@@ -166,7 +166,10 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
   - "fast memorizer plus slow generalizer" being self-defeating (H2).
 - **Falsifier:** measured shares are not ordered by η·λ; a slower component wins a mode it is slower on.
 - **Cheapest test:** during training, measure each branch's credit share along the rule direction and along per-example directions, across learning rates and wirings. Compare with the formula on Study 4 graphs.
-- *2026-10-22:* argument → **preregistered as E3** ([walk/PREREGISTRATION.md](../experiments/walk/PREREGISTRATION.md)): direct manipulation of the branch speed ratio ρ at fixed lr·wd. P1: shares rise with ρ. P2: co-location at every ρ.
+- *2026-10-22:* argument → **preregistered as E3** ([walk/PREREGISTRATION.md](../experiments/walk/PREREGISTRATION.md)): direct manipulation of the branch speed ratio ρ at fixed lr·wd.
+  - Revised after review: lr-only and wd-only controls separate speed from weight scale.
+  - P2: co-location persists (trend test in logit space).
+  - P3: step size alone moves credit.
 
 **H2 — Under shared error, a fast memorizer takes every mode, the rule included.** *Argument (corollary of H1).*
 - **Claim:** complementary learning systems work in brains because the cortex learns from replay, not from an error it shares with the hippocampus.
@@ -232,7 +235,7 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | I7 | Group-product composition task (abelian control vs S4), gated on all-short networks failing | Phase 5 discussion | Open. |
 | I8 | Topology as a hypothesis about how the data is generated: a learner discovers its own wiring from per-example surprise | 22 Oct discussion | Open. Crosses the repo's "no architecture search" rule; that boundary is the researcher's to redraw. |
 | I9 | Phase 5 B–D as designed: per-branch time constants, update routing, consolidation, within one shared loss | Phase 5 design | **On hold** (X9, H1–H2). Stage-1 grids deleted unlaunched. |
-| I10 | Measure how much information a training run has versus what it uses: steps or examples needed to determine the function, versus to produce it | 22 Oct discussion | **Preregistered as E1** (22 Oct): prequential code length of gradient descent on a stream vs a program-prior learner; primary question is whether more steps per example reduce gradient descent's sample need. Nearest prior art (weight-compression complexity of grokking) has no ideal-learner reference. |
+| I10 | Measure how much information a training run has versus what it uses: steps or examples needed to determine the function, versus to produce it | 22 Oct discussion | **Measured in E1** (22 Oct). Prequential code length of gradient descent on streams vs a program-prior learner (k* = 3 examples), plus the data floor on fixed datasets. It became a measurement, not a hypothesis test, after the review showed the original primary prediction could not fail. Nearest prior art: weight-compression complexity of grokking (no ideal-learner reference); Power et al. on training fraction. |
 
 ---
 
@@ -250,3 +253,5 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | L8 | Structure comparisons at fixed settings mixed "bad structure" with "bad settings" | Compare structures by their stability regions, or at each one's best, or under a parameterization that aligns them. |
 | L9 | Implementation ran ahead of the question several times; the researcher had to pull the discussion back to the central goal | Before any implementation, state the question, what each outcome would change, and the cheapest decisive test. |
 | L10 | E2's first readout operator (least-squares refit) was a weaker classifier than the network's own readout (0.88–0.91 vs 0.99–1.0 after grokking), so it could never show a lead. Caught by a sanity run before Kaggle (22 Oct). | Check every "what could the network do now" operator against the network itself on a grokked checkpoint: it must at least match it. |
+| L11 | The pre-run review of E1–E4 (22 Oct) found six blocking problems: a primary prediction that could not fail (censoring); a stability grid whose ceiling sat below the known optimum and whose definition differed from Study 2; a manipulation (E3) confounded with weight scale; and lesson L5 repeated in E2. One of its proposed fixes was also wrong: a decay-aware drift operator that the review checked only on a weight with no gradient, which predicted nothing on real runs. | An independent review before every run, and check each fix too, by measuring the operator against what actually happens. |
+| L12 | Before the review, several predictions could only come out one way: E1 P2 ("gradient descent is ≥ 5× worse"); E3 P1, with speed and scale pushing the same way. | For each prediction, write down a concrete result that would make it fail, and check that the design can produce that result. |

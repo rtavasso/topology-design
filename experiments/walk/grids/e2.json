@@ -1,5 +1,5 @@
 {
- "_note": "E2 visibility: logistic readout refit and drift extrapolation at evals; drift-jump interventions paired with the base runs of the same seed.",
+ "_note": "E2 visibility: logistic readout refit and drift extrapolation at evals (base runs); drift-jump interventions and H = 0 noise-floor arms, paired with the base run of the same seed.",
  "grids": [
   {
    "base": {
@@ -11,6 +11,7 @@
     "weight_decay": 1.0,
     "eval_every": 100,
     "dense_early": true,
+    "arm": "pk012000",
     "branches": [
      [
       1,
@@ -23,17 +24,13 @@
       6
      ]
     ],
+    "lr": 0.001,
     "steps": 40000,
-    "stop_after_grok": 3000,
+    "stop_after_grok": 0,
     "measure_horizon": true,
-    "arm": "pk012000",
     "tag": "wE2-asym"
    },
    "vary": {
-    "lr": [
-     0.001,
-     0.002
-    ],
     "model_seed": [
      610,
      611,
@@ -59,124 +56,24 @@
     "weight_decay": 1.0,
     "eval_every": 100,
     "dense_early": true,
-    "branches": [
-     [
-      1,
-      2,
-      3
-     ],
-     [
-      4,
-      5,
-      6
-     ]
-    ],
-    "steps": 40000,
-    "stop_after_grok": 3000,
-    "measure_horizon": true,
-    "arm": "pk000000",
-    "tag": "wE2-sym"
-   },
-   "vary": {
-    "lr": [
-     0.001,
-     0.002
-    ],
-    "model_seed": [
-     610,
-     611,
-     612,
-     613,
-     614,
-     615,
-     616,
-     617,
-     618,
-     619
-    ]
-   },
-   "tie_data_seed": true
-  },
-  {
-   "base": {
-    "task": "modadd",
-    "p": 59,
-    "train_frac": 0.4,
-    "d": 128,
-    "hidden": 256,
-    "weight_decay": 1.0,
-    "eval_every": 100,
-    "dense_early": true,
-    "branches": [
-     [
-      1,
-      2,
-      3
-     ],
-     [
-      4,
-      5,
-      6
-     ]
-    ],
-    "steps": 40000,
-    "stop_after_grok": 3000,
-    "measure_horizon": true,
-    "arm": "pk000000",
-    "lr": 0.002,
-    "tag": "wE2jump-sym"
-   },
-   "vary": {
-    "drift_jump_at": [
-     1000,
-     2000
-    ],
-    "drift_jump_h": [
-     500,
-     2000
-    ],
-    "model_seed": [
-     610,
-     611,
-     612,
-     613,
-     614,
-     615,
-     616,
-     617,
-     618,
-     619
-    ]
-   },
-   "tie_data_seed": true
-  },
-  {
-   "base": {
-    "task": "modadd",
-    "p": 59,
-    "train_frac": 0.4,
-    "d": 128,
-    "hidden": 256,
-    "weight_decay": 1.0,
-    "eval_every": 100,
-    "dense_early": true,
-    "branches": [
-     [
-      1,
-      2,
-      3
-     ],
-     [
-      4,
-      5,
-      6
-     ]
-    ],
-    "steps": 40000,
-    "stop_after_grok": 3000,
-    "measure_horizon": true,
     "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
     "lr": 0.001,
+    "steps": 40000,
+    "stop_after_grok": 0,
+    "measure_horizon": true,
+    "measure_refit": false,
     "tag": "wE2jump-asym"
    },
    "vary": {
@@ -185,9 +82,204 @@
      8000
     ],
     "drift_jump_h": [
-     1000,
-     4000
+     250,
+     1000
     ],
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 40000,
+    "stop_after_grok": 0,
+    "measure_horizon": true,
+    "measure_refit": false,
+    "drift_jump_at": 4000,
+    "drift_jump_h": 0,
+    "tag": "wE2noise-asym"
+   },
+   "vary": {
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 15000,
+    "stop_after_grok": 0,
+    "measure_horizon": true,
+    "tag": "wE2-sym"
+   },
+   "vary": {
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 15000,
+    "stop_after_grok": 0,
+    "measure_horizon": true,
+    "measure_refit": false,
+    "tag": "wE2jump-sym"
+   },
+   "vary": {
+    "drift_jump_at": [
+     1000,
+     2000
+    ],
+    "drift_jump_h": [
+     250,
+     1000
+    ],
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 15000,
+    "stop_after_grok": 0,
+    "measure_horizon": true,
+    "measure_refit": false,
+    "drift_jump_at": 1000,
+    "drift_jump_h": 0,
+    "tag": "wE2noise-sym"
+   },
+   "vary": {
     "model_seed": [
      610,
      611,

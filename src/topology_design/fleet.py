@@ -80,7 +80,8 @@ class FleetConfig:
     probe_pairs: int = 50
     probe_matched: int = 0  # 5E protocol-matched probes: AdamW steps on copies with the pair added (0 = off; design 50)
     # ---- "diagnose the walk" (experiments/walk/PREREGISTRATION.md) ----
-    measure_horizon: bool = False  # E2: closed-form readout refit + drift extrapolation at evals
+    measure_horizon: bool = False  # E2: drift estimate + extrapolation at evals (and readout refit if measure_refit)
+    measure_refit: bool = True  # E2: also refit the readout at evals (costly; off for intervention-only runs)
     horizon_extrap: tuple = (1000, 4000, 16000)  # E2: extrapolation horizons (steps) along the parameter drift
     readout_swap_at: int | None = None  # E2 intervention: at this step replace the readout by the refit readout
     drift_jump_at: int | None = None  # E2 intervention: at this step jump theta += H * drift (needs measure_horizon)
@@ -125,7 +126,7 @@ class FleetConfig:
 
 STRUCT_FIELDS = ("task", "p", "train_frac", "d", "hidden", "steps", "eval_every", "dense_early", "stop_after_grok",
                  "grok_thresh", "branches", "measure_signal", "arrive_start", "arrive_n", "arrive_every", "probe_steps",
-                 "probe_pairs", "probe_matched", "groups", "measure_horizon", "horizon_extrap")
+                 "probe_pairs", "probe_matched", "groups", "measure_horizon", "horizon_extrap", "measure_refit")
 GROUP_ROUTES = ("agree", "rand", "topk")  # routing modes that need per-step group gradients
 
 
@@ -1016,6 +1017,7 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
         st["swap_acc"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
         st["swap_scale"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
     vel, t_vel = ({k: torch.zeros_like(v) for k, v in fleet.params.items()}, 0) if hz else (None, 0)
+    vlin = {k: torch.zeros_like(v) for k, v in fleet.params.items()} if hz else None
     jump = any(c.drift_jump_at is not None for c in cfgs)
     if jump:
         if not hz:
@@ -1056,11 +1058,11 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
         if jump and bool((st["jump_at"] == step).any()) and t_vel > 0:  # E2 intervention: skip ahead along the drift
             runs = (st["jump_at"] == step) & st["active"]
             before = fh.test_acc(fleet, grid)
-            corr = 1.0 - fh.DRIFT_BETA ** t_vel
             with torch.no_grad():
+                target = fh.extrapolate_linear(fleet, vlin, t_vel, st["jump_h"])
                 for k, v in fleet.params.items():
                     sh = (-1,) + (1,) * (v.dim() - 1)
-                    v.add_(torch.where(runs.view(sh), (st["jump_h"].view(sh) / corr) * vel[k], torch.zeros_like(v)))
+                    v.copy_(torch.where(runs.view(sh), target[k], v))
             after = fh.test_acc(fleet, grid)
             st["jump_acc_before"] = torch.where(runs, before, st["jump_acc_before"])
             st["jump_acc_after"] = torch.where(runs, after, st["jump_acc_after"])
@@ -1102,11 +1104,12 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
                 extra.update(opt.take_angle())
             if opt.path_eff:
                 extra["path_eff"] = opt.path_efficiency()
-            if hz:
+            if hz and c0.measure_refit:
                 rf = fh.refit_readout(fleet, grid, st["hz_val"])
                 extra.update({k: rf[k] for k in ("refit_test_acc", "refit_train_acc", "refit_lam", "ridge_test_acc",
                                                  "ridge_train_acc")})
-                extra.update(fh.extrapolated_acc(fleet, grid, vel, t_vel, c0.horizon_extrap))
+            if hz:
+                extra.update(fh.extrapolated_acc(fleet, grid, vlin, vel, t_vel, c0.horizon_extrap))
             if K > 0:
                 extra["old_loss"] = (ce * is_old).sum(1) / is_old.sum(1).clamp_min(1)
                 extra["n_seen"] = (st["arrive"] <= step).sum(1).to(fleet.dtype)
@@ -1140,6 +1143,7 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
                         saved_extra[orig[j]] = {k: v[j] for k, v in ends.items()}
                 if vel is not None:
                     vel = {k: v[keep] for k, v in vel.items()}
+                    vlin = {k: v[keep] for k, v in vlin.items()}
                 fleet.subset(keep)
                 opt.subset(keep)
                 for k in ("y", "train", "test", "exc", "rule_train", "new"):
@@ -1167,10 +1171,11 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
         if hz:
             prev = {k: v.detach().clone() for k, v in fleet.params.items()}
         opt.step(st["active"])
-        if hz:  # drift: bias-corrected EMA of the per-step parameter change (E2 extrapolation)
+        if hz:  # drift: EMA of the gradient-driven part of each step (E2 extrapolation; decay handled exactly)
             with torch.no_grad():
                 for k, v in fleet.params.items():
-                    vel[k] = fh.DRIFT_BETA * vel[k] + (1 - fh.DRIFT_BETA) * (v.detach() - prev[k])
+                    vel[k] = fh.DRIFT_BETA * vel[k] + (1 - fh.DRIFT_BETA) * fh.drift_increment(fleet, k, v.detach(), prev[k])
+                    vlin[k] = fh.DRIFT_BETA * vlin[k] + (1 - fh.DRIFT_BETA) * (v.detach() - prev[k])
             t_vel += 1
     secs = time.time() - t0
     divs = st["div_step"].cpu().tolist()

@@ -1,5 +1,5 @@
 {
- "_note": "E1 information gap: prequential code length of gradient descent on a stream vs a program-prior learner (computed in analysis).",
+ "_note": "E1 information gap (measurement): prequential code length of gradient descent on streams vs a program-prior learner (computed in analysis), and the data floor on fixed datasets.",
  "grids": [
   {
    "base": {
@@ -24,12 +24,12 @@
       6
      ]
     ],
-    "steps": 10150,
+    "steps": 16000,
     "stop_after_grok": 0,
-    "arrive_start": 32,
+    "arrive_start": 140,
     "arrive_n": 32,
-    "arrive_every": 50,
-    "tag": "wE1-asym-b50"
+    "arrive_every": 400,
+    "tag": "wE1-asym-b400"
    },
    "vary": {
     "lr": [
@@ -69,12 +69,12 @@
       6
      ]
     ],
-    "steps": 10150,
+    "steps": 16000,
     "stop_after_grok": 0,
-    "arrive_start": 32,
+    "arrive_start": 140,
     "arrive_n": 32,
-    "arrive_every": 50,
-    "tag": "wE1-sym-b50"
+    "arrive_every": 400,
+    "tag": "wE1-sym-b400"
    },
    "vary": {
     "lr": [
@@ -114,12 +114,12 @@
       6
      ]
     ],
-    "steps": 16600,
+    "steps": 64000,
     "stop_after_grok": 0,
-    "arrive_start": 32,
+    "arrive_start": 140,
     "arrive_n": 32,
-    "arrive_every": 200,
-    "tag": "wE1-asym-b200"
+    "arrive_every": 1600,
+    "tag": "wE1-asym-b1600"
    },
    "vary": {
     "lr": [
@@ -159,12 +159,12 @@
       6
      ]
     ],
-    "steps": 16600,
+    "steps": 64000,
     "stop_after_grok": 0,
-    "arrive_start": 32,
+    "arrive_start": 140,
     "arrive_n": 32,
-    "arrive_every": 200,
-    "tag": "wE1-sym-b200"
+    "arrive_every": 1600,
+    "tag": "wE1-sym-b1600"
    },
    "vary": {
     "lr": [
@@ -177,6 +177,154 @@
      602,
      603,
      604
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.15,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-asym"
+   },
+   "vary": {
+    "model_seed": [
+     600,
+     601,
+     602
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.2,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-asym"
+   },
+   "vary": {
+    "model_seed": [
+     600,
+     601,
+     602
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.25,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-asym"
+   },
+   "vary": {
+    "model_seed": [
+     600,
+     601,
+     602
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.3,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.001,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-asym"
+   },
+   "vary": {
+    "model_seed": [
+     600,
+     601,
+     602
     ]
    },
    "tie_data_seed": true
@@ -204,24 +352,164 @@
       6
      ]
     ],
-    "steps": 42400,
-    "stop_after_grok": 0,
-    "arrive_start": 32,
-    "arrive_n": 32,
-    "arrive_every": 800,
-    "tag": "wE1-asym-b800"
+    "lr": 0.001,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-asym"
    },
    "vary": {
-    "lr": [
-     0.001,
-     0.002
-    ],
     "model_seed": [
      600,
      601,
-     602,
-     603,
-     604
+     602
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.15,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-sym"
+   },
+   "vary": {
+    "model_seed": [
+     600,
+     601,
+     602
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.2,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-sym"
+   },
+   "vary": {
+    "model_seed": [
+     600,
+     601,
+     602
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.25,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-sym"
+   },
+   "vary": {
+    "model_seed": [
+     600,
+     601,
+     602
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.3,
+    "d": 128,
+    "hidden": 256,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "branches": [
+     [
+      1,
+      2,
+      3
+     ],
+     [
+      4,
+      5,
+      6
+     ]
+    ],
+    "lr": 0.002,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-sym"
+   },
+   "vary": {
+    "model_seed": [
+     600,
+     601,
+     602
     ]
    },
    "tie_data_seed": true
@@ -249,24 +537,16 @@
       6
      ]
     ],
-    "steps": 42400,
-    "stop_after_grok": 0,
-    "arrive_start": 32,
-    "arrive_n": 32,
-    "arrive_every": 800,
-    "tag": "wE1-sym-b800"
+    "lr": 0.002,
+    "steps": 60000,
+    "stop_after_grok": 3000,
+    "tag": "wE1floor-sym"
    },
    "vary": {
-    "lr": [
-     0.001,
-     0.002
-    ],
     "model_seed": [
      600,
      601,
-     602,
-     603,
-     604
+     602
     ]
    },
    "tie_data_seed": true
