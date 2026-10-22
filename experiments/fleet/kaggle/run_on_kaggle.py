@@ -39,7 +39,8 @@ def run(name, cmd):
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pytest"], check=False)
 run("env", [sys.executable, "-c", "import torch;print(torch.__version__, torch.cuda.is_available(), "
             "torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no GPU')"])
-rc = run("tests", [sys.executable, "-m", "pytest", "-q", "tests/test_fleet.py"])
+rc = run("tests", [sys.executable, "-m", "pytest", "-q", "tests/test_fleet.py", "tests/test_fleet_p5.py"])
+run("bench_p5", [sys.executable, "experiments/fleet/bench_p5.py", "--R", "64", "--steps", "300"])
 run("bench", [sys.executable, "experiments/fleet/bench_fleet.py", "--R", "16", "64", "256", "512", "1024"])
 run("bench_mixed", [sys.executable, "experiments/fleet/bench_fleet.py", "--R", "64", "256", "--mixed"])
 rv = run("validate", [sys.executable, "experiments/fleet/validate_gpu.py"])
