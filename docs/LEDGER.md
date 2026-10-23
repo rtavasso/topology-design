@@ -106,6 +106,27 @@ The researcher's end goal, in his words:
 - This cannot be read as a topology effect until the chain trains stably.
 - Evidence: Study 3 calibration, round 4.
 
+### From "diagnosing the walk" (E1, E2; 23 Oct 2026; [RESULTS](../experiments/walk/RESULTS.md), independently recomputed)
+
+**F13 — Gradient descent needs hundreds of times more data than a program-prior learner, and more steps barely help.** *Strong (measurement, preregistered design, recomputed).*
+- A Bayes mixture over short arithmetic programs pins down modular addition after **3 examples**.
+- Gradient descent needs **1,044 examples** (sym) before it groks at all, even with up to 60,000 steps. asym needs between 1,044 and 1,392.
+- On streams, its production point sits at that floor (≈ 1,100–1,390). Four times more steps per example lowers it only slightly.
+- Scope: one task, one optimizer, two wirings.
+
+**F14 — Under predict-then-learn scoring, gradient descent is worse than not learning for most of a stream.** *Strong (measurement).*
+- After memorizing what it has seen, it predicts each new pair confidently wrong: 12–29 nats per pair against 4.1 for uniform. Its total code length is 4.5–7× uniform.
+- More steps per example made this *worse* (sym, lr 1e-3: 26k → 38k nats).
+- This is the anti-generalization of memorization (F4) measured as a cost.
+
+**F15 — The readout is not the bottleneck; the features are.** *Strong (E2 P1, as predicted).* A readout re-solved on frozen features leads the network by about one eval interval at most (median relative lead 0.006).
+
+**F16 — In the all-parallel network, the destination is partly visible from the run's own drift, and acting on it helps modestly. In the chain network, it isn't visible.** *Suggestive (exploratory split, plus preregistered P2 in sym).*
+- sym: extrapolating the recent drift reaches 50% test accuracy 15–22% earlier than training, in 10/10 seeds.
+- Jumping along it saves 100–400 steps (4–14%), with no more instability.
+- asym: no lead; jump outcomes are chaotic.
+- Not separated from "any kick helps": there was no matched random-direction control (I13).
+
 ### Derived constraints (arguments checked numerically during design)
 
 **F12 — Under AdamW, decoupled weight decay is itself the time filter.** *Established (derivation plus check).*
@@ -195,6 +216,11 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
   - the timing of a lead, from cheap static operators (logistic readout refit, drift extrapolation);
   - an intervention: jumping ahead along the drift.
   - Instrument pilot (p = 23, 2–3 seeds; not evidence): the refit readout tracks the network with no lead, which points to the features rather than the readout as the bottleneck. Drift jumps saved 100–400 steps in sym and nothing in asym.
+- *2026-10-23:* **E2 results** ([RESULTS](../experiments/walk/RESULTS.md)):
+  - **P1 failed, as expected:** the readout version of H5 is refuted (F15).
+  - **P1b failed** pooled as preregistered, but holds in sym alone (10/10 seeds) and not in asym (F16).
+  - **P2 supported** in sym, modestly.
+  - H5 status: argument → **suggestive, wiring-dependent.** The horizon is partly visible in the stable network, but only a fraction of the walk can be skipped by extrapolation. The large gap is in data (F13), not in steps.
 
 **H6 — Agreement across halves separates the signals without labels.** *Argument (derivation).*
 - **Claim:** for disjoint halves A and B of the training set, E⟨G_A, G_B⟩ measures the shared (population) part of the gradient, and ‖G_A‖² − ⟨G_A, G_B⟩ measures the memorizing part.
@@ -237,7 +263,9 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | I9 | Phase 5 B–D as designed: per-branch time constants, update routing, consolidation, within one shared loss | Phase 5 design | **On hold** (X9, H1–H2). Stage-1 grids deleted unlaunched. |
 | I11 | Identity-path credit as a backward-graph experiment: each block learns from the error at the top of the residual stream only, dropping the terms that pass back through later blocks. If co-location (F4), migration (F6) and credit by speed (H1) are unchanged, the wiring acts on learning almost entirely through what blocks read (the forward graph), not through how error reaches them. | Q Labs "Noise" (Oct 2026): a community record uses "identity-path credit" and trains well | Open. Parameter-free; keeps one loss. |
 | I12 | Test the claim that backprop "explores the loss landscape poorly", and that this is why networks need so much data, on our toy, where data efficiency is exactly measurable: perturbation-based credit (Dust-style node perturbation, per-example noise) vs backprop, compared on the E1 scoreboard (data floor, prequential code length) and the grokking delay. | [Noise](https://qlabs.sh/noise), [Dust](https://qlabs.sh/research/dust/) | Open. Prediction from the statistical-query argument: perturbation credit is still an averaging learner, so any gain is a constant factor or regularization, not reasoning. It should not beat gradient descent on sparse parity. |
-| I10 | Measure how much information a training run has versus what it uses: steps or examples needed to determine the function, versus to produce it | 22 Oct discussion | **Measured in E1** (22 Oct). Prequential code length of gradient descent on streams vs a program-prior learner (k* = 3 examples), plus the data floor on fixed datasets. It became a measurement, not a hypothesis test, after the review showed the original primary prediction could not fail. Nearest prior art: weight-compression complexity of grokking (no ideal-learner reference); Power et al. on training fraction. |
+| I13 | Matched-norm random-direction jump control for E2: does jumping along the drift help more than an equally large kick in a random direction? Needed before "the drift direction helps" can be claimed, especially for the chaotic chain network. | E2 verification, 23 Oct | Open. Cheap. |
+| I14 | Why is the chain network's trajectory not extrapolatable when the parallel one is? Curvature of the path, or collapse cycles (F2)? | E2, 23 Oct | Open. |
+| I10 | Measure how much information a training run has versus what it uses: steps or examples needed to determine the function, versus to produce it | 22 Oct discussion | **Measured in E1** (22 Oct design; results 23 Oct, F13–F14: 3 examples vs about 1,044; worse than uniform for most of a stream). Prequential code length of gradient descent on streams vs a program-prior learner (k* = 3 examples), plus the data floor on fixed datasets. It became a measurement, not a hypothesis test, after the review showed the original primary prediction could not fail. Nearest prior art: weight-compression complexity of grokking (no ideal-learner reference); Power et al. on training fraction. |
 
 ---
 
@@ -256,4 +284,5 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | L9 | Implementation ran ahead of the question several times; the researcher had to pull the discussion back to the central goal | Before any implementation, state the question, what each outcome would change, and the cheapest decisive test. |
 | L10 | E2's first readout operator (least-squares refit) was a weaker classifier than the network's own readout (0.88–0.91 vs 0.99–1.0 after grokking), so it could never show a lead. Caught by a sanity run before Kaggle (22 Oct). | Check every "what could the network do now" operator against the network itself on a grokked checkpoint: it must at least match it. |
 | L11 | The pre-run review of E1–E4 (22 Oct) found six blocking problems: a primary prediction that could not fail (censoring); a stability grid whose ceiling sat below the known optimum and whose definition differed from Study 2; a manipulation (E3) confounded with weight scale; and lesson L5 repeated in E2. One of its proposed fixes was also wrong: a decay-aware drift operator that the review checked only on a weight with no gradient, which predicted nothing on real runs. | An independent review before every run, and check each fix too, by measuring the operator against what actually happens. |
+| L13 | E2's noise floor (H = 0 jump) measured only floating-point nondeterminism, not how a run responds to a perturbation, so "saving above the noise floor" was close to automatic. Also, the sidedness of the sign tests was ambiguous in the preregistration. | A null for an intervention must be an intervention of the same size in an uninformative direction. State the sidedness of every test. |
 | L12 | Before the review, several predictions could only come out one way: E1 P2 ("gradient descent is ≥ 5× worse"); E3 P1, with speed and scale pushing the same way. | For each prediction, write down a concrete result that would make it fail, and check that the design can produce that result. |

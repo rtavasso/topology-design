@@ -56,7 +56,7 @@ Scored against [PREREGISTRATION.md](PREREGISTRATION.md), committed before any ru
   - With 4× more steps per increment, sym produced the rule earlier: 1,100 vs 1,324 examples at lr 2e-3, and 1,196 vs ≥ 1,392 at lr 1e-3.
   - But its code length *rose* (sym lr 1e-3: 26k → 38k nats). More walking per example deepens confident memorization before the rule arrives.
 - **The gap is mainly a data gap, not a step gap.**
-  - The data floor, even with up to 60,000 steps, is 1,044 examples for sym (348× k\*) and 1,392 for asym (464× k\*). At 870 examples, only 1 of 3 sym seeds groks.
+  - The data floor, even with up to 60,000 steps, is 1,044 examples for sym (348× k\*). For asym it lies between 1,044 and 1,392 examples (≤ 464× k\*); 0.4 is both the top of the sweep and the main training fraction, so it is an upper bound. At 870 examples, only 1 of 3 sym seeds groks.
   - The stream production points (≈ 1,100–1,390) sit at that floor.
   - Extra steps per example barely move it. Gradient descent needs hundreds of times more examples than a learner with a prior over short programs.
 - *Exploratory (wiring):* asym, the chain plus shortcut, is worse on every E1 measure: higher floor, later or censored production, larger code length.
@@ -82,7 +82,7 @@ Scored against [PREREGISTRATION.md](PREREGISTRATION.md), committed before any ru
 
 **P1, readout visibility — NOT supported, as the pilot predicted.**
 - The refit readout's median relative lead at test accuracy 0.9 is 0.006, against the ≥ 0.2 required.
-- Leads were consistent but tiny: +13/−1, sign test p = 0.002.
+- Leads were consistent but negligible: +13/−1 with 6 ties, sign test p = 0.002. A lead is mostly exactly one 100-step eval.
 - The network's own readout is essentially optimal for its current features at every point. The walk's time is spent building features, not fitting the readout.
 
 **P1b, drift visibility — NOT supported, pooled as preregistered.**
@@ -103,9 +103,13 @@ Scored against [PREREGISTRATION.md](PREREGISTRATION.md), committed before any ru
 | at 2,000, H = 1,000 | 400 | 0.023 |
 
 - That is 4–14% of the ≈ 2,850-step run, with no more collapses.
-- The noise floor is 0: the H = 0 arms match their bases.
-- The saving is roughly 0.1–0.4 of the horizon jumped. At s = 2,000 with H = 1,000, test accuracy went from 0.06 to 0.44 at the moment of the jump.
-- **asym:** median savings of 1,700–5,900 steps (larger than H in some cells), but inconsistent across seeds (Holm p 0.09–1.0). asym's grokking time is chaotic because of repeated collapses.
+- The savings are coarse: 1–4 eval intervals of 100 steps.
+- The jump fast-forwards less than its nominal horizon: about 0.2–0.4 × H for H = 1,000 and 0.4–0.8 × H for H = 250.
+- Many s = 2,000 jumps came after test accuracy had started rising (0.09–0.33 before the jump in several seeds), not mid-plateau. At s = 2,000 with H = 1,000, median test accuracy went from 0.06 to 0.44 at the moment of the jump.
+- The s = 2,000 cells have 9 runs, because seed 613's base run reached sustained grokking exactly at step 2,000.
+- **Noise floor = 0, but only for floating-point noise.** The H = 0 arms match their bases exactly in train and test accuracy and collapse counts at every eval; weight norms differ by about 4e-6. The floor measures floating-point nondeterminism between batches, not how a run reacts to a perturbation, so "saving above the noise floor" is easily met.
+- **Sign tests are two-sided** (the analysis as committed). Read one-sided, as "in the positive direction" in the preregistration could be read, the sym cells' Holm p becomes 0.008–0.012. One asym cell (s 8,000, H 1,000; +9/−1) would then pass the sign test (Holm p 0.043), but it still fails the collapse condition: median change +0.5, a fragile margin from an even-sized set.
+- **asym:** median savings of 1,700–5,900 steps (larger than H in some cells), but inconsistent across seeds (Holm p 0.09–1.0). Within a single cell, savings range from −21,100 to +15,300 steps. asym's grokking time is chaotic under perturbation, because of repeated collapses. The −21,100 comes from one seed whose jump runs never grok and are censored at the 40,000-step horizon.
 
 ### What E2 says, and doesn't
 
@@ -123,4 +127,12 @@ Scored against [PREREGISTRATION.md](PREREGISTRATION.md), committed before any ru
 
 ## Verification
 
-Pending (independent recomputation from the raw files).
+An independent agent recomputed every E1 and E2 number from the raw run files with its own code. It did not read `analyze.py`; it reused only the program-prior module and the arrival schedule.
+- **Reproduced:** every number above, exactly or to rounding: code lengths, ratios, k\*, production points, data floor, all leads and sign tests, per-cell savings and Holm p-values, and the noise floor.
+- **No verdict changes.** Its caveats are folded in above:
+  - asym's floor is an upper bound;
+  - sidedness of the sign tests;
+  - the noise floor measures only floating-point nondeterminism;
+  - censoring in asym;
+  - the sym savings are coarse, and many came from jumps made after accuracy had started rising;
+  - P1's lead is essentially one eval interval.

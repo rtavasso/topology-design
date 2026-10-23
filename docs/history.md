@@ -243,6 +243,33 @@ Stage 1 was not launched; its grids were deleted.
 - H1's shares are not ordered by η·λ.
 - The destination of training is not predictable early (H5 fails), which would mean walking does irreducible work.
 
+## Entry 23 (23 Oct 2026): E1 and E2 results — the gap is data, and the readout is not the bottleneck
+
+**Premise.** The first two preregistered "diagnose the walk" experiments ran on Kaggle (2 × T4; tests passed on the GPU). They were analysed with the committed code and independently recomputed: every number reproduced, and no verdict changed. See [walk/RESULTS.md](../experiments/walk/RESULTS.md).
+
+**Evidence:**
+- **E1** (measurement):
+  - a program-prior learner needs 3 examples; gradient descent needs about 1,044 (sym; 1,044–1,392 for asym), even with ample steps;
+  - on streams it is worse than uniform for most of the stream, at 12–29 nats per new pair, because it predicts confidently wrong after memorizing;
+  - more steps per example barely lower its sample need, and raise its interim surprise.
+- **E2:**
+  - P1, the readout leads: failed, as predicted. The readout is essentially optimal for the current features.
+  - P1b, the drift extrapolation leads: failed pooled. It holds in sym in 10/10 seeds and not in asym.
+  - P2, jumping along the drift helps: supported in sym, at 100–400 steps saved. asym is chaotic.
+
+**Argument.** For the researcher's goal of seeing instead of walking:
+- The large gap between gradient descent and a learner with structural prior knowledge is in **data**, hundreds of times, not in steps.
+- Within a run, the walk spends its time on features. In the stable wiring the destination is partly visible from the trajectory, and only a modest fraction of the walk can be skipped.
+- Wiring changes how predictable learning is.
+
+**Decisions:**
+- **D32.** Record F13–F16, H5 → suggestive and wiring-dependent, and ideas I13 (random-direction jump control) and I14.
+- **D33.** The lesson on intervention nulls (L13) applies to future designs.
+
+**Expected falsifiers (open):**
+- A matched random kick saves as much as a drift jump (I13).
+- The data floor drops sharply with a different optimizer or with perturbation-based credit (I12).
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
