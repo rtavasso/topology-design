@@ -27,7 +27,19 @@ import torch  # noqa: E402
 from topology_design import fleet as fl  # noqa: E402
 from topology_design import program_prior as pp  # noqa: E402
 from run_fleet import _tuplify, load_result  # noqa: E402
-from scipy.stats import kendalltau  # noqa: E402
+try:
+    from scipy.stats import kendalltau  # noqa: E402
+except ImportError:  # numpy fallback (tau-b), so the analysis runs without scipy
+    def kendalltau(x, y):
+        x, y = np.asarray(x, float), np.asarray(y, float)
+        dx, dy = np.sign(x[:, None] - x[None, :]), np.sign(y[:, None] - y[None, :])
+        iu = np.triu_indices(len(x), 1)
+        dx, dy = dx[iu], dy[iu]
+        s_, nx, ny = (dx * dy).sum(), (dx != 0).sum(), (dy != 0).sum()
+
+        class _R:
+            statistic = float(s_ / np.sqrt(nx * ny)) if nx and ny else float("nan")
+        return _R()
 
 N_PERM = 10000
 
