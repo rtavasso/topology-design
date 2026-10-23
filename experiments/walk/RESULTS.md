@@ -6,8 +6,8 @@ Scored against [PREREGISTRATION.md](PREREGISTRATION.md), committed before any ru
 
 | | |
 |---|---|
-| E1, E2 | done (23 Oct 2026). |
-| E3, E4 | running on Kaggle; sections pending. |
+| E1, E2 | done (23 Oct 2026), independently recomputed. |
+| E3, E4 | done (23 Oct 2026); independent recomputation pending. |
 
 **Run details**
 - Kaggle, 2× Tesla T4 per job, torch 2.11.0+cu128, commit `d95cf1f`.
@@ -122,6 +122,105 @@ Scored against [PREREGISTRATION.md](PREREGISTRATION.md), committed before any ru
   - Follow-up: ledger I13.
 
 **Claim type:** optimization and measurement.
+
+---
+
+## E3 — credit by speed
+
+**Design.** 180 runs.
+- Main arms: branch 0 (blocks 1–3) steps ρ× faster than branch 1 at equal lr·wd.
+- Controls at ρ = ¼ and 4: lr-only and wd-only.
+- sym at lr 2e-3 for 30,000 steps; asym at lr 1e-3 for 50,000 steps.
+- Shares are branch 0's: memorization at the run's peak of total memorization, generalization over the last 2,000 steps. Eligible runs only.
+
+| graph | arm | ρ | eligible | share of gen (end) | share of mem (peak) | collapses |
+|---|---|---|---|---|---|---|
+| sym | main | ¼ / ½ / 1 / 2 / 4 | 10 / 10 / 9 / 10 / 10 | 0.01 / 0.10 / 0.50 / 0.87 / 0.98 | 0.01 / 0.09 / 0.50 / 0.91 / 0.99 | 0 |
+| sym | lr-only | ¼ / 4 | 10 / 10 | 0.14 / 0.92 | 0.34 / 0.64 | 0 |
+| sym | wd-only | ¼ / 4 | 10 / 10 | 0.48 / 0.50 | 0.00 / 1.00 | 0 |
+| asym | main | ¼ / ½ / 1 / 2 / 4 | 10 / 9 / 8 / 6 / 6 | 0.25 / 0.36 / 0.84 / 0.97 / 1.00 | 0.97 / 0.99 / 0.98 / 1.00 / 1.00 | 0 → 5.5 |
+| asym | lr-only | ¼ / 4 | 5 / 6 | 0.82 / 0.86 | 0.99 / 0.99 | 2 / 5 |
+| asym | wd-only | ¼ / 4 | 10 / 0 | 0.56 / — | 0.97 / — | 0.5 / 3.5 |
+
+### Verdicts (preregistered)
+
+**P1, shares rise with ρ — supported in both graphs.**
+- sym: τ(gen) = 0.89, τ(mem) = 0.94.
+- asym: τ(gen) = 0.85, τ(mem) = 0.49.
+- Permutation p ≈ 10⁻⁴ for all four.
+
+**P2, co-location persists:**
+- **sym: inconclusive.** The trend is significant (τ = −0.36, p = 0.003), but every shift is under 0.5 logit units. Clipping at the extremes compresses it.
+- **asym: FALSIFIED as written.** The trend is τ = 0.80, with shifts up to 2.4 logits. Generalization follows ρ (0.25 → 1.00) while memorization stays in the chain branch (0.97–1.00).
+
+**P3, step size alone moves credit:**
+- **sym: supported.** In the lr-only arm both shares move toward the faster branch: gen +10/−0 and mem +10/−0 in paired seeds, p = 0.002.
+- **asym: untestable** (fewer than 6 eligible pairs).
+
+**Diagnostic** (logit-share effect, ρ = 4 vs ¼):
+
+| | main | lr-only | wd-only |
+|---|---|---|---|
+| sym | 7.8 | 4.2 | 0.1 |
+| asym | 5.0 | 0.3 | — |
+
+### The measure behind P2 needed a second look (exploratory)
+
+P2 compares memorization at its peak with generalization at the end: two different times. Measuring both shares *at the same moments* changes the reading.
+
+| | at peak memorization: gen / mem | at plateau midpoint: gen / mem | at the end: gen / mem |
+|---|---|---|---|
+| asym main ρ ¼ | 0.88 / 0.97 | −0.01 / 0.09 | 0.27 / 0.07 |
+| asym main ρ 1 | 0.98 / 0.99 | 0.51 / 0.96 | 0.79 / 0.74 |
+| sym wd-only ρ 4 | 1.00 / 1.00 | 1.00 / 1.00 | 0.47 / 0.54 |
+| sym lr-only ρ ¼ | (gen ≈ 0) | 0.02 / 0.53 | 0.08 / 0.13 |
+| sym lr-only ρ 4 | (gen ≈ 0) | 0.96 / 0.46 | 0.89 / 0.99 |
+
+- **What looked like a role split in asym is migration.** At any one moment, memorization and generalization mostly sit in the same branch. Function first piles into the chain, which takes almost all memorization even when it steps 4× slower. Later, if the chain is slow, *both* kinds migrate to the shortcut.
+- **In sym's decay-only arm, function piles into the low-decay branch, then rebalances toward an even split by the end.**
+- **The exception is sym's step-size-only arm.** At mid-plateau the rule sits in the faster branch while memorization is still evenly spread. That is a genuine split at a matched time, though a transient one. In this arm the faster branch also has the shorter memory (its lr·wd is 4× larger).
+
+**What E3 says about H1 (credit by speed):**
+- **sym: supported where it was cleanly tested.** In the stable wiring, at equal memory time, making a branch faster moves memorization and generalization *together* (main arm), and step size alone does so too (lr-only).
+- **The response is steeper than linear:** about 2.8 logit units per unit of log ρ, against the lazy prediction of 1. That fits rich-get-richer.
+- **asym: early credit is not set by the nominal step size.** The chain takes nearly all early memorization even at ρ = ¼.
+  - This is consistent with H1 only if the chain's *effective* speed (learning rate × kernel eigenvalue; the chain compounds its updates, F2) is far larger than its nominal step. We did not measure kernels, so this is open.
+  - What happens later, the migration of everything to the shortcut when the chain is slow, is again what credit by speed predicts.
+
+**Claim type:** optimization and mechanism, exploratory beyond the preregistered verdicts.
+
+---
+
+## E4 — stability regions
+
+**Design.** 864 runs.
+- Graphs pk0000 / pk0100 / pk0120 / pk0123, with longest chain C = 1–4.
+- 8 learning rates × 3 weight decays × 3 seeds.
+- Three parameterizations: std; P1, a uniform 1/√L output multiplier; P2, a per-block 1/√depth multiplier.
+- Stability uses Study 2's window: train accuracy ≥ 0.9 for 6,000 steps after first fit.
+
+**lr\*** (largest stable learning rate) at wd = 1:
+
+| | C1 (pk0000) | C2 (pk0100) | C3 (pk0120) | C4 (pk0123) |
+|---|---|---|---|---|
+| std | 0.016 | 0.004 | 0.0005 | 0.0005 |
+| P1 | 0.032 | 0.008 | 0.0005 | none |
+| P2 | 0.016 | 0.008 | 0.001 | 0.0005 |
+
+### Verdicts (preregistered)
+
+- **P0, replicating Study 2 — supported.** Under std, C1's ceiling is 5 grid steps (32×) above C4's. With the grid now extended to 6.4e-2, C1's ceiling (0.016) is interior.
+- **H8, a parameterization aligns stability across wirings — NOT supported** under P1 (gap of at least 7 steps) or P2 (gap 5).
+  - The uniform multiplier shifts the shallow graphs up and leaves the deep chain unstable.
+  - The depth-aware multiplier helps C2–C3 by about one step and C4 not at all.
+- *Silencing check:* in stable runs, removing pk0123's deepest block drops test accuracy to 0.01–0.02 under every parameterization. The deep block still carries the function, so the comparison is not hollow.
+- *Also visible:* the maps are non-monotone (stable at a low lr, unstable at a middle one, stable again) for C2–C4. Many unstable cells still grok, by collapsing and recovering, as in Study 2.
+
+**What E4 says:**
+- Chain depth's instability is not removed by output scaling. The pre-registered falsifier is met: comparisons between wirings, and any search over structures, need per-structure settings, or a stabilizer that changes the model class.
+- This strengthens F2: the stability ceiling replicates with a 6,000-step window, an extended grid and 3 parameterizations.
+
+**Claim type:** optimization.
 
 ---
 
