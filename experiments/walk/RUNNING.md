@@ -2,6 +2,26 @@
 
 Run from the repo root on your Mac, with the Python that has the `kaggle` CLI (e.g. `.venv/bin/python`). Pull first.
 
+**Unattended (recommended).** Start the queue once and leave it running:
+
+```
+caffeinate -i .venv/bin/python experiments/fleet/kaggle/kaggle_queue.py --user riley9 \
+    experiments/walk/grids/e1.json experiments/walk/grids/e2.json \
+    experiments/walk/grids/e4.json experiments/walk/grids/e3.json
+```
+
+The queue:
+- respects Kaggle's 2-GPU-session limit;
+- waits for jobs already running, rather than relaunching them;
+- downloads each finished job;
+- relaunches a job whose results came back incomplete (it resumes, up to 2 times);
+- starts the next job;
+- runs each experiment's analysis.
+
+You get a macOS notification as each job finishes. The log is in `results/kaggle_queue.log`. Stopping and restarting the queue is safe, because its state is in `results/kaggle_queue.json`. `caffeinate -i` keeps the Mac from idle-sleeping; closing the lid still sleeps it unless it's plugged into power and a display.
+
+**By hand,** one job at a time:
+
 Each job:
 - uploads the code;
 - runs the fleet tests on the GPU;
