@@ -1,8 +1,9 @@
+import os
 """Independent E3 analysis from extracted raw trajectories."""
 import pickle, sys, itertools, collections
 import numpy as np
 from scipy.stats import kendalltau, binomtest
-D = '/tmp/claude-0/-home-claude/3b1f2496-e305-5fa9-942f-5eec210bff0b/scratchpad/verify_e34'
+D = os.environ.get('VERIFY_DIR', 'verify_e34')  # arrays written by e34_extract.py
 R = pickle.load(open(f'{D}/e3.pkl', 'rb'))
 B0, B1 = [1, 2, 3], [4, 5, 6]
 RHOS = [0.25, 0.5, 1, 2, 4]

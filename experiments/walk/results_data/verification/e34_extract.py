@@ -1,9 +1,10 @@
+import os
 """Extract compact arrays from raw run files (independent of analyze.py)."""
 import gzip, json, glob, pickle, sys
 import numpy as np
 from multiprocessing import Pool
 ROOT = '/home/claude/topology-design/results'
-OUT = '/tmp/claude-0/-home-claude/3b1f2496-e305-5fa9-942f-5eec210bff0b/scratchpad/verify_e34'
+OUT = os.environ.get('VERIFY_DIR', 'verify_e34')  # arrays written by e34_extract.py
 
 def f2(x):
     return np.nan if x is None else float(x)

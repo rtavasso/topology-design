@@ -1,6 +1,7 @@
+import os
 """Independent E4 stability analysis."""
 import pickle, numpy as np, collections, sys
-D = '/tmp/claude-0/-home-claude/3b1f2496-e305-5fa9-942f-5eec210bff0b/scratchpad/verify_e34'
+D = os.environ.get('VERIFY_DIR', 'verify_e34')  # arrays written by e34_extract.py
 R = pickle.load(open(f'{D}/e4.pkl', 'rb'))
 LRS = [0.0005, 0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064]
 ARMS = ['pk0000', 'pk0100', 'pk0120', 'pk0123']
