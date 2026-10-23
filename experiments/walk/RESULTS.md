@@ -7,7 +7,7 @@ Scored against [PREREGISTRATION.md](PREREGISTRATION.md), committed before any ru
 | | |
 |---|---|
 | E1, E2 | done (23 Oct 2026), independently recomputed. |
-| E3, E4 | done (23 Oct 2026); independent recomputation pending. |
+| E3, E4 | done (23 Oct 2026), independently recomputed. |
 
 **Run details**
 - Kaggle, 2× Tesla T4 per job, torch 2.11.0+cu128, commit `d95cf1f`.
@@ -164,28 +164,52 @@ Scored against [PREREGISTRATION.md](PREREGISTRATION.md), committed before any ru
 | sym | 7.8 | 4.2 | 0.1 |
 | asym | 5.0 | 0.3 | — |
 
-### The measure behind P2 needed a second look (exploratory)
+**Notes on the verdicts** (from the independent recomputation):
+- "Groks" means the first crossing of 0.95, and the generalization window is step > T − 2,000.
+- With *sustained* grokking (0.95 held for 2,000 steps, as in E2), 4 asym runs become ineligible. P1 and P2 do not change.
+- asym's memorization leg of P1 is statistically positive but negligible in substance: s(mem) is 0.96–1.00 at every ρ, and 25 of 39 runs sit at the clip.
+- sym's "inconclusive" rests on the logit clip: at ρ = ¼ and 4 almost every share is clipped, so d is 0 there by construction. With a looser clip ([0.005, 0.995]) the shifts reach 0.5–0.6, borderline "falsified".
 
-P2 compares memorization at its peak with generalization at the end: two different times. Measuring both shares *at the same moments* changes the reading.
+### Matched-time analysis (exploratory; corrected after verification)
 
-| | at peak memorization: gen / mem | at plateau midpoint: gen / mem | at the end: gen / mem |
-|---|---|---|---|
-| asym main ρ ¼ | 0.88 / 0.97 | −0.01 / 0.09 | 0.27 / 0.07 |
-| asym main ρ 1 | 0.98 / 0.99 | 0.51 / 0.96 | 0.79 / 0.74 |
-| sym wd-only ρ 4 | 1.00 / 1.00 | 1.00 / 1.00 | 0.47 / 0.54 |
-| sym lr-only ρ ¼ | (gen ≈ 0) | 0.02 / 0.53 | 0.08 / 0.13 |
-| sym lr-only ρ 4 | (gen ≈ 0) | 0.96 / 0.46 | 0.89 / 0.99 |
+P2 compares memorization at its peak with generalization at the end: two different times. An exploratory reanalysis compares both shares at the same moment.
 
-- **What looked like a role split in asym is migration.** At any one moment, memorization and generalization mostly sit in the same branch. Function first piles into the chain, which takes almost all memorization even when it steps 4× slower. Later, if the chain is slow, *both* kinds migrate to the shortcut.
-- **In sym's decay-only arm, function piles into the low-decay branch, then rebalances toward an even split by the end.**
-- **The exception is sym's step-size-only arm.** At mid-plateau the rule sits in the faster branch while memorization is still evenly spread. That is a genuine split at a matched time, though a transient one. In this arm the faster branch also has the shorter memory (its lr·wd is 4× larger).
+**Early checkpoints are uninformative.** At the peak of memorization, total generalization is at or below zero in most runs: memorization pushes unseen inputs toward wrong answers (F4). Its "share" then tracks memorization mechanically. Only later checkpoints are used.
+
+**Gen / mem share of branch 0 at the plateau midpoint** (halfway between peak memorization and grokking):
+
+| cell | gen / mem | median logit gap d |
+|---|---|---|
+| asym main ρ ¼ | −0.01 / 0.09 | −1.2 |
+| asym main ρ ½ | 0.22 / 0.73 | −2.4 |
+| asym main ρ 1 | 0.51 / 0.97 | −3.4 |
+| asym main ρ 2, 4 | ≈1 / ≈1 | 0 (saturated) |
+| asym lr-only ρ ¼ | 0.42 / 0.95 | |
+| asym wd-only ρ ¼ | 0.10 / 0.47 | |
+| sym lr-only ρ ¼ / 4 | 0.02 / 0.53 and 0.96 / 0.46 | |
+| sym main, sym wd-only | coincide (mostly saturated near 0 or 1) | |
+
+**What this shows:**
+- **asym is part migration and part a structural split.**
+  - At matched times, the *trend* of the gap with ρ mostly disappears (τ ≈ 0.23–0.29, p 0.03–0.10 at the midpoint, three-quarters of the plateau and grokking). The preregistered P2 trend is largely produced by measuring memorization early, when it always sits in the chain, and generalization late.
+  - But a large ρ-independent gap remains at ρ ≤ 1, *including ρ = 1, where nothing is manipulated.* Generalization spreads across both branches while memorization stays in the chain.
+  - That is a division of labor set by the wiring, not by speed. It is a lead for the original question, measured here only at the branch level and exploratory.
+- **In sym, speed alone produces a genuine role split at matched time.** In the lr-only arm at mid-plateau, comparing ρ = 4 with ρ = ¼ in paired seeds:
+  - generalization moves to the faster branch: +6.9 logits, 10/0 seeds, p = 0.002;
+  - memorization moves slightly to the slower one: −0.25 logits, 0/10, p = 0.002.
+  - (In this arm the faster branch also has the shorter memory: its lr·wd is 4× larger.)
+  - This contradicts H1's claim that memorization and generalization move together, once both are compared at the same time. The preregistered P3 still holds, because memorization at its early peak did move with speed.
+- **The branch with more weight decay carries the grokking jump, then hands it back.** In sym main and wd-only, generalization share swings to the higher-decay branch at the moment of grokking (median 0.83 at ρ ¼, 0.11 at ρ 4), then returns to the other branch within about 1,500 steps.
+  - Example run, checked by hand (sym main ρ 4): at the jump, branch 1 carries 13.3 vs branch 0's 2.3; by step 4,500 it is 3.8 vs 22.4.
+  - This does not happen in lr-only. So single-time shares near grokking are volatile, and the branch that ends with the credit is not necessarily the one that formed the circuit.
 
 **What E3 says about H1 (credit by speed):**
-- **sym: supported where it was cleanly tested.** In the stable wiring, at equal memory time, making a branch faster moves memorization and generalization *together* (main arm), and step size alone does so too (lr-only).
-- **The response is steeper than linear:** about 2.8 logit units per unit of log ρ, against the lazy prediction of 1. That fits rich-get-richer.
-- **asym: early credit is not set by the nominal step size.** The chain takes nearly all early memorization even at ρ = ¼.
-  - This is consistent with H1 only if the chain's *effective* speed (learning rate × kernel eigenvalue; the chain compounds its updates, F2) is far larger than its nominal step. We did not measure kernels, so this is open.
-  - What happens later, the migration of everything to the shortcut when the chain is slow, is again what credit by speed predicts.
+- **Supported in part.** In the stable wiring, measured as preregistered, speed at equal memory moves both kinds of function toward the faster branch, and steeply: about 2.8 logit units per unit of log ρ, against the lazy prediction of 1.
+- **But it is not the whole story:**
+  - in sym, speed alone splits roles at matched time (the rule goes to the faster branch first);
+  - in asym, the chain takes memorization regardless of nominal speed, and a speed-independent split remains.
+  - The chain's *effective* speed (it compounds its updates; F2) may explain part of this. Kernels were not measured.
+- So under shared error, credit is not set by step size alone. The wiring and the weight decay of each branch also shape which branch carries what, and when.
 
 **Claim type:** optimization and mechanism, exploratory beyond the preregistered verdicts.
 
@@ -209,12 +233,19 @@ P2 compares memorization at its peak with generalization at the end: two differe
 
 ### Verdicts (preregistered)
 
-- **P0, replicating Study 2 — supported.** Under std, C1's ceiling is 5 grid steps (32×) above C4's. With the grid now extended to 6.4e-2, C1's ceiling (0.016) is interior.
+- **P0, replicating Study 2 — supported.** Under std, C1's ceiling (0.016, now interior to the extended grid) is far above C4's. C4 is stable in at most one cell, the grid floor 5e-4, under every parameterization and weight decay. So the "5-step gap" really means C4 has no stable region on this grid.
 - **H8, a parameterization aligns stability across wirings — NOT supported** under P1 (gap of at least 7 steps) or P2 (gap 5).
   - The uniform multiplier shifts the shallow graphs up and leaves the deep chain unstable.
   - The depth-aware multiplier helps C2–C3 by about one step and C4 not at all.
 - *Silencing check:* in stable runs, removing pk0123's deepest block drops test accuracy to 0.01–0.02 under every parameterization. The deep block still carries the function, so the comparison is not hollow.
-- *Also visible:* the maps are non-monotone (stable at a low lr, unstable at a middle one, stable again) for C2–C4. Many unstable cells still grok, by collapsing and recovering, as in Study 2.
+- *Robustness* (independent recomputation):
+  - Almost every "unstable" run fits within 50–200 steps, then has brief drops below 0.9 train accuracy and recovers; no run diverged. The non-monotone maps for C2–C4 come from this collapse noise, combined with the 3-seed, 2-of-3 rule.
+  - Four alternative summaries all keep the C1–C4 gap at ≥ 4 grid steps under every parameterization, so P0 and the H8 verdict hold under each:
+    - the largest lr below the first unstable one;
+    - a tolerant rule (≥ 95% of the window above 0.9);
+    - stability over the last 2,000 steps;
+    - the fraction of stable runs: C1 0.71 / 0.88 / 0.71 vs C4 0.08 / 0.08 / 0.12 for std / P1 / P2.
+  - For C2 and C3, the choice of summary moves lr\* by up to 3 grid steps. Their ordering should be read from the fraction of stable runs, not lr\*.
 
 **What E4 says:**
 - Chain depth's instability is not removed by output scaling. The pre-registered falsifier is met: comparisons between wirings, and any search over structures, need per-structure settings, or a stabilizer that changes the model class.
@@ -226,7 +257,7 @@ P2 compares memorization at its peak with generalization at the end: two differe
 
 ## Verification
 
-An independent agent recomputed every E1 and E2 number from the raw run files with its own code. It did not read `analyze.py`; it reused only the program-prior module and the arrival schedule.
+**E1, E2.** An independent agent recomputed every E1 and E2 number from the raw run files with its own code. It did not read `analyze.py`; it reused only the program-prior module and the arrival schedule.
 - **Reproduced:** every number above, exactly or to rounding: code lengths, ratios, k\*, production points, data floor, all leads and sign tests, per-cell savings and Holm p-values, and the noise floor.
 - **No verdict changes.** Its caveats are folded in above:
   - asym's floor is an upper bound;
@@ -235,3 +266,13 @@ An independent agent recomputed every E1 and E2 number from the raw run files wi
   - censoring in asym;
   - the sym savings are coarse, and many came from jumps made after accuracy had started rising;
   - P1's lead is essentially one eval interval.
+
+**E3, E4.** A second independent recomputation, also without `analyze.py`.
+- **Reproduced:** every eligibility count, share, τ, p-value, verdict and lr\*.
+- **Robustness:** it checked the sustained-grokking definition, alternative clips, alternative stability summaries and window definitions. No preregistered verdict changes.
+- **It corrected the exploratory matched-time reading, now rewritten above:**
+  - early checkpoints are uninformative;
+  - midpoint agreement is mostly saturation;
+  - asym shows a speed-independent split as well as migration;
+  - sym lr-only shows a genuine speed-induced split;
+  - the higher-decay branch carries the grokking jump.

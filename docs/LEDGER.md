@@ -127,6 +127,18 @@ The researcher's end goal, in his words:
 - asym: no lead; jump outcomes are chaotic.
 - Not separated from "any kick helps": there was no matched random-direction control (I13).
 
+**F17 — The chain's stability ceiling survives output rescaling.** *Established (preregistered E4 P0, and the H8 falsifier met; recomputed with four alternative summaries).*
+- The longest-chain graph (C4) has essentially no stable region at learning rates from 5e-4 to 6.4e-2, under std, a uniform 1/√L multiplier, or a per-block 1/√depth multiplier.
+- C1 is stable up to 0.016–0.032.
+- Strengthens F2.
+
+**F18 — Under shared error, step size moves credit steeply, but it is not the only thing that sets credit.** *Mixed (E3: preregistered P1 and P3 supported in sym; P2 falsified as written in asym; matched-time reanalysis exploratory).*
+- In the stable wiring, at equal memory time, the faster branch takes both kinds of function: about 2.8 logit units per unit of log speed ratio, steeper than the lazy-regime prediction.
+- Compared at matched times, three things show up beyond speed:
+  1. **Speed alone splits roles transiently** (sym lr-only, at mid-plateau): the rule goes to the faster branch first, while memorization stays put or moves slightly the other way.
+  2. **In the chain-plus-shortcut graph, memorization sits in the chain regardless of nominal speed,** and a speed-independent split remains even at equal speeds: generalization spreads across both branches while memorization stays in the chain.
+  3. **The higher-decay branch carries the grokking jump, then hands it back** within about 1,500 steps.
+
 ### Derived constraints (arguments checked numerically during design)
 
 **F12 — Under AdamW, decoupled weight decay is itself the time filter.** *Established (derivation plus check).*
@@ -187,6 +199,11 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
   - "fast memorizer plus slow generalizer" being self-defeating (H2).
 - **Falsifier:** measured shares are not ordered by η·λ; a slower component wins a mode it is slower on.
 - **Cheapest test:** during training, measure each branch's credit share along the rule direction and along per-example directions, across learning rates and wirings. Compare with the formula on Study 4 graphs.
+- *2026-10-23:* **E3 results → partly supported, partly falsified** (F18; [RESULTS](../experiments/walk/RESULTS.md)).
+  - Speed moves credit steeply, and in the stable wiring it moves both kinds of function together when measured as preregistered.
+  - But at matched times speed alone splits roles transiently, and in asym the wiring sets a speed-independent split.
+  - H1's strong form ("credit is set by speed, so memorization and generalization always move together") is **refuted**.
+  - What survives: speed is a strong, steep determinant of credit, and kernel-level effective speed is untested.
 - *2026-10-22:* argument → **preregistered as E3** ([walk/PREREGISTRATION.md](../experiments/walk/PREREGISTRATION.md)): direct manipulation of the branch speed ratio ρ at fixed lr·wd.
   - Revised after review: lr-only and wd-only controls separate speed from weight scale.
   - P2: co-location persists (trend test in logit space).
@@ -236,6 +253,7 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 - **Claim:** with μP-style depth scaling, the optimal lr is shared across structures, so any remaining instability differences are structural.
 - **Falsifier:** optimal lrs still differ by structure under that parameterization.
 - **Cheapest test:** a learning-rate sweep per structure, with and without the scaling.
+- *2026-10-23:* **E4 → NOT supported** (F17). Neither uniform 1/√L nor per-block 1/√depth output scaling aligns stability across wirings: the deepest chain has no stable region either way. Structure comparisons and structure search need per-structure settings, or a stabilizer that changes the model class.
 - *2026-10-22:* **preregistered as E4.** Stability regions for C = 1–4 under std, uniform 1/√L and per-block 1/√depth output multipliers, on an lr × wd grid. Depth-μP's known result is transfer across depth; whether it transfers across wirings at fixed depth is the open part.
 
 **H9 — Competing hypotheses scored by prequential surprise avoid masking.** *Argument.*
@@ -263,6 +281,8 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | I9 | Phase 5 B–D as designed: per-branch time constants, update routing, consolidation, within one shared loss | Phase 5 design | **On hold** (X9, H1–H2). Stage-1 grids deleted unlaunched. |
 | I11 | Identity-path credit as a backward-graph experiment: each block learns from the error at the top of the residual stream only, dropping the terms that pass back through later blocks. If co-location (F4), migration (F6) and credit by speed (H1) are unchanged, the wiring acts on learning almost entirely through what blocks read (the forward graph), not through how error reaches them. | Q Labs "Noise" (Oct 2026): a community record uses "identity-path credit" and trains well | Open. Parameter-free; keeps one loss. |
 | I12 | Test the claim that backprop "explores the loss landscape poorly", and that this is why networks need so much data, on our toy, where data efficiency is exactly measurable: perturbation-based credit (Dust-style node perturbation, per-example noise) vs backprop, compared on the E1 scoreboard (data floor, prequential code length) and the grokking delay. | [Noise](https://qlabs.sh/noise), [Dust](https://qlabs.sh/research/dust/) | Open. Prediction from the statistical-query argument: perturbation credit is still an averaging learner, so any gain is a constant factor or regularization, not reasoning. It should not beat gradient descent on sparse parity. |
+| I15 | The wiring-set division of labor in asym (E3, exploratory): generalization spreads across both branches while memorization stays in the chain, even at equal speeds. Preregister it at matched times, block-level, with a kernel measure of each branch's effective speed. | E3 matched-time reanalysis, 23 Oct | Open. The first positive lead on the original question since Study 1, and still exploratory. |
+| I16 | The higher-decay branch carries the grokking jump, then hands it back (E3, exploratory). Is the circuit formed in the strongly regularized branch and then copied? | E3 recomputation, 23 Oct | Open. |
 | I13 | Matched-norm random-direction jump control for E2: does jumping along the drift help more than an equally large kick in a random direction? Needed before "the drift direction helps" can be claimed, especially for the chaotic chain network. | E2 verification, 23 Oct | Open. Cheap. |
 | I14 | Why is the chain network's trajectory not extrapolatable when the parallel one is? Curvature of the path, or collapse cycles (F2)? | E2, 23 Oct | Open. |
 | I10 | Measure how much information a training run has versus what it uses: steps or examples needed to determine the function, versus to produce it | 22 Oct discussion | **Measured in E1** (22 Oct design; results 23 Oct, F13–F14: 3 examples vs about 1,044; worse than uniform for most of a stream). Prequential code length of gradient descent on streams vs a program-prior learner (k* = 3 examples), plus the data floor on fixed datasets. It became a measurement, not a hypothesis test, after the review showed the original primary prediction could not fail. Nearest prior art: weight-compression complexity of grokking (no ideal-learner reference); Power et al. on training fraction. |
@@ -285,4 +305,5 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | L10 | E2's first readout operator (least-squares refit) was a weaker classifier than the network's own readout (0.88–0.91 vs 0.99–1.0 after grokking), so it could never show a lead. Caught by a sanity run before Kaggle (22 Oct). | Check every "what could the network do now" operator against the network itself on a grokked checkpoint: it must at least match it. |
 | L11 | The pre-run review of E1–E4 (22 Oct) found six blocking problems: a primary prediction that could not fail (censoring); a stability grid whose ceiling sat below the known optimum and whose definition differed from Study 2; a manipulation (E3) confounded with weight scale; and lesson L5 repeated in E2. One of its proposed fixes was also wrong: a decay-aware drift operator that the review checked only on a weight with no gradient, which predicted nothing on real runs. | An independent review before every run, and check each fix too, by measuring the operator against what actually happens. |
 | L13 | E2's noise floor (H = 0 jump) measured only floating-point nondeterminism, not how a run responds to a perturbation, so "saving above the noise floor" was close to automatic. Also, the sidedness of the sign tests was ambiguous in the preregistration. | A null for an intervention must be an intervention of the same size in an uninformative direction. State the sidedness of every test. |
+| L14 | E3's co-location measure compared memorization at its peak with generalization at the end, so migration over time read as a role split. My first matched-time reanalysis then used early checkpoints, where generalization is below zero and its share is meaningless, and read agreement that was only saturation at 0 or 1. Both were caught by independent recomputation. | Compare role measures at the same time, at checkpoints where both quantities are well away from zero. Don't read agreement between saturated shares as evidence. Have exploratory reanalyses verified too, not just preregistered numbers. |
 | L12 | Before the review, several predictions could only come out one way: E1 P2 ("gradient descent is ≥ 5× worse"); E3 P1, with speed and scale pushing the same way. | For each prediction, write down a concrete result that would make it fail, and check that the design can produce that result. |

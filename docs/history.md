@@ -270,6 +270,35 @@ Stage 1 was not launched; its grids were deleted.
 - A matched random kick saves as much as a drift jump (I13).
 - The data floor drops sharply with a different optimizer or with perturbation-based credit (I12).
 
+## Entry 24 (23 Oct 2026): E3 and E4 results — credit is not set by speed alone; chain instability survives rescaling
+
+**Premise.** E3 (credit by speed) and E4 (stability regions) ran on Kaggle. They were analysed with the committed code and independently recomputed; every preregistered number and verdict reproduced. See [walk/RESULTS.md](../experiments/walk/RESULTS.md).
+
+**Evidence:**
+- **E4:**
+  - P0 is supported: the deepest chain has no stable region on the grid, while the all-parallel graph is stable up to 0.016.
+  - H8 is not supported under either rescaling.
+- **E3:**
+  - P1 (shares rise with speed) is supported in both graphs.
+  - P3 (step size alone moves credit) is supported in sym.
+  - P2 (co-location persists) is falsified as written in asym and inconclusive in sym, a verdict that rests on the clip.
+- **The matched-time reanalysis** (exploratory, corrected after verification):
+  - speed alone splits roles transiently in sym;
+  - asym shows a speed-independent split, with generalization spread across both branches while memorization stays in the chain;
+  - the higher-decay branch carries the grokking jump, then hands it back.
+
+**Argument.**
+- Under shared error, step size is a strong, steep determinant of which branch carries function. But it is not the only one: the wiring and each branch's weight decay also shape credit, and roles can separate transiently.
+- This revises the 22 Oct argument that shared-error training can only decide credit by speed (H1, H2). Its strong form is refuted.
+- The chain's stability ceiling is robust to output rescaling, so structure comparisons need per-structure settings.
+
+**Decisions:**
+- **D34.** Record F17 and F18; H1 is partly refuted; H8 is not supported; add ideas I15 (preregister the wiring-set split) and I16 (where the circuit forms), and lesson L14.
+- **D35.** The one positive lead on the original question since Study 1 (I15) is exploratory. It gets a preregistered, matched-time, block-level test with a kernel measure before any claim.
+
+**Expected falsifiers (open):**
+- I15's split disappears at matched times when measured per block, or is explained by the chain's effective speed.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
