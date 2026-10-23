@@ -476,7 +476,7 @@ def e4(rdir):
                     if ok:
                         lstar = lr
                 out[(pn, arm, wd)] = lstar
-                lines.append(f"| {arm} ({mg.E4_ARMS[arm]}) | {wd:g} | " + " | ".join(marks) + f" | {fmt(lstar)} |")
+                lines.append(f"| {arm} ({mg.E4_ARMS[arm]}) | {wd:g} | " + " | ".join(marks) + f" | {lstar if lstar is None else format(lstar, 'g')} |")
     top, bottom = mg.E4_LRS[-1], mg.E4_LRS[0] / 2
 
     def gap(pn):
@@ -490,14 +490,14 @@ def e4(rdir):
     p0_testable = l1 is not None and not (l1 == top and l4 == top)
     p0 = p0_testable and g0 is not None and g0 >= 2
     res["P0"] = {"gap": g0, "lr*_C1": l1, "lr*_C4": l4, "supported": p0}
-    lines.append(f"- **P0 (replicates Study 2):** under std, lr*(C1) = {fmt(l1)}, lr*(C4) = {fmt(l4)}, gap = {g0} grid steps "
+    lines.append(f"- **P0 (replicates Study 2):** under std, lr*(C1) = {l1 if l1 is None else format(l1, 'g')}, lr*(C4) = {l4 if l4 is None else format(l4, 'g')}, gap = {g0} grid steps "
                  f"(need ≥ 2) → {verdict(p0, p0_testable, 'C1 never stable, or both at the top of the grid')}")
     for pn in ("P1", "P2"):
         gp, a1, a4 = gap(pn)
         testable = p0 and a1 is not None and not (a1 == top and (a4 == top or (gp is not None and abs(gp) <= 1)))
         sup = testable and gp is not None and abs(gp) <= 1
         res[pn] = {"gap": gp, "lr*_C1": a1, "lr*_C4": a4, "H8_supported": sup}
-        lines.append(f"- **H8 under {pn}:** lr*(C1) = {fmt(a1)}, lr*(C4) = {fmt(a4)}, |gap| = {None if gp is None else abs(gp)} "
+        lines.append(f"- **H8 under {pn}:** lr*(C1) = {a1 if a1 is None else format(a1, 'g')}, lr*(C4) = {a4 if a4 is None else format(a4, 'g')}, |gap| = {None if gp is None else abs(gp)} "
                      f"(need ≤ 1, with P0 supported) → {verdict(sup, testable, 'P0 not supported, C1 never stable, or C1 censored at the top of the grid')}")
     lines.append(f"- *Silencing check (exploratory):* test accuracy with the deepest block of pk0123 removed, in stable "
                  f"runs (lower = the block matters): " + ", ".join(f"{pn} {fmt(med(deep.get(pn, [])))}" for pn in params))
