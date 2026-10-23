@@ -299,6 +299,19 @@ Stage 1 was not launched; its grids were deleted.
 **Expected falsifiers (open):**
 - I15's split disappears at matched times when measured per block, or is explained by the chain's effective speed.
 
+## Entry 25 (23 Oct 2026): record audit after E1–E4
+
+**Premise.** Before discussing what E1–E4 mean, the researcher asked whether everything was recorded for posterity. An audit found gaps:
+- the failed preregistered predictions had not been moved to the failures list;
+- several hypotheses had no status note after E1–E4;
+- there was no synthesis;
+- the raw results and analysis outputs were only outside git.
+
+**Decisions:**
+- **D36.** Ledger: X11–X16 record E2 P1 and P1b, E3 P2 (asym), H1's strong form, H8 and the decay-aware operator. Status notes are added to H2, H3, H6 and H9, and a dated "state of the evidence" synthesis sits under Direction. Ideas and lessons are renumbered in order, and L15–L16 are added.
+- **D37.** `experiments/walk/results_data/` holds the analysis outputs, a compact per-run copy (13 MB: configs, summaries, thinned trajectories) and the independent verification scripts. The full raw results stay on the Mac and in the Kaggle kernel outputs (repo convention: large artifacts outside git).
+- A detail surfaced while auditing E4 is now in F17: the deepest chain *does* grok at lr 2e-3, with 14–22 collapses. "No stable region" means a window that is empty, not a structure that cannot learn.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

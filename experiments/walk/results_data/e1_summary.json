@@ -1,0 +1,543 @@
+{
+ "rows": [
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 600,
+   "gd_nats": 39842.46497665194,
+   "prog_nats": 533.1445615796997,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1260,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 600,
+   "gd_nats": 25846.326044023037,
+   "prog_nats": 533.1445615796997,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1388,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 601,
+   "gd_nats": 38104.43193827006,
+   "prog_nats": 538.193241422785,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1260,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 601,
+   "gd_nats": 26296.876742362976,
+   "prog_nats": 538.193241422785,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 602,
+   "gd_nats": 38512.16416164243,
+   "prog_nats": 534.2343780218222,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1196,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 602,
+   "gd_nats": 26063.918169021606,
+   "prog_nats": 534.2343780218222,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 603,
+   "gd_nats": 37604.516747031375,
+   "prog_nats": 536.9379752014655,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1164,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 603,
+   "gd_nats": 25656.78226149032,
+   "prog_nats": 536.9379752014655,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1356,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 604,
+   "gd_nats": 37471.83473234033,
+   "prog_nats": 543.5861632572692,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1196,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 604,
+   "gd_nats": 27305.17388153076,
+   "prog_nats": 543.5861632572692,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 600,
+   "gd_nats": 31290.57451629557,
+   "prog_nats": 533.1445615796997,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1132,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 600,
+   "gd_nats": 26190.89401349974,
+   "prog_nats": 533.1445615796997,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1324,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 601,
+   "gd_nats": 28975.317576060595,
+   "prog_nats": 538.193241422785,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1100,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 601,
+   "gd_nats": 27141.34396409601,
+   "prog_nats": 538.193241422785,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1356,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 602,
+   "gd_nats": 28452.412290531112,
+   "prog_nats": 534.2343780218222,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1036,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 602,
+   "gd_nats": 25830.93226329657,
+   "prog_nats": 534.2343780218222,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1260,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 603,
+   "gd_nats": 31475.017976342573,
+   "prog_nats": 536.9379752014655,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1164,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 603,
+   "gd_nats": 25656.796615897503,
+   "prog_nats": 536.9379752014655,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1324,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 604,
+   "gd_nats": 29773.37612414253,
+   "prog_nats": 543.5861632572692,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1100,
+   "n_tot": 1392
+  },
+  {
+   "graph": "sym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 604,
+   "gd_nats": 24392.677950128214,
+   "prog_nats": 543.5861632572692,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1260,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 600,
+   "gd_nats": 40411.080657958984,
+   "prog_nats": 533.1445615796997,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 600,
+   "gd_nats": 37879.39878845215,
+   "prog_nats": 533.1445615796997,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 601,
+   "gd_nats": 39286.69082260132,
+   "prog_nats": 538.193241422785,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 601,
+   "gd_nats": 38914.877014160156,
+   "prog_nats": 538.193241422785,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 602,
+   "gd_nats": 38430.03141784668,
+   "prog_nats": 534.2343780218222,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 602,
+   "gd_nats": 38146.48497009277,
+   "prog_nats": 534.2343780218222,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 603,
+   "gd_nats": 39579.43533325195,
+   "prog_nats": 536.9379752014655,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 603,
+   "gd_nats": 38686.80828857422,
+   "prog_nats": 536.9379752014655,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 1600,
+   "seed": 604,
+   "gd_nats": 36040.440101623535,
+   "prog_nats": 543.5861632572692,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.001,
+   "budget": 400,
+   "seed": 604,
+   "gd_nats": 36673.69515991211,
+   "prog_nats": 543.5861632572692,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 600,
+   "gd_nats": 46873.718291282654,
+   "prog_nats": 533.1445615796997,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 600,
+   "gd_nats": 35229.83942222595,
+   "prog_nats": 533.1445615796997,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 601,
+   "gd_nats": 35174.98428307474,
+   "prog_nats": 538.193241422785,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1260,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 601,
+   "gd_nats": 32009.096534729004,
+   "prog_nats": 538.193241422785,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 602,
+   "gd_nats": 38165.41083749384,
+   "prog_nats": 534.2343780218222,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1324,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 602,
+   "gd_nats": 37299.60585784912,
+   "prog_nats": 534.2343780218222,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 603,
+   "gd_nats": 36680.51223152876,
+   "prog_nats": 536.9379752014655,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": 1356,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 603,
+   "gd_nats": 34205.003074645996,
+   "prog_nats": 536.9379752014655,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 1600,
+   "seed": 604,
+   "gd_nats": 39525.180267333984,
+   "prog_nats": 543.5861632572692,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  },
+  {
+   "graph": "asym",
+   "lr": 0.002,
+   "budget": 400,
+   "seed": 604,
+   "gd_nats": 38322.93209075928,
+   "prog_nats": 543.5861632572692,
+   "uniform": 5675.932121916761,
+   "k_star": 3,
+   "prod": null,
+   "n_tot": 1392
+  }
+ ],
+ "floor": {
+  "sym|0.15": [
+   false,
+   false,
+   false
+  ],
+  "sym|0.25": [
+   false,
+   false,
+   true
+  ],
+  "sym|0.2": [
+   false,
+   false,
+   false
+  ],
+  "sym|0.3": [
+   true,
+   true,
+   true
+  ],
+  "sym|0.4": [
+   true,
+   true,
+   true
+  ],
+  "asym|0.15": [
+   false,
+   false,
+   false
+  ],
+  "asym|0.25": [
+   false,
+   false,
+   false
+  ],
+  "asym|0.2": [
+   false,
+   false,
+   false
+  ],
+  "asym|0.3": [
+   false,
+   false,
+   false
+  ],
+  "asym|0.4": [
+   true,
+   true,
+   true
+  ]
+ },
+ "floors": {
+  "asym": 0.4,
+  "sym": 0.3
+ },
+ "k_star": [
+  3
+ ]
+}

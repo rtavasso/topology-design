@@ -12,7 +12,7 @@ Scored against [PREREGISTRATION.md](PREREGISTRATION.md), committed before any ru
 **Run details**
 - Kaggle, 2× Tesla T4 per job, torch 2.11.0+cu128, commit `d95cf1f`.
 - The fleet tests passed on the GPU before each job (59 passed, 1 skipped).
-- Raw results stay outside git, in `results/kaggle_e*/results/`.
+- Raw results stay outside git, in `results/kaggle_e*/results/`. A compact per-run copy, the analysis output and the verification scripts are in git: [results_data/](results_data/README.md).
 
 **Independent check:** see *Verification* at the end.
 
