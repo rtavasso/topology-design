@@ -18,9 +18,9 @@ Q1's analysis reads both Q1 jobs, so its verdicts are only final once `q1u` and 
 
 | job | runs | what it is |
 |---|---|---|
-| `q2` | 90 | drift jumps vs matched-norm random jumps (sym), the short one |
-| `q1u` | 112 | ungrokking: grok on 40%, then train on a nested subset |
-| `q1s` | 198 | scratch training on the same subsets, three learning rates |
+| `q2` | 170 | drift jumps vs three null jumps (radial-matched, random, rescale-only), sym; the short one |
+| `q1u` | 176 | ungrokking: grok on 40%, then train on a nested subset |
+| `q1s` | 288 | scratch training on the same subsets, three or four learning rates |
 
 **By hand,** if you prefer: `python experiments/fleet/kaggle/launch.py --user riley9 --grid experiments/priors/grids/<job>.json --no-wait`, then the same command with `--fetch` once it's done.
 
