@@ -64,7 +64,20 @@ def status(user: str, grid: str) -> str:
     for s in ("running", "queued", "complete", "error", "cancel"):
         if s in out:
             return s
+    # The CLI's wording for a kernel that was never pushed varies by version (2.2.4 matched none of the above, so
+    # never-launched jobs were taken as running and the queue waited forever). Ask the kernel list directly.
+    if not kernel_listed(user, grid):
+        return "missing"
+    log(f"  status {name_of(grid)}: unrecognized output: {p.stdout.strip()[-300:]!r}")
     return "unknown"
+
+
+def kernel_listed(user: str, grid: str) -> bool:
+    """True if the kernel appears in the user's own kernel list (so it has been pushed at least once)."""
+    slug = kernel_of(grid)
+    p = subprocess.run([launch.kaggle_exe(), "kernels", "list", "--mine", "--search", slug, "--page-size", "100"],
+                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return f"{user}/{slug}".lower() in p.stdout.lower()
 
 
 def expected_runs(grid: str) -> int:
@@ -107,6 +120,10 @@ def main():
     args = ap.parse_args()
     grids = [os.path.relpath(os.path.abspath(g), ROOT) for g in args.grids]
     state = json.load(open(STATE)) if os.path.exists(STATE) else {}
+    for g in grids:  # re-check jobs recorded as running that were never actually pushed (the 2.2.4 status bug)
+        if g in state and state[g]["phase"] == "running" and have_runs(g) == 0 and status(args.user, g) == "missing":
+            state[g]["phase"] = "pending"
+            log(f"{name_of(g)}: recorded as running but not on Kaggle -> pending")
     for g in grids:
         if g not in state:
             st = status(args.user, g)
