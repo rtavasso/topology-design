@@ -49,6 +49,7 @@ class FleetConfig:
     steps: int = 40000
     eval_every: int = 100
     dense_early: bool = True
+    dense_until: int = 1000  # with dense_early: evals every 10 steps below 200 and every 25 below this step
     stop_after_grok: int = 0  # 0 = fixed horizon
     grok_thresh: float = 0.95
     branches: tuple | None = None  # e.g. ((1, 2, 3), (4, 5, 6)): block sets ablated jointly at each eval (1-based)
@@ -87,11 +88,14 @@ class FleetConfig:
     drift_jump_at: int | None = None  # E2 intervention: at this step jump theta += H * drift (needs measure_horizon)
     drift_jump_h: int = 1000
     # ---- "priors" round (experiments/priors/PREREGISTRATION.md) ----
-    drift_jump_dir: str = "drift"  # Q2: "drift" (E2) or "random": a jump of the same norm per tensor, random direction
+    drift_jump_dir: str = "drift"  # Q2 nulls for the E2 drift jump, per tensor: "random" (same norm, random direction),
+    #   "radial" (keep the drift's component along theta, randomize the orthogonal part at the same norm),
+    #   "rescale" (keep only the drift's component along theta)
     shrink_frac: float = 0.0  # Q1 ungrokking: once grokked, train only on gk.split(p, shrink_frac, data_seed)'s training
     #   set, which is a subset of this run's own (same permutation prefix); 0 = off
     shrink_after_grok: int = 2000  # shrink once test accuracy has been >= grok_thresh at every eval for this many steps
     shrink_steps: int = 0  # steps of training after the shrink; the run then stops
+    shrink_by: int = 0  # if > 0: a run not shrunk by this step stops (it never reached sustained grokking in time)
     model_seed: int = 0
     data_seed: int = 0
     tag: str = ""
@@ -130,10 +134,12 @@ class FleetConfig:
         return "_".join(parts)
 
 
-STRUCT_FIELDS = ("task", "p", "train_frac", "d", "hidden", "steps", "eval_every", "dense_early", "stop_after_grok",
+STRUCT_FIELDS = ("task", "p", "train_frac", "d", "hidden", "steps", "eval_every", "dense_early", "dense_until",
+                 "stop_after_grok",
                  "grok_thresh", "branches", "measure_signal", "arrive_start", "arrive_n", "arrive_every", "probe_steps",
                  "probe_pairs", "probe_matched", "groups", "measure_horizon", "horizon_extrap", "measure_refit")
-GROUP_ROUTES = ("agree", "rand", "topk")  # routing modes that need per-step group gradients
+GROUP_ROUTES = ("agree", "rand", "topk")
+JUMP_DIRS = ("drift", "random", "radial", "rescale")  # routing modes that need per-step group gradients
 
 
 def struct_key(cfg: FleetConfig) -> tuple:
@@ -169,7 +175,7 @@ def validate_config(cfg: FleetConfig) -> None:
         raise ValueError("route_rot_angle applies to route='rot' only")
     if cfg.arrive_start and (cfg.arrive_n <= 0 or cfg.arrive_every <= 0):
         raise ValueError("arrivals need arrive_n and arrive_every")
-    if cfg.drift_jump_dir not in ("drift", "random"):
+    if cfg.drift_jump_dir not in JUMP_DIRS:
         raise ValueError(f"drift_jump_dir={cfg.drift_jump_dir}")
     if cfg.shrink_frac:
         if not 0 < cfg.shrink_frac < cfg.train_frac:
@@ -181,7 +187,7 @@ def validate_config(cfg: FleetConfig) -> None:
 
 
 def is_eval_step(step: int, cfg: FleetConfig) -> bool:
-    if cfg.dense_early and step < 1000:
+    if cfg.dense_early and step < max(cfg.dense_until, 1000):
         return step % (10 if step < 200 else 25) == 0
     return step % cfg.eval_every == 0
 
@@ -826,20 +832,37 @@ def _run_loss(ce: torch.Tensor, w: torch.Tensor | None) -> torch.Tensor:
     return (ce * w).sum(1) / w.sum(1).clamp_min(1e-12)
 
 
-def random_jump(fleet: "Fleet", target: dict, seeds: torch.Tensor, rand: torch.Tensor) -> dict:
-    """I13 null for the drift jump: for runs with rand=True, replace each tensor's jump delta (target - theta) by a
-    Gaussian direction rescaled to the same norm, per run and per tensor. Each run draws from its own CPU generator
-    (seed per run), so a run's direction does not depend on which runs share its batch."""
+def null_jump(fleet: "Fleet", target: dict, seeds: torch.Tensor, mode: torch.Tensor) -> dict:
+    """I13 nulls for the drift jump, per run and per tensor, from delta = target - theta (mode index into JUMP_DIRS):
+    0 drift: unchanged; 1 random: a Gaussian direction rescaled to |delta|; 2 radial: keep delta's component along
+    theta and replace the orthogonal part by a random direction orthogonal to theta with the same norm; 3 rescale:
+    keep only the component along theta. Each run draws from its own CPU generator (seeded per run), so its direction
+    does not depend on which runs share its batch."""
     out = {}
     gens = [torch.Generator().manual_seed(int(s)) for s in seeds.tolist()]
+    md = mode.tolist()
     for k, th in fleet.params.items():
         x = th.detach()
-        delta = target[k] - x
-        nrm = delta.flatten(1).norm(dim=1)  # (R,)
-        r = torch.stack([torch.randn(x.shape[1:], generator=g, dtype=torch.float64) for g in gens]).to(x.device, x.dtype)
-        r = r * (nrm / r.flatten(1).norm(dim=1).clamp_min(1e-30)).view((-1,) + (1,) * (x.dim() - 1))
-        sh = (-1,) + (1,) * (x.dim() - 1)
-        out[k] = torch.where(rand.view(sh), x + r, target[k])
+        R = x.shape[0]
+        xf, df = x.flatten(1), (target[k] - x).flatten(1)
+        g = torch.stack([torch.randn(xf.shape[1], generator=gn, dtype=torch.float64) for gn in gens]).to(x.device, x.dtype)
+        u = xf / xf.norm(dim=1, keepdim=True).clamp_min(1e-30)
+        rad = (df * u).sum(1, keepdim=True) * u
+        orth = df - rad
+        unit = lambda v: v / v.norm(dim=1, keepdim=True).clamp_min(1e-30)
+        g_orth = g - (g * u).sum(1, keepdim=True) * u
+        new = []
+        for j in range(R):
+            if md[j] == 1:
+                new.append(unit(g[j:j + 1]) * df[j:j + 1].norm())
+            elif md[j] == 2:
+                new.append(rad[j:j + 1] + unit(g_orth[j:j + 1]) * orth[j:j + 1].norm())
+            elif md[j] == 3:
+                new.append(rad[j:j + 1])
+            else:
+                new.append(df[j:j + 1])
+        keep = (mode == 0).to(x.device).view((-1,) + (1,) * (x.dim() - 1))
+        out[k] = torch.where(keep, target[k], (xf + torch.cat(new, 0)).view_as(x))
     return out
 
 
@@ -1073,8 +1096,10 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
         st["jump_h"] = torch.tensor([float(c.drift_jump_h) for c in cfgs], dtype=fleet.dtype, device=dev)
         st["jump_acc_before"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
         st["jump_acc_after"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
-        st["jump_seed"] = torch.tensor([80_000 + c.model_seed for c in cfgs], dtype=torch.long, device=dev)
-        st["jump_rand"] = torch.tensor([c.drift_jump_dir == "random" for c in cfgs], dtype=torch.bool, device=dev)
+        # one random direction per (seed, jump step, horizon), so the four cells of a seed are not correlated
+        st["jump_seed"] = torch.tensor([80_000 + 100_003 * c.model_seed + 10 * (c.drift_jump_at or 0) + c.drift_jump_h
+                                        for c in cfgs], dtype=torch.long, device=dev)
+        st["jump_mode"] = torch.tensor([JUMP_DIRS.index(c.drift_jump_dir) for c in cfgs], dtype=torch.long, device=dev)
     orig = list(range(R0))
     grok_step: list[int | None] = [None] * R0
     diverged: list[int | None] = [None] * R0
@@ -1110,8 +1135,8 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
             before = fh.test_acc(fleet, grid)
             with torch.no_grad():
                 target = fh.extrapolate_linear(fleet, vlin, t_vel, st["jump_h"])
-                if bool((runs & st["jump_rand"]).any()):  # I13 null: same norm per tensor, random direction
-                    target = random_jump(fleet, target, st["jump_seed"], st["jump_rand"])
+                if bool((runs & (st["jump_mode"] > 0)).any()):  # I13 nulls (same norm per tensor)
+                    target = null_jump(fleet, target, st["jump_seed"], st["jump_mode"])
                 for k, v in fleet.params.items():
                     sh = (-1,) + (1,) * (v.dim() - 1)
                     v.copy_(torch.where(runs.view(sh), target[k], v))
@@ -1197,6 +1222,8 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
                         grid["rule_train"][j] = kept_grid & ~grid["exc"][j]
                     if shrink_step[o] is not None and step - shrink_step[o] >= cj.shrink_steps:
                         act[j] = False
+                    if cj.shrink_frac > 0 and shrink_step[o] is None and cj.shrink_by and step >= cj.shrink_by:
+                        act[j] = False  # never reached sustained grokking in time: excluded by the analysis
             st["active"] = torch.tensor(act, dtype=torch.bool, device=dev)
             if verbose:
                 print(f"step {step}: active {sum(act)}/{R} (of {R0})", flush=True)

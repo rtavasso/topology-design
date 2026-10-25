@@ -69,30 +69,53 @@ def test_shrunk_run_trains_on_kept_pairs_only():
     assert last["drop_acc"] < 0.5 and last["drop_loss"] > 5 * last["train_loss"]
 
 
-def test_random_jump_matches_norm_per_tensor_and_changes_direction():
-    cfgs = [fl.FleetConfig(**SMALL, steps=10, model_seed=s) for s in (0, 1)]
+def test_null_jumps_match_norms_and_radial_parts():
+    """random: same norm per tensor, new direction. radial: same component along theta and same orthogonal norm,
+    new orthogonal direction. rescale: only the component along theta. drift (mode 0): untouched."""
+    cfgs = [fl.FleetConfig(**SMALL, steps=10, model_seed=s) for s in range(4)]
     fleet = fl.Fleet(cfgs)
-    target = {k: v.detach() + 0.1 * torch.randn_like(v) for k, v in fleet.params.items()}
-    seeds = torch.tensor([80_000, 80_001])
-    rand = torch.tensor([True, False])
-    out = fl.random_jump(fleet, target, seeds, rand)
+    target = {k: v.detach() * 1.3 + 0.1 * torch.randn_like(v) for k, v in fleet.params.items()}
+    seeds = torch.tensor([80_000, 80_001, 80_002, 80_003])
+    mode = torch.tensor([1, 2, 3, 0])
+    out = fl.null_jump(fleet, target, seeds, mode)
     for k, v in fleet.params.items():
-        x = v.detach()
-        d_drift = (target[k] - x).flatten(1)
-        d_out = (out[k] - x).flatten(1)
-        assert torch.allclose(d_out.norm(dim=1), d_drift.norm(dim=1), rtol=1e-5)
-        assert torch.equal(out[k][1], target[k][1])  # rand=False run: unchanged target
-        cos = float((d_out[0] @ d_drift[0]) / (d_out[0].norm() * d_drift[0].norm()))
-        assert abs(cos) < 0.5  # a random direction in many dimensions is nearly orthogonal to the drift
-    again = fl.random_jump(fleet, target, seeds, rand)  # deterministic per seed
+        x = v.detach().flatten(1)
+        dd = (target[k] - v.detach()).flatten(1)
+        do = (out[k] - v.detach()).flatten(1)
+        u = x / x.norm(dim=1, keepdim=True)
+        rad_d, rad_o = (dd * u).sum(1), (do * u).sum(1)
+        # random: same total norm, direction far from the drift's
+        assert torch.allclose(do[0].norm(), dd[0].norm(), rtol=1e-5)
+        assert abs(float(do[0] @ dd[0] / (do[0].norm() * dd[0].norm()))) < 0.5
+        # radial: same radial component and same orthogonal norm, different orthogonal direction
+        assert torch.allclose(rad_o[1], rad_d[1], rtol=1e-4, atol=1e-6)
+        oo, od = do[1] - rad_o[1] * u[1], dd[1] - rad_d[1] * u[1]
+        assert torch.allclose(oo.norm(), od.norm(), rtol=1e-4)
+        assert abs(float(oo @ od / (oo.norm() * od.norm()))) < 0.5
+        # rescale: only the radial part
+        assert torch.allclose(do[2], rad_d[2] * u[2], rtol=1e-4, atol=1e-6)
+        assert torch.equal(out[k][3], target[k][3])
+    again = fl.null_jump(fleet, target, seeds, mode)
     assert all(torch.equal(again[k], out[k]) for k in out)
 
 
-def test_random_jump_runs_end_to_end():
+def test_null_jumps_run_end_to_end():
     kw = dict(**SMALL, steps=60, lr=2e-3, measure_horizon=True, measure_refit=False, drift_jump_at=30, drift_jump_h=200)
-    d = fl.train_fleet([fl.FleetConfig(**kw, drift_jump_dir="drift"), fl.FleetConfig(**kw, drift_jump_dir="random")])
-    assert d[0]["summary"]["jump"]["dir"] == "drift" and d[1]["summary"]["jump"]["dir"] == "random"
-    assert d[0]["summary"]["jump"]["test_acc_before"] == d[1]["summary"]["jump"]["test_acc_before"]
+    dirs = ("drift", "random", "radial", "rescale")
+    d = fl.train_fleet([fl.FleetConfig(**kw, drift_jump_dir=x) for x in dirs])
+    assert [r["summary"]["jump"]["dir"] for r in d] == list(dirs)
+    assert len({r["summary"]["jump"]["test_acc_before"] for r in d}) == 1
+
+
+def test_shrink_by_stops_runs_that_never_grok():
+    cfg = fl.FleetConfig(**SMALL, steps=200, grok_thresh=1.5, shrink_frac=0.2, shrink_steps=50, shrink_by=80)
+    out = fl.train_fleet([cfg])[0]
+    assert out["summary"]["shrink"]["step"] is None and out["summary"]["steps_run"] == 80
+
+
+def test_dense_until_extends_dense_evals():
+    c = fl.FleetConfig(**{**SMALL, "dense_early": True}, steps=10, dense_until=3000)
+    assert fl.is_eval_step(2025, c) and not fl.is_eval_step(3025, c) and fl.is_eval_step(3100, c)
 
 
 @pytest.mark.parametrize("bad", [dict(shrink_frac=0.6), dict(shrink_frac=0.2, shrink_steps=0),
@@ -139,7 +162,7 @@ def _fake_ungrok(graph, width, frac, seed, final, shrink_at=5000, steps=30000):
 def _fake_scratch(graph, width, frac, lr, seed, grokked):
     traj = [{"step": t, "test_acc": 1.0 if grokked and t >= 1000 else 0.0} for t in range(0, 3001, 100)]
     return {"run_id": f"s{graph}{width}{frac}{lr}{seed}", "config": {"tag": f"pQ1s-{graph}-{width}", "lr": lr,
-            "train_frac": frac}, "summary": {"grokked": grokked}, "trajectory": traj}
+            "train_frac": frac, "steps": 60000}, "summary": {"grokked": grokked}, "trajectory": traj}
 
 
 @needs_experiments
@@ -167,7 +190,8 @@ def test_q1_analysis_recovers_planted_thresholds(tmp_path):
     assert dec["n_crit"] == 522 and dec["n_floor"] == 1044 and dec["floor_lr"] == 0.002
     assert abs(dec["S"] - 1044 / 522) < 1e-9
     assert abs(dec["share"] - math.log(2) / math.log(1044 / 3)) < 1e-9
-    assert js["P1"] and js["P2"]
+    assert js["P1"] and js["P2"] == "SUPPORTED"
+    assert dec["flags"] == ""
 
 
 def _fake_q2(tag, seed, t_grok, at=None, h=None, dirn=None):
@@ -180,8 +204,8 @@ def _fake_q2(tag, seed, t_grok, at=None, h=None, dirn=None):
 
 @needs_experiments
 def test_q2_analysis_planted(tmp_path):
-    """Planted: drift jumps save 400 steps, random jumps save nothing, in every cell and seed -> P5 supported; the
-    reverse plant -> not supported."""
+    """Planted: drift jumps save 400 steps and null jumps save nothing, in every cell and seed -> P5 supported; the
+    reverse plant (nulls better) -> falsified."""
     import json
     an = _load_analyze()
     for drift_gain, expect in ((400, True), (0, False)):
@@ -193,8 +217,37 @@ def test_q2_analysis_planted(tmp_path):
             for at in (1000, 2000):
                 for h in (250, 1000):
                     runs.append(_fake_q2("pQ2jump", s, 3000 - drift_gain, at, h, "drift"))
-                    runs.append(_fake_q2("pQ2jump", s, 3000 - (0 if drift_gain else 400), at, h, "random"))
+                    for null in ("radial", "random", "rescale"):
+                        runs.append(_fake_q2("pQ2jump", s, 3000 - (0 if drift_gain else 400), at, h, null))
         for r in runs:
             (d / (r["run_id"] + ".json")).write_text(json.dumps(r))
         _, js = an.q2([str(d)])
-        assert js["P5"] is expect
+        assert (js["P5"] == "SUPPORTED") is expect
+        if not expect:
+            assert js["P5"] == "FALSIFIED"
+
+
+@needs_experiments
+def test_q1_width_order_respects_censoring_and_flags_edge_lr(tmp_path):
+    """narrow never keeps the rule (censored above), base keeps it from 522 pairs, wide from 348: the order is C
+    even with censoring. Scratch groks only at the top learning rate -> best_lr_at_edge flag."""
+    import json
+    an = _load_analyze()
+    d = tmp_path / "res"
+    d.mkdir()
+    start = {"narrow": 9.0, "base": 0.15, "wide": 0.1}
+    runs = []
+    for w, f0 in start.items():
+        for f in (0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35):
+            for s in range(4):
+                runs.append(_fake_ungrok("sym", w, f, s, 1.0 if f >= f0 else 0.02))
+        for f in (0.1, 0.2, 0.3, 0.4):
+            for lr in (0.002, 0.004, 0.008):
+                for s in range(3):
+                    runs.append(_fake_scratch("sym", w, f, lr, s, f >= 0.3 and lr == 0.008))
+    for r in runs:
+        (d / (r["run_id"] + ".json")).write_text(json.dumps(r))
+    _, js = an.q1([str(d)])
+    assert js["P4_order"].startswith("C")
+    assert js["flags"]["sym|base"]["best_lr_at_edge"]
+    assert "best_lr_at_edge" in js["decomposition"]["sym|base"]["flags"]

@@ -16,12 +16,17 @@
     "steps": 45000,
     "shrink_after_grok": 2000,
     "shrink_steps": 30000,
+    "shrink_by": 15000,
     "tag": "pQ1u-sym-narrow"
    },
    "vary": {
     "shrink_frac": [
+     0.0125,
+     0.025,
      0.05,
+     0.075,
      0.1,
+     0.125,
      0.15,
      0.2,
      0.25,
@@ -52,12 +57,17 @@
     "steps": 45000,
     "shrink_after_grok": 2000,
     "shrink_steps": 30000,
+    "shrink_by": 15000,
     "tag": "pQ1u-sym-base"
    },
    "vary": {
     "shrink_frac": [
+     0.0125,
+     0.025,
      0.05,
+     0.075,
      0.1,
+     0.125,
      0.15,
      0.2,
      0.25,
@@ -88,12 +98,17 @@
     "steps": 45000,
     "shrink_after_grok": 2000,
     "shrink_steps": 30000,
+    "shrink_by": 15000,
     "tag": "pQ1u-sym-wide"
    },
    "vary": {
     "shrink_frac": [
+     0.0125,
+     0.025,
      0.05,
+     0.075,
      0.1,
+     0.125,
      0.15,
      0.2,
      0.25,
@@ -121,15 +136,20 @@
     "d": 128,
     "hidden": 256,
     "lr": 0.001,
-    "steps": 95000,
+    "steps": 112000,
     "shrink_after_grok": 2000,
     "shrink_steps": 40000,
+    "shrink_by": 72000,
     "tag": "pQ1u-asym-base"
    },
    "vary": {
     "shrink_frac": [
+     0.0125,
+     0.025,
      0.05,
+     0.075,
      0.1,
+     0.125,
      0.15,
      0.2,
      0.25,

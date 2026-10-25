@@ -1,6 +1,6 @@
 # The "priors" round — preregistration
 
-**Status:** written 24 Oct 2026, before any main run. The analysis code ([`analyze.py`](analyze.py)) and grids ([`make_grids.py`](make_grids.py)) are committed with this file. A CPU pilot section is appended, dated, before launch. Changes after the independent review are listed at the end, also dated.
+**Status:** written 24 Oct 2026, before any main run, and revised the same day after an independent pre-run review (changes listed at the end). The analysis code ([`analyze.py`](analyze.py)) and grids ([`make_grids.py`](make_grids.py)) are committed with this file and implement the revised rules. A CPU pilot section is appended, dated, before launch.
 
 **Where this comes from:**
 - the discussion after E1–E4 ([history Entry 26](../../docs/history.md));
@@ -59,81 +59,100 @@ A second, smaller question closes a hole left by E2: the drift jumps saved steps
 ## Q1 — prior or search
 
 **Design**
-- **Ungrokking runs** (grid `q1u`, 112 runs):
+- **Ungrokking runs** (grid `q1u`, 176 runs):
   - train on the 40% set (1,392 pairs) until test accuracy has held ≥ 0.95 at every eval for 2,000 steps;
-  - then train only on the subset at f ∈ {0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35}, i.e. 174 … 1,218 pairs;
+  - then train only on the subset at f ∈ {0.0125, 0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.25, 0.3, 0.35}, i.e. 44 … 1,218 pairs;
   - the post-shrink phase lasts 30,000 steps for sym (60 weight-decay time constants 1/(lr·wd)) and 40,000 for asym (40);
   - same learning rate and weight decay throughout; 4 seeds;
   - sym at three widths, asym at base width.
-  - Phase 1 is capped (sym 13,000 steps, asym 53,000). A run that never reaches sustained grokking is not shrunk and is excluded, with the count reported.
-- **Scratch runs** (grid `q1s`, 198 runs):
+  - A fixed learning rate is defensible on this side: what is measured is where AdamW with weight decay settles, not how fast it gets there.
+  - **Deadline:** a run must start its shrink by phase-1 cap + 2,000 steps (sym 15,000; asym 72,000), or it stops and is excluded. The count is reported. One excluded seed removes all of that seed's levels.
+- **Scratch runs** (grid `q1s`, 225 runs):
   - train from initialization on each subset;
-  - sym f ∈ {0.1, …, 0.35} for 60,000 steps; asym f ∈ {0.25, 0.3, 0.35, 0.4} for 90,000 steps;
-  - three learning rates (½×, 1×, 2× the graph's base rate), 3 seeds;
+  - sym f ∈ {0.1, …, 0.4} for 60,000 steps; asym f ∈ {0.25, 0.3, 0.35, 0.4} for 90,000 steps;
+  - learning rates 1×, 2× and 4× the graph's base rate (sym up to 8e-3, inside the all-parallel graph's stable range in E4), 3 seeds;
   - same widths as above;
-  - a run stops 2,000 steps after first reaching 0.95 test accuracy.
+  - a run stops 5,000 steps after first reaching 0.95, so the sustained criterion can be read.
 
-**Definitions** (computed by `analyze.py q1`)
-- **Final test accuracy** of an ungrokking run: the mean test accuracy over the last 5,000 steps of the post-shrink phase.
-  - Not converged: the means of the two halves of that window differ by more than 0.1.
-  - A cell where more than a quarter of runs are unconverged is flagged.
-- **n_crit** (per graph and width): the smallest subset level at which the median final test accuracy is ≥ 0.5 there *and at every larger level*.
-  - If that is the smallest level, n_crit is censored below (≤ 174).
-  - If no level qualifies, it is censored above (> 1,218).
-- **n_floor** (per graph and width): for each learning rate, the smallest level at which at least 2 of 3 seeds grok (first crossing of 0.95, as in E1) there and at every larger level. n_floor is the minimum over the three learning rates: the best search we tried. Censoring is as for n_crit.
+**Definitions** (computed by `analyze.py q1`). One matched criterion on both sides: **test accuracy ≥ 0.95 at every eval for 2,000 steps.**
+- **An ungrokking run keeps the rule** if it meets the criterion over the last 2,000 steps of the post-shrink phase.
+  - A run that diverges after the shrink does not keep the rule.
+  - Not converged: the mean test accuracy over the last 2,500 steps differs by more than 0.1 from the 2,500 steps ending 15,000 steps earlier. A cell with more than a quarter of runs unconverged is flagged.
+- **n_crit** (per graph and width): the smallest level at which at least half of the shrunk seeds keep the rule, there *and at every larger level*.
+  - If that is the smallest level (44 pairs), n_crit is censored below.
+  - If no level qualifies, it is censored above.
+- **A scratch run succeeds** if its sustained onset t (the criterion, starting at t) satisfies t + 2,000 ≤ the step budget.
+- **n_floor** (per graph and width): for each learning rate, the smallest level at which at least 2 of 3 seeds succeed, there and at every larger level. n_floor is the minimum over the learning rates.
+  - **Flags**, which make P2–P4b *provisional* for that graph and width:
+    - the best learning rate is the top of the grid;
+    - n_floor at half the budget differs from n_floor at the full budget, i.e. the threshold is still moving with steps.
 - **S = n_floor / n_crit:** the factor attributable to search.
-- **Search share = log S / log(n_floor / k\*)**, with k\* = 3: the fraction of the whole data gap (on a log scale) attributable to search. The rest, log(n_crit / 3), is attributed to the prior: what AdamW, weight decay and this architecture prefer at equilibrium.
+- **Search share = log S / log(n_floor / k\*)**, with k\* = 3, is **reported as a measurement, not a verdict**. The review showed that a share threshold could not fail on this grid: the log scale anchored at k\* = 3 makes "mostly prior" nearly true by construction.
 
 **Predictions and falsifiers**
 
 | | prediction | falsified if |
 |---|---|---|
-| **P1** (replication: ungrokking exists here) | sym base: median final test accuracy < 0.5 at 174 pairs and ≥ 0.9 at 1,218 | either fails, e.g. the rule survives on 174 pairs |
-| **P2** (main: the gap is mostly prior) | sym base: 1.5 ≤ S ≤ 3 (Varma: ≈ 2) **and** search share < 0.25 | S > 3 or S < 1.5, or share ≥ 0.25. If a threshold is censored at the grid edge, the verdict is *untestable* |
-| **P3** (wiring acts on search) | at base width, asym's floor is above sym's (replicating E1) and n_crit(asym)/n_crit(sym) < n_floor(asym)/n_floor(sym): the chain's extra data cost is mostly search | the ratio of n_crit is ≥ the ratio of n_floor. Untestable if asym's floor is not above sym's, or a threshold is censored |
-| **P4** (width; a contest, prediction from prior art) | n_crit ordering wide ≤ base ≤ narrow, not all equal (Huang et al.: larger models generalize from less data) | the opposite ordering ("narrower generalizes from less data", our 24 Oct conjecture), flat, or non-monotone |
+| **P1** (replication: ungrokking exists here) | sym base: fewer than half the seeds keep the rule at 174 pairs, at least three quarters at 1,218 | either fails |
+| **P2** (search accounts for at most ~3×) | sym base: S ≤ 3 | S ≥ 4. 3 < S < 4 is inconclusive; a censored threshold is untestable. S as large as 1,218/44 ≈ 28 is representable without censoring |
+| *Replication check* | S ≥ 1.5 (Varma: ≈ 2) | reported, not a prediction of ours: S near 1 would mean *less* search than in the transformer |
+| **P3** (wiring acts on search) | at base width, asym's floor is above sym's (replicating E1) and n_crit(asym)/n_crit(sym) < n_floor(asym)/n_floor(sym) | the ratio of n_crit exceeds the ratio of n_floor. A tie is inconclusive; untestable if asym's floor isn't above sym's or a threshold is censored |
+| **P4** (width; a contest, prediction from prior art) | n_crit ordering wide ≤ base ≤ narrow with at least one strict step (Huang et al.) | any other result: the opposite ordering (our 24 Oct conjecture), flat, or non-monotone. Censored thresholds count when the censoring still fixes the order |
 | **P4b** (generic width cannot close the gap) | at every width, n_floor > 348 pairs (0.1) | some width groks from scratch at ≤ 348 pairs, i.e. ≥ 3× below base |
 
-Every prediction can fail on data this design can produce (lesson L12):
-- P1 fails if ungrokking does not happen;
-- P2 fails if search accounts for a large factor (the distillation result above suggests it might);
-- P3 and P4 are directional on quantities measured independently;
-- P4b fails if a narrow network groks at 0.1.
+Every prediction can fail on data this design can produce (L12):
+- P1 if ungrokking doesn't happen;
+- P2 if training from the rule holds it down to ≤ 1/4 of the scratch floor (the distillation result above suggests it might);
+- P3 and P4 are directional on independently measured quantities;
+- P4b if a narrow network groks at 0.1.
+
+**Known biases, stated in advance**
+- **Biases S down** (towards P2): the minimum over three learning rates on the scratch side, with no counterpart on the ungrokking side.
+- **Biases S up:**
+  - "at least half of 4 seeds" for n_crit against "2 of 3" for n_floor;
+  - slow ungrokking not finished within the post-shrink phase. That's what the convergence flag is for.
+- **Sensitivity:** the summary also reports S under the original, mismatched criteria (median final accuracy ≥ 0.5; first crossing of 0.95), and n_floor at half the budget.
 
 **What each outcome changes**
-- **P2 supported** (prior dominates): no amount of better search inside this model class closes most of the gap. Member efficiency has to come from different priors: structure matched to the task, or a library of blocks grown across tasks (I19). The credit machinery (I20) becomes secondary. The "masking is explaining away under a prior that undercharges lookup tables" reading (H3 note) gains support.
-- **S > 3** (search matters): improving the search within gradient learning is a real lever, and credit between members (I20) and the growth criterion (I21) move up.
-- **P4 in the C direction:** generic restriction by width is the wrong kind of restriction; it hurts the rule's efficiency more than memorization's. The R direction would make width a usable dial for member efficiency.
+- **P2 supported** (search ≤ 3× of a gap of several hundred): better search inside this model class cannot close most of the gap. Member efficiency has to come from different priors: structure matched to the task, or a library of blocks grown across tasks (I19). The credit machinery (I20) becomes secondary. The H3 note's reading gains support: masking as explaining away, under a prior that charges too little for lookup tables.
+- **P2 falsified** (S ≥ 4): improving the search within gradient learning is a real lever, and I20/I21 move up.
+- **P4 in the C direction:** generic restriction by width is the wrong kind of restriction. The R direction would make width a usable dial for member efficiency.
 - **P4b falsified:** generic restriction is a strong lever after all, which revises the claim that efficient members need structure matched to the task.
 
 **Exploratory, labelled as such in the summary:**
-- accuracy on the dropped pairs (seen in phase 1, then removed);
-- weight norms at the end;
-- semi-grokked runs (final test accuracy 0.1–0.9), which Varma reports near the threshold;
-- collapses after the shrink;
-- scratch thresholds by the sustained-grokking criterion.
+- accuracy on the dropped pairs;
+- weight norm and rule fraction at the shrink (the shrink comes only about 4 time constants after sustained grokking, so some memorization may remain), and n_crit's sensitivity to them;
+- semi-grokked runs (final 0.1–0.9);
+- collapses after the shrink.
 
 ## Q2 — does the drift's direction matter? (I13)
 
-**Design** (grid `q2`, 90 runs): E2's four sym jump cells (jump at 1,000 or 2,000 steps; H = 250 or 1,000) with E2's seeds (610–619).
-- Each seed has a base run, a drift jump (as in E2), and a **random jump**. The random jump replaces each parameter tensor's jump vector by a Gaussian direction of the same norm, per run and per tensor (tested).
-- 15,000 steps, as E2. The base runs also replicate E2's.
+**Design** (grid `q2`, 170 runs): E2's four sym jump cells (jump at 1,000 or 2,000 steps; H = 250 or 1,000) with E2's seeds (610–619).
 
-**Outcome.** The sustained grokking time (≥ 0.95 held for 2,000 steps; E2's definition and code). Per seed, D = t(random) − t(drift).
-- Pairs whose base had already grokked (sustained) before the jump are excluded, as in E2.
-- So are pairs where both jump arms are censored at 15,000 steps.
+Each seed has a base run, the drift jump (as in E2), and three null jumps with the same norm per tensor:
+- **radial** (the primary null): keeps the drift's component along the current weights, and replaces the orthogonal part with a random direction orthogonal to the weights, of the same norm. The review found the drift is largely a per-tensor *rescaling* (at step 1,000 its cosine with θ is about +0.58). Weight norm is a known lever on grokking (Omnigrok), so a pure random direction would differ from the drift on that lever. The radial null matches it.
+- **random:** a random direction of the same norm (secondary).
+- **rescale:** the drift's radial component alone (secondary). Does norm reallocation by itself account for the saving?
 
-**Prediction P5:** the drift direction matters. D > 0 by a one-sided sign test with Holm-adjusted p < 0.05 in at least 3 of the 4 cells, and pooled median D > 0. Falsified if the pooled median D ≤ 0, or at most 1 cell is significant; 2 significant cells is inconclusive. Sidedness is stated (L13): one-sided, drift better.
+Each cell and seed draws its own direction. Evals run every 25 steps up to step 6,000, so savings are resolved finer than E2's 100-step evals. Runs last 15,000 steps, as in E2.
+
+**Outcome.** Sustained grokking time (≥ 0.95 held for 2,000 steps; E2's definition and code). Per seed, D = t(null) − t(drift).
+- Pairs whose base had grokked (sustained) before the jump are excluded, as in E2.
+- So are pairs where both arms are censored.
+
+**Prediction P5** (drift vs radial null): the drift direction matters beyond norm changes.
+- **Supported:** D > 0 by a one-sided sign test with Holm-adjusted p < 0.05 in at least 3 of the 4 cells, and pooled median D > 0.
+- **Falsified:** only if pooled median D ≤ 0.
+- Otherwise inconclusive, so low power doesn't read as a negative.
 
 **What it changes:**
 - **Supported:** F16 stands as "the drift direction is informative."
-- **Falsified:** F16 is demoted to "a kick of this size helps", and the weight-space horizon (already short) loses its main positive result.
-- Exploratory: random jump vs base (does any kick help?), and whether E2's drift savings replicate on the same seeds.
+- **Falsified:** F16 is demoted to "a kick, or a norm change, of this size helps." The rescale arm then tells which.
 
 ## Caveats stated in advance
 
 - **The "prior" measured here is the training dynamics' preference at equilibrium** (AdamW with decoupled weight decay, this architecture), not a Bayesian prior. Varma reports that the ungrokking threshold doesn't depend on weight decay; we don't vary it.
-- **Level resolution is coarse:** steps of 174 pairs, so ratios like S come in coarse steps.
+- **Level resolution is coarse:** 11 unevenly spaced levels from 44 to 1,218 pairs, so ratios like S come in coarse steps.
 - **Few seeds:** 4 per level for n_crit, and 3 per learning rate for n_floor. These are threshold estimates, not effect sizes.
 - **A finite post-shrink phase:** a slow ungrokking could be missed. That's what the convergence flag is for.
 - **"Best of three learning rates"** is a modest search over settings. A better optimizer could lower n_floor, which would *raise* S. P2 is stated for the search we actually ran.
@@ -144,11 +163,11 @@ Every prediction can fail on data this design can produce (lesson L12):
 
 | job | runs | rough size |
 |---|---|---|
-| `q1u` | 112 | ~5M run-steps |
-| `q1s` | 198 | ~9M run-steps (many small batches) |
-| `q2` | 90 | ~1.4M run-steps |
+| `q1u` | 176 | ~8M run-steps |
+| `q1s` | 225 | ~12M run-steps (many small batches) |
+| `q2` | 170 | ~2.6M run-steps |
 
-Expected to fit in three Kaggle jobs of under 12 hours each on 2× T4.
+Expected to fit in three Kaggle jobs on 2× T4. A job cut by the 12-hour cap resumes from its saved results when relaunched (the queue does this automatically).
 
 ---
 
@@ -156,6 +175,26 @@ Expected to fit in three Kaggle jobs of under 12 hours each on 2× T4.
 
 *To be appended before launch.*
 
-## Changes after the independent review
+## Changes after the independent review (24 Oct 2026, before any main run)
 
-*To be appended before launch.*
+The review ran CPU checks: shrink logic under batching was bit-identical to solo runs, and the subsets are exactly nested. It found four blocking problems, all fixed:
+1. **P2 could not fail in the intended direction.** The search-share threshold was unreachable without censoring. P2 is restated on S (≤ 3 supported, ≥ 4 falsified), the share is reported as a measurement, ungrokking levels go down to 44 pairs, and "S < 1.5" is split out as a replication check.
+2. **The Q2 null did not match the drift's radial component.** The radial-matched null is added as the primary comparison, with random and rescale-only as secondaries.
+3. **n_floor risked measuring a step budget, with the best learning rate at the grid's top edge.** Scratch learning rates now go up to 4×. There are flags for a best learning rate at the edge and for a floor that moves between half and full budget; either makes the verdicts provisional.
+4. **The two sides used different success criteria,** and the scratch stop rule made a matched criterion impossible afterwards. Both sides now use "≥ 0.95 held for 2,000 steps", scratch runs continue 5,000 steps after first crossing, and the mismatched pair is kept as a sensitivity check.
+
+Non-blocking suggestions adopted:
+- convergence judged against accuracy 15,000 steps earlier;
+- intermediate subset levels (0.075, 0.125);
+- order-preserving censoring in P4, and ties in P3 called inconclusive;
+- 0.4 added to sym scratch;
+- the min-over-learning-rate bias stated;
+- dense evals around Q2's jumps;
+- P5 falsified only by a non-positive pooled median;
+- a separate random direction per cell;
+- a shrink deadline (no wasted steps, and the exclusion count is correct);
+- post-shrink divergence counted as losing the rule;
+- asym phase-1 cap raised to 70,000;
+- rule fraction and weight norm logged at the shrink.
+
+Not adopted: fresh seeds to confirm the best-learning-rate floor (cost). The bias it would correct is stated instead.

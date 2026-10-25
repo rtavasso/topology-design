@@ -1,5 +1,5 @@
 {
- "_note": "Q2 (I13): E2's sym drift jumps vs matched-norm random-direction jumps, paired by seed with base runs.",
+ "_note": "Q2 (I13): E2's sym drift jumps vs null jumps of the same norm per tensor (radial-matched, random, rescale-only), paired by seed with base runs.",
  "grids": [
   {
    "base": {
@@ -17,6 +17,7 @@
     "stop_after_grok": 0,
     "measure_horizon": true,
     "measure_refit": false,
+    "dense_until": 6000,
     "tag": "pQ2base"
    },
    "vary": {
@@ -51,6 +52,7 @@
     "stop_after_grok": 0,
     "measure_horizon": true,
     "measure_refit": false,
+    "dense_until": 6000,
     "tag": "pQ2jump"
    },
    "vary": {
@@ -64,7 +66,9 @@
     ],
     "drift_jump_dir": [
      "drift",
-     "random"
+     "radial",
+     "random",
+     "rescale"
     ],
     "model_seed": [
      610,
