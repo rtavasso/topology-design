@@ -330,6 +330,30 @@ No runs. A conceptual discussion with the researcher about what E1–E4 mean for
 
 **Expected falsifiers (open):** I18 fails if no restricted member, selected predictively, beats the general network by a large factor on examples needed; I19 fails if grown blocks do not transfer to held-out tasks.
 
+## Entry 27 (24 Oct 2026): the priors round, designed and reviewed
+
+**Premise.** The discussion (Entry 26) ended on one question: is the data gap prior or search (I17)? The researcher asked for the next experiments.
+
+**Evidence before design.** Varma et al. 2023 had already run the ungrokking protocol on a transformer. The rule survives down to about half the from-scratch threshold (S ≈ 2). Huang et al. 2024 report that larger models generalize from less data, against our 24 Oct conjecture that restriction helps.
+
+**Design** ([priors/PREREGISTRATION.md](../experiments/priors/PREREGISTRATION.md)):
+- **Q1:** ungrokking vs scratch thresholds on identical nested subsets; sym and asym at base width, sym at three widths. S = n_floor / n_crit.
+- **Q2:** E2's drift jumps against radial-matched, random and rescale-only nulls.
+
+**Review.** An independent pre-run review found four blocking issues:
+- a headline condition that could not fail;
+- a null that was mismatched on weight norm;
+- a floor that could be a step budget;
+- mismatched success criteria.
+
+All were fixed before launch (listed in the preregistration). New lesson L17.
+
+**Decisions:**
+- **D40.** Run Q1 and Q2 as preregistered. P2 is stated on S (≤ 3 supported, ≥ 4 falsified), and the search share is reported, not judged.
+- **D41.** Width enters as a two-sided contest (P4) with a bound (P4b): the generic test of "efficiency at the member" (I18).
+
+**Expected falsifiers:** S ≥ 4 (search matters); a narrow network groking at ≤ 348 pairs; pooled median D ≤ 0 against the radial null.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
