@@ -171,9 +171,35 @@ Expected to fit in three Kaggle jobs on 2× T4. A job cut by the 12-hour cap res
 
 ---
 
-## Pilot (CPU, before launch)
+## Pilot (CPU, before launch; 24 Oct 2026; not evidence)
 
-*To be appended before launch.*
+Single seed (700), CPU, a shorter post-shrink phase (16,000 steps).
+
+**Phase 1 at 40%, sym:**
+
+| width | lr | first crossing of 0.95 | collapses |
+|---|---|---|---|
+| narrow (32, 64) | 1e-3 | 14,600 | 0 |
+| narrow (32, 64) | 2e-3 | 3,900 | 0 |
+| narrow (32, 64) | 4e-3 | 1,800 | 0 |
+| base | 2e-3 | 2,500 | 0 |
+| wide (256, 512) | 1e-3 | 4,600 | 0 |
+| wide (256, 512) | 2e-3 | 2,300 | 0 |
+
+All widths learn the rule at the base rate, well inside the 13,000-step phase-1 cap. The reviewer's own narrow check gave 3.9k and 8.7k at 2e-3.
+
+**Ungrokking, sym base** (shrink at step 4,500). Test accuracy 2,000, 6,000 and 16,000 steps after the shrink:
+
+| pairs kept | +2,000 | +6,000 | +16,000 |
+|---|---|---|---|
+| 174 | 0.00 | 0.01 | 0.01 |
+| 522 | 0.95 | 0.96 | 0.88 (slowly drifting, 0.92–0.96 in between) |
+| 1,044 | 1.00 | 1.00 | 1.00 |
+
+- **The planted-effect check passes (L1).** Ungrokking happens, fast, at small subsets, and doesn't at large ones.
+- **Near the threshold the network semi-groks and drifts slowly.** The matched criterion (≥ 0.95 throughout the last 2,000 steps) and the 15,000-step convergence comparison are therefore both needed. The full 30,000-step phase is kept.
+- **The dropped pairs** (seen in phase 1, then removed) track test accuracy exactly, as at 174 pairs: they are held by the rule, not by memory. Exploratory.
+- This single seed hints that n_crit for sym base may lie between 522 and 1,044, close to the E1 floor (1,044). If that holds, S could come out near 1–2, possibly below Varma's 2. Both P2 outcomes, and the replication check, remain open. Nothing in the design changes.
 
 ## Changes after the independent review (24 Oct 2026, before any main run)
 
