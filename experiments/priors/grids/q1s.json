@@ -1,0 +1,643 @@
+{
+ "_note": "Q1 scratch: data floor on the same nested subsets, best of three learning rates.",
+ "grids": [
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.1,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 32,
+    "hidden": 64,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-narrow"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.15,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 32,
+    "hidden": 64,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-narrow"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.2,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 32,
+    "hidden": 64,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-narrow"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.25,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 32,
+    "hidden": 64,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-narrow"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.3,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 32,
+    "hidden": 64,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-narrow"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.35,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 32,
+    "hidden": 64,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-narrow"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.1,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-base"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.15,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-base"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.2,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-base"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.25,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-base"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.3,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-base"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.35,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-base"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.1,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 256,
+    "hidden": 512,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-wide"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.15,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 256,
+    "hidden": 512,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-wide"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.2,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 256,
+    "hidden": 512,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-wide"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.25,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 256,
+    "hidden": 512,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-wide"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.3,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 256,
+    "hidden": 512,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-wide"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.35,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 256,
+    "hidden": 512,
+    "steps": 60000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-sym-wide"
+   },
+   "vary": {
+    "lr": [
+     0.001,
+     0.002,
+     0.004
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.25,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 90000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-asym-base"
+   },
+   "vary": {
+    "lr": [
+     0.0005,
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.3,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 90000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-asym-base"
+   },
+   "vary": {
+    "lr": [
+     0.0005,
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.35,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 90000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-asym-base"
+   },
+   "vary": {
+    "lr": [
+     0.0005,
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "d": 128,
+    "hidden": 256,
+    "steps": 90000,
+    "stop_after_grok": 2000,
+    "tag": "pQ1s-asym-base"
+   },
+   "vary": {
+    "lr": [
+     0.0005,
+     0.001,
+     0.002
+    ],
+    "model_seed": [
+     700,
+     701,
+     702
+    ]
+   },
+   "tie_data_seed": true
+  }
+ ]
+}

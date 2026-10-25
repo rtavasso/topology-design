@@ -1,0 +1,85 @@
+{
+ "_note": "Q2 (I13): E2's sym drift jumps vs matched-norm random-direction jumps, paired by seed with base runs.",
+ "grids": [
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 128,
+    "hidden": 256,
+    "lr": 0.002,
+    "steps": 15000,
+    "stop_after_grok": 0,
+    "measure_horizon": true,
+    "measure_refit": false,
+    "tag": "pQ2base"
+   },
+   "vary": {
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 128,
+    "hidden": 256,
+    "lr": 0.002,
+    "steps": 15000,
+    "stop_after_grok": 0,
+    "measure_horizon": true,
+    "measure_refit": false,
+    "tag": "pQ2jump"
+   },
+   "vary": {
+    "drift_jump_at": [
+     1000,
+     2000
+    ],
+    "drift_jump_h": [
+     250,
+     1000
+    ],
+    "drift_jump_dir": [
+     "drift",
+     "random"
+    ],
+    "model_seed": [
+     610,
+     611,
+     612,
+     613,
+     614,
+     615,
+     616,
+     617,
+     618,
+     619
+    ]
+   },
+   "tie_data_seed": true
+  }
+ ]
+}

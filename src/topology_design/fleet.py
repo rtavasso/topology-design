@@ -86,6 +86,12 @@ class FleetConfig:
     readout_swap_at: int | None = None  # E2 intervention: at this step replace the readout by the refit readout
     drift_jump_at: int | None = None  # E2 intervention: at this step jump theta += H * drift (needs measure_horizon)
     drift_jump_h: int = 1000
+    # ---- "priors" round (experiments/priors/PREREGISTRATION.md) ----
+    drift_jump_dir: str = "drift"  # Q2: "drift" (E2) or "random": a jump of the same norm per tensor, random direction
+    shrink_frac: float = 0.0  # Q1 ungrokking: once grokked, train only on gk.split(p, shrink_frac, data_seed)'s training
+    #   set, which is a subset of this run's own (same permutation prefix); 0 = off
+    shrink_after_grok: int = 2000  # shrink once test accuracy has been >= grok_thresh at every eval for this many steps
+    shrink_steps: int = 0  # steps of training after the shrink; the run then stops
     model_seed: int = 0
     data_seed: int = 0
     tag: str = ""
@@ -163,6 +169,15 @@ def validate_config(cfg: FleetConfig) -> None:
         raise ValueError("route_rot_angle applies to route='rot' only")
     if cfg.arrive_start and (cfg.arrive_n <= 0 or cfg.arrive_every <= 0):
         raise ValueError("arrivals need arrive_n and arrive_every")
+    if cfg.drift_jump_dir not in ("drift", "random"):
+        raise ValueError(f"drift_jump_dir={cfg.drift_jump_dir}")
+    if cfg.shrink_frac:
+        if not 0 < cfg.shrink_frac < cfg.train_frac:
+            raise ValueError("shrink_frac must lie in (0, train_frac)")
+        if cfg.shrink_steps <= 0 or cfg.shrink_after_grok < 0:
+            raise ValueError("shrinking needs shrink_steps > 0 and shrink_after_grok >= 0")
+        if cfg.arrive_start or cfg.stop_after_grok:
+            raise ValueError("shrinking cannot be combined with arrivals or stop_after_grok")
 
 
 def is_eval_step(step: int, cfg: FleetConfig) -> bool:
@@ -630,7 +645,7 @@ def measure(fleet: Fleet, grid: dict, chunk: int = 1024) -> dict:
     centered logit - gen, and new_acc / new_loss."""
     R, L, p = fleet.R, fleet.L, fleet.p
     dev = fleet.device
-    sets = ["train", "test", "rule_train", "exc"] + (["new"] if "new" in grid else [])
+    sets = ["train", "test", "rule_train", "exc"] + [s_ for s_ in ("new", "drop") if s_ in grid]
     P = fleet.params
     U = P["unembed"].transpose(1, 2)
     osv, bview = fleet.out_scale.view(-1, 1, 1), fleet.beta.view(-1, 1, 1)
@@ -809,6 +824,23 @@ def _run_loss(ce: torch.Tensor, w: torch.Tensor | None) -> torch.Tensor:
     if w is None:
         return ce.mean(1)
     return (ce * w).sum(1) / w.sum(1).clamp_min(1e-12)
+
+
+def random_jump(fleet: "Fleet", target: dict, seeds: torch.Tensor, rand: torch.Tensor) -> dict:
+    """I13 null for the drift jump: for runs with rand=True, replace each tensor's jump delta (target - theta) by a
+    Gaussian direction rescaled to the same norm, per run and per tensor. Each run draws from its own CPU generator
+    (seed per run), so a run's direction does not depend on which runs share its batch."""
+    out = {}
+    gens = [torch.Generator().manual_seed(int(s)) for s in seeds.tolist()]
+    for k, th in fleet.params.items():
+        x = th.detach()
+        delta = target[k] - x
+        nrm = delta.flatten(1).norm(dim=1)  # (R,)
+        r = torch.stack([torch.randn(x.shape[1:], generator=g, dtype=torch.float64) for g in gens]).to(x.device, x.dtype)
+        r = r * (nrm / r.flatten(1).norm(dim=1).clamp_min(1e-30)).view((-1,) + (1,) * (x.dim() - 1))
+        sh = (-1,) + (1,) * (x.dim() - 1)
+        out[k] = torch.where(rand.view(sh), x + r, target[k])
+    return out
 
 
 def make_generator(device, seed: int) -> torch.Generator:
@@ -1018,6 +1050,20 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
         st["swap_scale"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
     vel, t_vel = ({k: torch.zeros_like(v) for k, v in fleet.params.items()}, 0) if hz else (None, 0)
     vlin = {k: torch.zeros_like(v) for k, v in fleet.params.items()} if hz else None
+    shrink = any(c.shrink_frac > 0 for c in cfgs)
+    if shrink:  # Q1: per-run kept subset of the training positions; the shrink itself happens at an eval (below)
+        keep = []
+        for c, t in zip(cfgs, tasks):
+            if c.shrink_frac > 0:
+                kept = gk.split(c.p, c.shrink_frac, c.data_seed)[0]
+                keep.append(torch.isin(t["tr"], kept))
+            else:
+                keep.append(torch.ones(n, dtype=torch.bool))
+        st["keep"] = torch.stack(keep).to(dev)
+        st["present"] = torch.ones(R0, n, dtype=torch.bool, device=dev)
+        grid["drop"] = torch.zeros_like(grid["train"])  # training pairs removed by the shrink (accuracy on them)
+    above_since: list[int | None] = [None] * R0  # first eval of the current unbroken run of test_acc >= grok_thresh
+    shrink_step: list[int | None] = [None] * R0
     jump = any(c.drift_jump_at is not None for c in cfgs)
     if jump:
         if not hz:
@@ -1027,6 +1073,8 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
         st["jump_h"] = torch.tensor([float(c.drift_jump_h) for c in cfgs], dtype=fleet.dtype, device=dev)
         st["jump_acc_before"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
         st["jump_acc_after"] = torch.full((R0,), float("nan"), dtype=fleet.dtype, device=dev)
+        st["jump_seed"] = torch.tensor([80_000 + c.model_seed for c in cfgs], dtype=torch.long, device=dev)
+        st["jump_rand"] = torch.tensor([c.drift_jump_dir == "random" for c in cfgs], dtype=torch.bool, device=dev)
     orig = list(range(R0))
     grok_step: list[int | None] = [None] * R0
     diverged: list[int | None] = [None] * R0
@@ -1046,6 +1094,8 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
     for step in range(c0.steps + 1):
         R = fleet.R
         w = (st["arrive"] <= step).to(fleet.dtype) if K > 0 else None
+        if shrink and any(s_ is not None for s_ in shrink_step):
+            w = st["present"].to(fleet.dtype)
         if swap and bool((st["swap_at"] == step).any()):  # E2 intervention, before this step's update
             if K > 0:
                 seen = torch.zeros_like(grid["train"])
@@ -1060,6 +1110,8 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
             before = fh.test_acc(fleet, grid)
             with torch.no_grad():
                 target = fh.extrapolate_linear(fleet, vlin, t_vel, st["jump_h"])
+                if bool((runs & st["jump_rand"]).any()):  # I13 null: same norm per tensor, random direction
+                    target = random_jump(fleet, target, st["jump_seed"], st["jump_rand"])
                 for k, v in fleet.params.items():
                     sh = (-1,) + (1,) * (v.dim() - 1)
                     v.copy_(torch.where(runs.view(sh), target[k], v))
@@ -1128,6 +1180,23 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
                     grok_step[o] = step
                 if c0.stop_after_grok and grok_step[o] is not None and step - grok_step[o] >= c0.stop_after_grok:
                     act[j] = False
+                if shrink:
+                    cj = cfgs[o]
+                    if recs[j]["test_acc"] >= cj.grok_thresh:
+                        above_since[o] = step if above_since[o] is None else above_since[o]
+                    else:
+                        above_since[o] = None
+                    if (cj.shrink_frac > 0 and shrink_step[o] is None and above_since[o] is not None
+                            and step - above_since[o] >= cj.shrink_after_grok):
+                        shrink_step[o] = step  # from the next step on, train on the kept subset only
+                        st["present"][j] = st["keep"][j]
+                        kept_grid = torch.zeros_like(grid["train"][j])
+                        kept_grid[st["tr"][j][st["keep"][j]]] = True
+                        grid["drop"][j] = grid["train"][j] & ~kept_grid
+                        grid["train"][j] = kept_grid
+                        grid["rule_train"][j] = kept_grid & ~grid["exc"][j]
+                    if shrink_step[o] is not None and step - shrink_step[o] >= cj.shrink_steps:
+                        act[j] = False
             st["active"] = torch.tensor(act, dtype=torch.bool, device=dev)
             if verbose:
                 print(f"step {step}: active {sum(act)}/{R} (of {R0})", flush=True)
@@ -1146,7 +1215,7 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
                     vlin = {k: v[keep] for k, v in vlin.items()}
                 fleet.subset(keep)
                 opt.subset(keep)
-                for k in ("y", "train", "test", "exc", "rule_train", "new"):
+                for k in ("y", "train", "test", "exc", "rule_train", "new", "drop"):
                     if k in grid:
                         grid[k] = grid[k][keep]
                 for k, v in list(st.items()):
@@ -1186,6 +1255,7 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
     for j in range(fleet.R):  # runs still in the batch that diverged after the last eval
         if divs[j] >= 0 and diverged[orig[j]] is None:
             diverged[orig[j]] = divs[j]
+    st_keep_n = [int(round(c.shrink_frac * c.p * c.p)) if c.shrink_frac > 0 else None for c in cfgs] if shrink else None
     out = []
     for j, c in enumerate(cfgs):
         summ = summarize(trajs[j], c, diverged[j])
@@ -1199,9 +1269,12 @@ def train_fleet(cfgs: list[FleetConfig], device: str = "cpu", measure_chunk: int
             e = extra_by_orig.get(j, {})
             summ["swap"] = {"step": c.readout_swap_at, "refit_test_acc": _clean([e.get("swap_acc")])[0],
                             "scale": _clean([e.get("swap_scale")])[0]}
+        if c.shrink_frac > 0:
+            summ["shrink"] = {"step": shrink_step[j], "frac": c.shrink_frac, "steps": c.shrink_steps,
+                              "n_kept": int(st_keep_n[j]) if st_keep_n is not None else None}
         if c.drift_jump_at is not None:
             e = extra_by_orig.get(j, {})
-            summ["jump"] = {"step": c.drift_jump_at, "h": c.drift_jump_h,
+            summ["jump"] = {"step": c.drift_jump_at, "h": c.drift_jump_h, "dir": c.drift_jump_dir,
                             "test_acc_before": _clean([e.get("jump_acc_before")])[0],
                             "test_acc_after": _clean([e.get("jump_acc_after")])[0]}
         res = {"config": asdict(c), "run_id": c.run_id, "n_params": n_params, "trajectory": trajs[j], "summary": summ,

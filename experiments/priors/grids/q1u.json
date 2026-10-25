@@ -1,0 +1,149 @@
+{
+ "_note": "Q1 ungrokking: grok on the 40% training set, then train only on a nested subset; does the rule survive? Paired with Q1 scratch runs on the same subsets.",
+ "grids": [
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 32,
+    "hidden": 64,
+    "lr": 0.002,
+    "steps": 45000,
+    "shrink_after_grok": 2000,
+    "shrink_steps": 30000,
+    "tag": "pQ1u-sym-narrow"
+   },
+   "vary": {
+    "shrink_frac": [
+     0.05,
+     0.1,
+     0.15,
+     0.2,
+     0.25,
+     0.3,
+     0.35
+    ],
+    "model_seed": [
+     700,
+     701,
+     702,
+     703
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 128,
+    "hidden": 256,
+    "lr": 0.002,
+    "steps": 45000,
+    "shrink_after_grok": 2000,
+    "shrink_steps": 30000,
+    "tag": "pQ1u-sym-base"
+   },
+   "vary": {
+    "shrink_frac": [
+     0.05,
+     0.1,
+     0.15,
+     0.2,
+     0.25,
+     0.3,
+     0.35
+    ],
+    "model_seed": [
+     700,
+     701,
+     702,
+     703
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk000000",
+    "d": 256,
+    "hidden": 512,
+    "lr": 0.002,
+    "steps": 45000,
+    "shrink_after_grok": 2000,
+    "shrink_steps": 30000,
+    "tag": "pQ1u-sym-wide"
+   },
+   "vary": {
+    "shrink_frac": [
+     0.05,
+     0.1,
+     0.15,
+     0.2,
+     0.25,
+     0.3,
+     0.35
+    ],
+    "model_seed": [
+     700,
+     701,
+     702,
+     703
+    ]
+   },
+   "tie_data_seed": true
+  },
+  {
+   "base": {
+    "task": "modadd",
+    "p": 59,
+    "train_frac": 0.4,
+    "weight_decay": 1.0,
+    "eval_every": 100,
+    "dense_early": true,
+    "arm": "pk012000",
+    "d": 128,
+    "hidden": 256,
+    "lr": 0.001,
+    "steps": 95000,
+    "shrink_after_grok": 2000,
+    "shrink_steps": 40000,
+    "tag": "pQ1u-asym-base"
+   },
+   "vary": {
+    "shrink_frac": [
+     0.05,
+     0.1,
+     0.15,
+     0.2,
+     0.25,
+     0.3,
+     0.35
+    ],
+    "model_seed": [
+     700,
+     701,
+     702,
+     703
+    ]
+   },
+   "tie_data_seed": true
+  }
+ ]
+}

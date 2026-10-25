@@ -33,7 +33,8 @@ import tempfile
 import time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "experiments/fleet", "pyproject.toml"]
+INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "tests/test_priors.py", "experiments/fleet",
+           "pyproject.toml"]
 VALIDATE_EXTRA = ["experiments/paths/results_data/compact.json.gz"]
 
 

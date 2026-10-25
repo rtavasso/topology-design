@@ -77,7 +77,8 @@ elif job["job"] == "grid":
             shutil.copy(os.path.join("prior", f), out)
         print(f"resumed with {len(os.listdir(out))} prior results", flush=True)
     if job.get("tests", True):
-        rc = run("tests", [sys.executable, "-m", "pytest", "-q", "-x", "tests/test_fleet.py", "tests/test_fleet_p5.py"])
+        rc = run("tests", [sys.executable, "-m", "pytest", "-q", "-x", "tests/test_fleet.py", "tests/test_fleet_p5.py",
+                           "tests/test_priors.py"])
         if rc != 0:
             print("TESTS FAILED: grid not run", flush=True)
             sys.exit(1)
