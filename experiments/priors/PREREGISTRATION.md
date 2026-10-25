@@ -70,7 +70,7 @@ A second, smaller question closes a hole left by E2: the drift jumps saved steps
 - **Scratch runs** (grid `q1s`, 225 runs):
   - train from initialization on each subset;
   - sym f ∈ {0.1, …, 0.4} for 60,000 steps; asym f ∈ {0.25, 0.3, 0.35, 0.4} for 90,000 steps;
-  - learning rates 1×, 2× and 4× the graph's base rate (sym up to 8e-3, inside the all-parallel graph's stable range in E4), 3 seeds;
+  - learning rates: sym 2e-3, 4e-3, 8e-3 and 1.6e-2 (the top of the all-parallel graph's stable range in E4, added so the best rate can be interior); asym 1e-3, 2e-3 and 4e-3 (already past its stability limit); 3 seeds;
   - same widths as above;
   - a run stops 5,000 steps after first reaching 0.95, so the sustained criterion can be read.
 
@@ -94,11 +94,13 @@ A second, smaller question closes a hole left by E2: the drift jumps saved steps
 | | prediction | falsified if |
 |---|---|---|
 | **P1** (replication: ungrokking exists here) | sym base: fewer than half the seeds keep the rule at 174 pairs, at least three quarters at 1,218 | either fails |
-| **P2** (search accounts for at most ~3×) | sym base: S ≤ 3 | S ≥ 4. 3 < S < 4 is inconclusive; a censored threshold is untestable. S as large as 1,218/44 ≈ 28 is representable without censoring |
+| **P2** (search accounts for at most ~3×) | sym base: S ≤ 3 | S ≥ 4. 3 < S < 4 is inconclusive; a censored threshold is untestable. The largest uncensored S is 1,392/87 ≈ 16 (44 pairs is the bottom level, so a threshold there counts as censored) |
 | *Replication check* | S ≥ 1.5 (Varma: ≈ 2) | reported, not a prediction of ours: S near 1 would mean *less* search than in the transformer |
 | **P3** (wiring acts on search) | at base width, asym's floor is above sym's (replicating E1) and n_crit(asym)/n_crit(sym) < n_floor(asym)/n_floor(sym) | the ratio of n_crit exceeds the ratio of n_floor. A tie is inconclusive; untestable if asym's floor isn't above sym's or a threshold is censored |
 | **P4** (width; a contest, prediction from prior art) | n_crit ordering wide ≤ base ≤ narrow with at least one strict step (Huang et al.) | any other result: the opposite ordering (our 24 Oct conjecture), flat, or non-monotone. Censored thresholds count when the censoring still fixes the order |
 | **P4b** (generic width cannot close the gap) | at every width, n_floor > 348 pairs (0.1) | some width groks from scratch at ≤ 348 pairs, i.e. ≥ 3× below base |
+
+**P1 and P2 are coupled** (noted by the second review). If P1 passes, n_crit ≥ 261, so falsifying P2 needs n_floor ≥ 1,044. If the extended learning-rate search brings the floor down to 870 or below, P2 can be falsified only if P1 fails too (the rule survives on 174 pairs). That is a real possible outcome, so P2 can still fail, but the two verdicts should be read together.
 
 Every prediction can fail on data this design can produce (L12):
 - P1 if ungrokking doesn't happen;
@@ -110,6 +112,7 @@ Every prediction can fail on data this design can produce (L12):
 - **Biases S down** (towards P2): the minimum over three learning rates on the scratch side, with no counterpart on the ungrokking side.
 - **Biases S up:**
   - "at least half of 4 seeds" for n_crit against "2 of 3" for n_floor;
+  - scratch runs stop 5,000 steps after first crossing, so a scratch run that later loses the rule still counts as a success, while an ungrokking run must hold at the end;
   - slow ungrokking not finished within the post-shrink phase. That's what the convergence flag is for.
 - **Sensitivity:** the summary also reports S under the original, mismatched criteria (median final accuracy ≥ 0.5; first crossing of 0.95), and n_floor at half the budget.
 
@@ -132,7 +135,9 @@ Every prediction can fail on data this design can produce (L12):
 Each seed has a base run, the drift jump (as in E2), and three null jumps with the same norm per tensor:
 - **radial** (the primary null): keeps the drift's component along the current weights, and replaces the orthogonal part with a random direction orthogonal to the weights, of the same norm. The review found the drift is largely a per-tensor *rescaling* (at step 1,000 its cosine with θ is about +0.58). Weight norm is a known lever on grokking (Omnigrok), so a pure random direction would differ from the drift on that lever. The radial null matches it.
 - **random:** a random direction of the same norm (secondary).
-- **rescale:** the drift's radial component alone (secondary). Does norm reallocation by itself account for the saving?
+- **rescale:** the drift's radial component alone (secondary; *not* norm-matched, since its jump is smaller). Does norm reallocation by itself account for the saving?
+
+Matching is per whole tensor. How the drift moves norm between rows or neurons *within* a tensor is not matched; the radial null's orthogonal part is isotropic. P5 is scoped accordingly: "beyond per-tensor norm changes".
 
 Each cell and seed draws its own direction. Evals run every 25 steps up to step 6,000, so savings are resolved finer than E2's 100-step evals. Runs last 15,000 steps, as in E2.
 
@@ -164,7 +169,7 @@ Each cell and seed draws its own direction. Evals run every 25 steps up to step 
 | job | runs | rough size |
 |---|---|---|
 | `q1u` | 176 | ~8M run-steps |
-| `q1s` | 225 | ~12M run-steps (many small batches) |
+| `q1s` | 288 | ~15M run-steps (many small batches) |
 | `q2` | 170 | ~2.6M run-steps |
 
 Expected to fit in three Kaggle jobs on 2× T4. A job cut by the 12-hour cap resumes from its saved results when relaunched (the queue does this automatically).
@@ -224,3 +229,12 @@ Non-blocking suggestions adopted:
 - rule fraction and weight norm logged at the shrink.
 
 Not adopted: fresh seeds to confirm the best-learning-rate floor (cost). The bias it would correct is stated instead.
+
+**Second review (of the fixes, 24 Oct):**
+- No blocking issues. P2 reaches all outcomes without censoring; the radial null matches the drift per tensor to about 1e-6 on a real jump (total norm after the jump: drift 95.11, radial 95.12, random 77.35); the matched criteria and the new code are consistent.
+- Adopted:
+  - corrected the maximum uncensored S (16, not 28);
+  - stated the P1–P2 coupling;
+  - stated that rescale is not norm-matched, and that matching is per tensor;
+  - stated the scratch stop-rule asymmetry;
+  - added sym learning rate 1.6e-2, so the best rate is less likely to sit at the grid's edge.

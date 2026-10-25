@@ -1,5 +1,5 @@
 {
- "_note": "Q2 (I13): E2's sym drift jumps vs null jumps of the same norm per tensor (radial-matched, random, rescale-only), paired by seed with base runs.",
+ "_note": "Q2 (I13): E2's sym drift jumps vs null jumps, paired by seed with base runs: radial-matched and random (same norm per tensor) and rescale-only (the drift's radial part alone, smaller).",
  "grids": [
   {
    "base": {

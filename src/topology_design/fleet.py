@@ -138,8 +138,8 @@ STRUCT_FIELDS = ("task", "p", "train_frac", "d", "hidden", "steps", "eval_every"
                  "stop_after_grok",
                  "grok_thresh", "branches", "measure_signal", "arrive_start", "arrive_n", "arrive_every", "probe_steps",
                  "probe_pairs", "probe_matched", "groups", "measure_horizon", "horizon_extrap", "measure_refit")
-GROUP_ROUTES = ("agree", "rand", "topk")
-JUMP_DIRS = ("drift", "random", "radial", "rescale")  # routing modes that need per-step group gradients
+GROUP_ROUTES = ("agree", "rand", "topk")  # routing modes that need per-step group gradients
+JUMP_DIRS = ("drift", "random", "radial", "rescale")  # Q2 jump arms (see null_jump)
 
 
 def struct_key(cfg: FleetConfig) -> tuple:
