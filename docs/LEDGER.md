@@ -38,6 +38,13 @@ The researcher's end goal, in his words:
   - topology as a hypothesis about how the data is generated.
 - **Scope principle:** toy tasks isolate one piece; realism is added back step by step. A fixed dataset is not the learning system we care about in the limit.
 
+- **How the frame moved again (24 Oct discussion, no new data):**
+  - In a gradient-trained network the prior is not a separate object: it is the bias of the search (optimizer, topology, settings together). E1's predict-then-learn code length measures how well a learner's prior fits the data.
+  - The horizon is short in weight space (E2) and 3 examples long in hypothesis space (E1), so "seeing the minima" points to holding hypotheses explicitly, not extrapolating a walk.
+  - **Generality at the population, efficiency at the member:** a general network is data-hungry for the same reason it is general. A population of restricted members can be general overall while each learns from few examples, at a cost of about log N nats of evidence for the selection, paid in compute rather than data.
+  - The open problems this exposes: where the members' structure comes from (selection across tasks, growth, compressed generators), how credit flows *between* members (responsibility by out-of-sample prediction, I20), and composition versus competition (sums share error; mixtures do not compose).
+  - The two claims everything rests on: I18 (member level) and I19 (transfer).
+
 ### State of the evidence (23 Oct 2026, after E1–E4)
 
 A short synthesis for discussion. Each line points to the entry that carries the evidence.
@@ -354,6 +361,12 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | I14 | Why is the chain network's trajectory not extrapolatable when the parallel one is? Curvature of the path, or collapse cycles (F2)? | E2, 23 Oct | Open. |
 | I15 | The wiring-set division of labor in asym (E3, exploratory): generalization spreads across both branches while memorization stays in the chain, even at equal speeds. Preregister it at matched times, block-level, with a kernel measure of each branch's effective speed. | E3 matched-time reanalysis, 23 Oct | Open. The first positive lead on the original question since Study 1, and still exploratory. |
 | I16 | The higher-decay branch carries the grokking jump, then hands it back (E3, exploratory). Is the circuit formed in the strongly regularized branch and then copied? | E3 recomputation, 23 Oct | Open. |
+| I17 | Decompose the data gap into prior vs search. At each training-set size, compare what the regularizer charges (weight norm) for the rule solution and for the memorizing solution. Rule already cheaper below the data floor but not found → search failure. Memorizing genuinely cheaper there → prior failure. | 24 Oct discussion | Open. Decides between "fix the prior inside gradient learning" and "change the learning mechanism". Check the grokking-at-low-training-fraction literature first (L2). |
+| I18 | The member-level claim: a restricted member (e.g. one whose primitive is a rotation by a learned frequency), chosen from a population by predict-then-learn scoring, learns modular addition from a handful of examples where the general network needs ≈ 1,044. | 24 Oct discussion | Open. One of the two claims the library/population program rests on. |
+| I19 | The transfer claim: blocks grown or selected on one family of tasks make learning on held-out tasks efficient. Without it, a library is a lookup table of past solutions (memorization one level up). | 24 Oct discussion | Open. The other load-bearing claim. The choice of task family *is* the world prior and must be explicit. |
+| I20 | Mixture of competing members with responsibility assigned by out-of-sample prediction, not current fit, plus a one-shot memory member that predicts uniformly on anything unseen. Prediction: the rule member claims rule examples once it predicts them, exceptions go to memory (the rule member is confidently wrong, worse than uniform: F14), and no member wins by memorizing. | 24 Oct discussion; Jacobs et al. 1991 | Open (argument). In-sample responsibility produces fragmentation (one expert per case) and starvation (masking by responsibility). |
+| I21 | Growing a network by held-out residual fitting: for each (block, link, site), insert it without changing the function, fit it on half A of the error signal (several inits in parallel), score the code-length reduction on half B minus the cost of describing the addition. Prediction: held-out scoring adds a rotation-like block before any lookup-like one; training-set scoring does the reverse, and growth stalls once the training set is memorized. | 24 Oct discussion; Cascade-Correlation, GradMax, boosting | Open (argument). Greedy growth is itself an averaging procedure and fails on parity; library blocks set how far one growth step can jump. |
+| I22 | Library size has an MDL optimum (library cost + solution cost), not diminishing-but-positive returns; an oversized library memorizes the task suite. Measure held-out-task code length vs library size. | 24 Oct discussion | Open (argument). |
 
 ---
 

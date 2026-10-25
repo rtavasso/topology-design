@@ -312,6 +312,24 @@ Stage 1 was not launched; its grids were deleted.
 - **D37.** `experiments/walk/results_data/` holds the analysis outputs, a compact per-run copy (13 MB: configs, summaries, thinned trajectories) and the independent verification scripts. The full raw results stay on the Mac and in the Kaggle kernel outputs (repo convention: large artifacts outside git).
 - A detail surfaced while auditing E4 is now in F17: the deepest chain *does* grok at lr 2e-3, with 14–22 collapses. "No stable region" means a window that is empty, not a structure that cannot learn.
 
+## Entry 26 (24 Oct 2026): discussion after E1–E4 — priors, populations of restricted members, growth
+
+No runs. A conceptual discussion with the researcher about what E1–E4 mean for the end goal. Recorded so later rounds can build on it.
+
+**Arc.**
+1. *What the results say* (23 Oct). The gap is data, not steps; gradient descent is confidently wrong on new examples; the plateau builds features; the horizon in weight space is short; credit is not set by speed alone; chain instability is structural under AdamW.
+2. *What a prior is.* Universal approximation concerns support, not inductive bias or reachability (Wilson & Izmailov). In the kernel regime the prior is the eigenspectrum and sample efficiency is task–model alignment (Canatar, Bordelon & Pehlevan). Random networks favor simple functions (Valle-Pérez et al.). In trained networks the prior is the search's bias. No free lunch: useful world priors are about recurring properties (symmetry, locality, composition, sparsity), not specific functions. Solomonoff induction is the formal version of "branch over all programs and prune"; a Bayes mixture over N structures costs at most log N nats over its best member.
+3. *Generality at the population, efficiency at the member* (the researcher found this compelling). The artificial neuron's generality is the death of its efficiency. Efficient members have restriction, symmetry, reuse and commitment. Self-organizing routes: competition (Jacobs et al. 1991, who hit our co-location problem with summed experts and switched to competing ones), selection plus learning (the Baldwin effect; Hinton & Nowlan 1987), development from a compressed code (genomic bottleneck; Zador 2019), and factorized schemas (Tolman-Eichenbaum Machine).
+4. *How competing experts specialize.* The mixture log-likelihood's gradient weights each expert by its posterior responsibility: that is the filter, and it follows from assuming each example came from one source. Failure modes: fragmentation, starvation (masking by responsibility), collapse. Proposed fix: responsibility by out-of-sample prediction with a uniform-predicting memory member (I20). Unsolved: composition versus competition.
+5. *The researcher's three loops* (evolve circuits; select circuits and topology per task; train a hyper learner). Pushback: generic blocks are relative to a task family; blocks must be scored by their contribution to compositions, so loops 1–2 interleave; library size has an optimum and can memorize the task suite; the library needs combinators, not only blocks; the useful hyper learner amortizes selection; continuous relaxations (DARTS) reintroduce shared-error credit and collapse to skip connections (Fair DARTS); the payoff exists only across many related tasks. Reframe: one recursive loop (compose, score predictively, compress winners into blocks, amortize proposals).
+6. *How to grow a network.* Function-preserving insertion plus fitting the candidate to the error signal its link defines (Cascade-Correlation, GradMax, gradient boosting); score on held-out data with a description cost, which also gives a stopping rule. Fahlman's "herd effect" is co-location under another name. Greedy growth is an averaging procedure and fails on parity; library blocks set how far one step can jump.
+
+**Decisions.**
+- **D38.** Record ideas I17–I22 and the frame update under Direction. No experiment chosen yet.
+- **D39.** Any move to populations, libraries or growth crosses the "no architecture search" rule (I8). That boundary is the researcher's to redraw, explicitly.
+
+**Expected falsifiers (open):** I18 fails if no restricted member, selected predictively, beats the general network by a large factor on examples needed; I19 fails if grown blocks do not transfer to held-out tasks.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
