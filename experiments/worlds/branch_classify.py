@@ -1,6 +1,6 @@
 # Run: python3 experiments/worlds/branch_classify.py 25   (sample size; ~8 min on CPU). 26 Oct result in docs/history.md Entry 31.
 """Classify first-step decisions for target functions of minimal length 4 (budget 4): optimal / lateral / away /
-budget-fatal, plus a necessary dead-state test (two inputs merged by the state but separated by the target)."""
+budget-fatal, plus a sufficient (not necessary) unreachability test (two inputs merged by the state but separated by the target)."""
 import numpy as np, time, sys
 p=7
 X,Y=np.meshgrid(np.arange(p),np.arange(p),indexing="ij"); X,Y=X.ravel(),Y.ravel()
@@ -24,7 +24,7 @@ def dist(s,f,maxd):
                 nx.append(n)
         fr=nx
     return None  # > maxd
-def dead(s,f):  # necessary condition for unreachability at any length: two inputs with equal state, different target
+def dead(s,f):  # sufficient condition for unreachability at any length: two inputs with equal state, different target
     key=s[0].astype(int)*p+s[1].astype(int)
     for v in np.unique(key):
         if len(np.unique(f[key==v]))>1: return True

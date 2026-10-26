@@ -436,6 +436,28 @@ The provably dead moves are a subset of "away or worse". The branch space is mos
 - **D48.** Record I26.
 - **D49.** The redesign uses exact step classification and the exact step-level Bayes policy as diagnostics and references. Dense distance or value targets are privileged information and appear only as an optional arm.
 
+## Entry 32 (26 Oct 2026): worlds design revision 2, and its independent review
+
+**Premise.** Revision 2 replaced revision 1 ([worlds/DESIGN.md](../experiments/worlds/DESIGN.md)). It compares a static PFN with two dynamic-graph meta-models (open-loop and execution-conditioned) that build query-blind paths over the symbolic instruction set. All are trained on the same next-token loss, against exact references: Bayes under the training prior and under the generator, the step-level Bayes policy, and the branch classes. Held-out compound patterns are certified at the full step budget (`certify_patterns.py`; brute-force check in `check_certify_bruteforce.py`): mul→inc 9,555 and inc→mul 4,508 certified functions, almost all ℓ = 6.
+
+The certification also showed that a function needing a pattern for its minimal program nearly always has a longer compliant program, so pattern and length are confounded. The design measures pattern by a difference in differences.
+
+A visual walkthrough of revision 2 was published as an artifact (Paths Over Primitives).
+
+**The independent review** (recorded in DESIGN.md; scripts in `experiments/worlds/review2/`) verified the counts, the certification and the hold-out arithmetic. It found five blocking issues:
+1. the best-first evaluation estimator fails when probability spreads over equivalent paths;
+2. the library is the generator itself, so the dynamic arms' advantage on P2 and P3 is partly by construction;
+3. the held-out patterns can still be emitted by the dynamic arms;
+4. sampled marginal likelihood faces 97% spurious hits at initialization and a constant-0 attractor;
+5. the memorization index ρ sits at chance.
+
+The review also raised a novelty point: dynamic module graphs against static networks, trained from answers, were compared before (Johnson 2017, Hu 2017, Bahdanau 2019), and learned layouts did not generalize better.
+
+**Decisions:**
+- **D50.** Record the review.
+- **D51.** Items 2 and 3 change what the round can claim and go to the researcher. The others are fixed in revision 3.
+- **D52.** Correct the comment in `branch_classify.py`: merging inputs is sufficient for unreachability, not necessary.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

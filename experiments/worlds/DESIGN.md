@@ -1,6 +1,6 @@
 # Dynamic graphs over primitives vs a static-graph PFN: design (revision 2)
 
-**Status:** design, 26 Oct 2026. Not yet a preregistration. Revision 1 (a composer trained on programs, against a monolithic PFN) was reviewed independently. Its review is kept at the end, with how each finding is handled here. The researcher then reframed the round (history Entries 30–31). This document replaces revision 1. It becomes `PREREGISTRATION.md` after a second independent review, a GPU throughput test and the pilot gates in §11.
+**Status:** design, 26 Oct 2026. Not yet a preregistration. **Under revision: the independent review of revision 2 (end of this document) found five blocking issues.** Revision 1 (a composer trained on programs, against a monolithic PFN) was reviewed independently. Its review is kept at the end, with how each finding is handled here. The researcher then reframed the round (history Entries 30–31). This document replaces revision 1. It becomes `PREREGISTRATION.md` after a second independent review, a GPU throughput test and the pilot gates in §11.
 
 **Ledger:** I25 (a generator of worlds), I26 (exact step classification; commitment vs averaging), following F19 (the data gap is the prior).
 
@@ -398,3 +398,57 @@ The reviewer's check scripts are in `review/`. It confirmed:
 - Controls: Bayes on the pool is reference (a); the pool memorizer is a planted model.
 
 **Seeing vs searching** saturated at Bayes at 16 examples, so it is replaced by the commitment and step-decision metrics.
+
+---
+
+## Independent review of revision 2 (26 Oct 2026)
+
+The reviewer's scripts are in `review2/`. **Verified correct:**
+- the function and minimal-program counts (13,866,340 minimal programs at ℓ = 6; 3,321,056 register states at depth 6);
+- the mul→inc and inc→mul rows of the pattern table, reproduced exactly with an independent search and an independent layer-7 expansion;
+- that the layer-7 shortcut is sound, and the freshness-flag semantics;
+- the hold-out arithmetic: 581 / 3,761 / 29,467 functions remain at ℓ ≤ 3 / 4 / 5;
+- that the pattern removals fall almost entirely at ℓ = 5.
+
+**Blocking findings:**
+1. **The best-first evaluation estimator is wrong, and it is not an upper bound.** The training objective gives no reason to prefer one of many equivalent programs, and any minimal program padded with r1-writes is still correct, so probability spreads over many 7-step paths.
+   - An oracle sampling only minimal programs is 0.003 nats per position from Bayes(b), sometimes below it.
+   - The same Bayes-optimal oracle spread over equivalent 7-step paths is 0.94 nats per position from Bayes(b) (≈ 1.9 at k ≥ 8 for ℓ ≤ 3).
+   - P1 would fail from the estimator alone. Fix: Monte Carlo over sampled paths, each executed on all 49 inputs (possible because paths ignore the query), validated on both oracles. A tie-break prior over equivalent programs (a step cost or a length prior) is needed if π*, branch classes and halting are to mean anything. (`estimator.py`, `estimator_junk.py`)
+2. **The library is the generator itself, so P2 and P3 come out largely by construction.** O and E execute the generator's own instructions with enough steps, so their output space *is* the generator's support, and they never learn mod-7 arithmetic; S must. Nothing separates dynamic routing and commitment from a hard-coded true hypothesis class, and SL does not control for it. AGENTS rule 4 also asks for an operator-label permutation and a random-routing control. Suggested:
+   - a mismatched or label-permuted library arm;
+   - a **soft-path static arm**, with per-step instruction distributions that don't depend on earlier choices. Its mixture is an exact Markov chain over the 49 register states, so it trains on exact cross-entropy, with the same library and no commitment.
+
+   Until then, P2 and P3 are "prior by construction", not "mechanism".
+3. **The held-out pattern is not held out from the dynamic arms.** Worlds are functions, so O and E can emit the pattern whenever it hits. In PA, 19.1% of ℓ = 5 pool functions have a minimal program using mul→inc, and 3.5% of training mass is on functions whose every minimal program uses it. For PB the figures are 30.6% and 5.0%. Also, C matches PB's removal size, not PA's. Fix: mask the pattern online in the O and E decoders during PA and PB training, or drop the DBCA framing. (`pools.py`)
+4. **Sampled maximum marginal likelihood will probably not learn from a random start.**
+   - The initial hit rate is 0.175, but 97% of hits are spurious (95% in D3).
+   - 27% of random paths output constant 0, which hits 24% of ℓ = 5 positions: a collapse attractor.
+   - Self-normalized weights give a lone spurious hit full weight.
+
+   Guu 2017, Johnson 2017 and Hu 2017 all hit this problem. Fix: score each path on all remaining points of the episode (same expected loss, because inputs are exchangeable; use the same held-out form for S). With 8 points the hit rate is 0.6%, and about 84% of hits are exact. Add β-meritocratic weights or ε-exploration, and run the learning gate on ℓ = 4–5, not D3. (`init_hits.py`)
+5. **ρ doesn't measure memorization.** On unseen ℓ = 4/5 functions at k = 8, the pool version space is empty in 98% of N100/N400 contexts, so acc_a is at chance and a uniform predictor scores as a perfect memorizer. Fix: measure where the pool version space is non-empty (k ≤ 4–6), on predictive distributions, for example by the mixture weight λ in q ≈ λ·Bayes(a) + (1 − λ)·Bayes(b). (`rho.py`)
+
+**Non-blocking findings:**
+- **Branch classes are not a partition.** Use the precedence dead > no completion within budget > away > lateral > optimal. Merging two inputs is a *sufficient* condition for unreachability, not a necessary one (the comment in `branch_classify.py` is now corrected). A completion "at some length" can't be certified.
+- **π\* is not unique,** since any spread over equivalent programs is Bayes-optimal. KL(π* ‖ π) and the off-minimal rate are diagnostics only, and halting gets no learning signal.
+- **P6** should use Bayes(a) on pool functions. The effective number of worlds from M samples is capped at M, so compare against the same estimator applied to matched-size Bayes samples.
+- **Prediction wording.** P2 says "every cell" but is falsified only at N100 and N400. P7 needs an equivalence margin.
+- **AGENTS rule 4:** 10 seeds against ≈ 29 for headline claims; no initialization-scale sweep; no random-routing control.
+- **Small strata.** The unseen strata at ℓ = 1 and 2 hold 1 and 8 functions.
+- **Feasibility.**
+  - O, E and SL have no code and no bench yet.
+  - `StackedPFN` is still revision 1's model.
+  - Estimated at ≈ 20–60 min per dynamic run on a T4, i.e. 70–200 GPU-hours for O, E and EP, against about 30 GPU-hours a week on Kaggle.
+  - The pilot is outside the 360-run count.
+  - Suggested cuts: D4, N1600, O in the pattern cells, controls at N400 only, EP in one cell. Spend the savings on ≈ 29 seeds for S vs E at N400 and Nall.
+- **Novelty.** Prior work already covers much of this:
+  - Raventós 2023 measures against two Bayes references along a diversity axis;
+  - Bahdanau 2019 (CLOSURE), Johnson 2017 and Hu 2017 compare dynamic module graphs with static networks, trained from answers, and learned layouts did not generalize better;
+  - Li et al. 2024 compare induction and transduction on ARC;
+  - ExeDec's concept-order split resembles the A/B choice;
+  - Hewitt 2020 learns program posteriors from data.
+
+  The combination (exact Bayes, the same prequential loss, exact step classes) may still be new, framed as a measurement contribution.
+
+**Status:** items 2 and 3 change what the experiment can claim and go to the researcher. Items 1, 4 and 5 and the non-blocking items will be fixed in revision 3.
