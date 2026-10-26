@@ -145,11 +145,92 @@ The tests that can fail in interesting ways are C2 (modular against monolithic, 
 
 ---
 
-## 5. Open decisions for the researcher
+## 5. Open decisions, their options and implications (26 Oct 2026)
 
-1. **The primitives.** Hand-chosen arithmetic and group operations (analysable, but built in), or programs sampled from a minimal universal language (closer to the bitter lesson, harder to interpret)?
-2. **How compositional the worlds are.** C2 needs explicitly compositional worlds. A broader, TabPFN-like family is a different study.
-3. **How the real world enters.** Grounding and memory (C4) need at least one "world" with persistent facts. In our toy, that could be a fixed world with exceptions that recurs across training.
-4. **The architecture's state.** Kirsch's result says the block must read the context, so it needs attention.
+### D-1. Primitives: what worlds are built from
+
+| option | exact Bayes reference | ground-truth decomposition (C3) | evidence | fit to the bitter lesson |
+|---|---|---|---|---|
+| **A. Hand-chosen operations:** modular +, −, ×, negation, constants; group products (abelian Z_p; non-abelian such as dihedral or S_5) | yes, by enumeration (`program_prior.py`: 155 functions at size ≤ 5, 1,015 at size 7) | yes | groups: shallow transformers learn shortcuts; non-abelian ones need depth and train unstably (Liu et al.) | weakest |
+| **B. A small generic language:** composition, conditionals, a bounded iteration, over small integers | yes, for small program sizes | yes | PCFG SET: models "find unexpected solutions" | middle |
+| **C. A minimal universal language** (a tiny Turing machine, combinators) | no; only approximate baselines | weak: program steps aren't reusable operations | transfer, but transformers fail on length (Grau-Moya et al.) | strongest |
+
+**Grounding fact that matters most here:** composition in a *non-solvable* group (S_5, A_5) has no constant-depth shortcut unless TC0 = NC1 (Liu et al.). Abelian composition does have one. So products of S_5 elements *force* genuinely serial computation, and abelian sums don't. That's the cleanest way to make "serial composition is necessary" true by construction, which is what C2 tests.
+
+### D-2. How compositional the worlds are
+
+| option | what it can test | risk |
+|---|---|---|
+| **A. Explicitly compositional:** each world is a program of depth 1–D over the primitives, with pairs and orders decorrelated | C2, C3; held-out combinations (DBCA); length (train ≤ D, test > D) | without decorrelation, the learner stores frequent composites as single blocks |
+| **B. Broad, unstructured** (TabPFN-like: random functions or tables over Z_p) | generic in-context learning | cannot tell modular from monolithic; composition claims impossible |
+| **C. Mostly A, plus a small share of random-table worlds** | as A, plus memorization pressure that resembles "facts" | the share of table worlds is a new knob |
+
+Sub-decisions:
+- maximum training depth and the held-out depths;
+- number of primitives (4–8);
+- arity;
+- inputs as pairs (a, b) → y, or as sequences (for group products);
+- exclusion of trivial worlds (constants, a single identity), the complexity sweet spot.
+
+Evidence:
+- MLC: random grammars per episode give systematicity but not productivity.
+- Kirsch, Raventós: the number of distinct worlds sets the phase. Combinatorics gives thousands of programs from a few primitives.
+
+### D-3. Grounding and memory: how "this world" enters
+
+| option | what it tests | risk |
+|---|---|---|
+| **A. Pure synthetic,** with no persistent world | the library only | no test of memory (C4) |
+| **B. A "home world" that recurs throughout training:** fixed symbols, a fixed program, plus exceptions that are never shown in context | C4: is the home rule served by the library (few examples on unseen home pairs) while its exceptions are recalled from storage, without interference in other worlds? | rare exceptions get overgeneralized (PCFG SET, below about 0.5%), so the exception rate must be swept; memory becomes a sink unless entries cost something |
+| **C. Mix in real data** (e.g. decimal arithmetic in text) | the real world's prior over which compositions occur | many confounds for a first round; Hu et al. and LIME suggest synthetic first, then real data in limited amounts |
+
+Memory mechanism:
+- implicit in weights;
+- a designated memory block (key–value, charged per entry: the two-part description length);
+- external retrieval.
+
+Grounding:
+- complementary learning systems: fast hippocampal storage, slow cortical structure;
+- F14: confidently wrong predictions are the signal that should route an item to memory;
+- X10 / MemSinks: separation needs input-dependent routing.
+
+### D-4. Architecture: where composition lives
+
+| option | what it isolates | risk |
+|---|---|---|
+| **A. Monolithic transformer** (PFN baseline) | the reference every claim is measured against (I23) | — |
+| **B. One weight-tied block, applied recurrently with halting** (a library of size 1; universal-transformer / Mixture-of-Recursions style) | serial composition plus halting, *without* routing | may learn shortcuts anyway |
+| **C. A routed library of K uniform blocks** (Mixture-of-Modules style) | reusable primitives (C3) | routing's failure modes: collapse, instability, overfitting (Rosenbaum et al.) |
+| **D. C plus a memory block** | C4 | memory as a sink |
+
+- Every block needs attention over the context (Kirsch: state matters more than parameters).
+- Compare at matched parameters and compute.
+- Halting options:
+  - a fixed-depth sweep;
+  - learned halting with a cost per step;
+  - stop when the layer-to-layer prediction stabilizes.
+- Evidence that the comparison is worthwhile: every monolithic model in this literature fails at length (MLC, PCFG SET, universal predictors, shortcuts to automata). Training that encourages step-by-step solutions repairs it (Liu et al.). If B or C repair length without that, it's a genuine result.
+
+### D-5. Scale and measurement (practical)
+
+- **Moduli** 5–17 and **contexts** of ≤ 64 examples, which is enough for the ideal learner.
+- **A sweep of distinct training worlds** (e.g. 2^6 to 2^14; Kirsch needed about 2^13).
+- **Models sized for T4s.**
+- **A curriculum on depth** (Garg).
+- **The scoreboard:** predict-then-learn code length per held-out world against the exact Bayes reference.
+
+### How the decisions interact
+
+- C2 needs D-1 ∈ {A, B}, D-2 ∈ {A, C} and D-4 comparing A, B and C.
+- C3 needs ground-truth decompositions (D-1 A or B).
+- C4 needs D-3 B and D-4 D.
+- C1 works under any choice, but is only informative about where the threshold sits.
+
+**A minimal coherent first round, if the researcher agrees:**
+- **primitives:** modular operations plus one non-abelian group (D-1 A, leaning B);
+- **worlds:** compositional and decorrelated, with a depth split (D-2 A or C);
+- **grounding:** a home world with exceptions (D-3 B);
+- **architectures:** monolithic, recursive and routed library (+ memory), at matched compute (D-4);
+- **reference:** the exact Bayes learner.
 
 **Sources** are linked inline in the chat discussion of 26 Oct 2026 and in history Entry 29.
