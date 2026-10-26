@@ -205,3 +205,41 @@ The models are tiny and the sequences short (≤ 16 context tokens, ≤ 7 progra
 - exact verdict rules and effect thresholds;
 - the minimum certified test-set size per split;
 - ~~whether the ℓ = 6 enumeration fits~~: it does (297,845 functions × 49 int8 ≈ 15 MB).
+
+---
+
+## Independent review (26 Oct 2026, before preregistration)
+
+The reviewer's check scripts are in `review/`. It confirmed:
+- the counts (additive-only saturates at 343; 297,845 functions at ℓ ≤ 6, *including* the identity at ℓ = 0);
+- the cell sizes;
+- the stacked-model tests.
+
+**Blocking findings:**
+1. **The "in-support" split is not in support.** Held-out functions have zero prior under the cell's training prior. An ideal PFN trained on the pool fails them: Bayes on the pool gets 0.003 accuracy at 16 examples, against 1.000 under the generator prior. Prediction 1 means opposite things under the two references.
+2. **Composers cannot express programs longer than the training cap.** The decoder learns HALT after `cap` steps, so the length-6 and beyond-depth predictions are fixed by the architecture.
+3. **Monolithic vs composer is not a fair test of composition.** The composer alone gets latent program supervision and an exact interpreter. The open-loop composer never touches the library during training, so with exact clean-up the library plays no causal role. This is the synthesis-vs-induction comparison RobustFill already made. Parameters are matched, but compute is not.
+4. **The structural splits are ambiguous and leak.**
+   - The X5 pool is only 3,879 functions.
+   - The "order" restriction excludes 90% of ℓ = 5.
+   - Many test functions also have a compliant program of length ≤ 5.
+   - "inc r1" is ambiguous (source or destination).
+   - "Exactly one" violation is ambiguous.
+5. **Concept mixing can only come out one way.** The S5 pool has 389 functions and the test set covers 99% of ℓ ≤ 5.
+6. **The D and N cells don't separate depth from diversity.** Subsampling is unstratified, and repetitions per function covary with diversity.
+7. **Posterior-fidelity KL is unestimable from samples** at small k, and the program-decodability label is undefined: only 1% of ℓ = 5 functions have a unique minimal program.
+8. **3 seeds and one learning rate per stack** violate AGENTS rule 4 and L8; the stacked optimizer needs a per-run learning rate.
+
+**Non-blocking:**
+- seeing vs searching saturates at Bayes at 16 examples;
+- ℓ = 6 weight under prior (b) and the identity are unspecified;
+- inconsistent identifiability numbers (line 49 quotes ℓ ≤ 5 figures);
+- CSR storage for 13.9M minimal programs at ℓ = 6;
+- tiny strata at ℓ ≤ 2;
+- `stacked.py` efficiency (embedding gather, mask broadcasting, padding mask for k < 16);
+- the tests run on CPU, not GPU;
+- the bench covers the monolithic arm only;
+- no episode budget (about 1.5M episodes to see each ℓ = 5 function 10 times);
+- missing controls (Bayes on the pool, the nearest-pool floor, a monolithic PFN with a program head).
+
+**Status:** the design is under revision. Items 2, 3 and 5 change the science and go to the researcher. The rest are fixed in the revision.
