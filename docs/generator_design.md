@@ -533,4 +533,27 @@ Setup: two registers (r0 = x, r1 = y), output r0, instructions dest ← src1 op 
 
 **Still to fix:** p, the number of registers (more registers raise diversity per length), whether to add a constant or comparison/select instruction, and the program prior (uniform over programs vs uniform over distinct functions; Shin's salient variables).
 
+## 13. Decisions (26 Oct 2026, the researcher)
+
+- **Program prior:** sample uniformly over *distinct functions*, then a random program that computes the chosen function, so frequently computed functions are not over-weighted.
+  - **Refinement:** draw the program from the function's *minimal-length* programs (or minimal + a small slack). Otherwise long redundant programs (no-op or cancelling instructions) dominate each function's set, and the composer learns to emit them.
+- **Domain:** mod 7, mixed operations ({add, sub, mul, neg, inc}).
+
+**Settled so far:**
+- frozen primitive library, each block verified exhaustively;
+- composer trained as a PFN over programs;
+- held-out splits defined over functions, using ExeDec's taxonomy plus single-concept-train / mixed-test;
+- training lengths ≤ 5, with length 6 held out;
+- a monolithic PFN of equal compute as the baseline;
+- instrumentation per §6 and §8.
+
+**Tentative:** one-hot value code with clean-up as the main interface (a soft interface as the stability variant); fixed value semantics across worlds.
+
+**Open before preregistration:**
+- the number of registers;
+- whether to add a constant or compare/select instruction;
+- open-loop vs execution-conditioned (both as arms?);
+- the composition-mix sweep levels;
+- model sizes and compute.
+
 **Sources** are linked inline in the chat discussion of 26 Oct 2026 and in history Entry 29.
