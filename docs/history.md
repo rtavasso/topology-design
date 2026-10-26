@@ -482,6 +482,24 @@ The round becomes a factorial: library (learned arithmetic vs given primitives) 
 **Decisions.**
 - **D53.** Revision 3 replaces "S vs O/E" with the factorial above. The original S stays as the no-library reference.
 
+## Entry 34 (26 Oct 2026): why a dynamic graph, stated as separate claims (discussion)
+
+**Premise (researcher).** A dynamic graph makes effective computational depth scale combinatorially with the number of primitives and the program length, while a static graph's depth is just its layer count, plus whatever hypotheses each layer can hold in its own space. Dynamic depth lets compute go where it is needed. Reusable primitives avoid training astronomically many unique layers: they serialize into effectively deep models.
+
+**Argument (the motivation split into four claims, each testable separately):**
+1. **Combinatorial family, linear cost.** What scales combinatorially is the number of distinct deep computations available (|primitives|^L), at linear parameter cost and linear per-token compute. The depth of any one executed computation is still L.
+   - Static nets also contain combinatorial path counts: a residual net with L blocks has 2^L paths (Veit 2016), but it sums them in superposition rather than selecting them.
+   - The real axis is superposition vs selection: the composition axis of the factorial (Entry 33).
+2. **Compute allocation.** Steps used should track the depth a world needs. This requires a per-step cost or length prior. Without one, nothing favors short programs: this is the review's tie-break finding, which turns out to *be* the compute-allocation objective (shortest program, MDL). On the toy it is measurable exactly: steps used against minimal length ℓ.
+3. **Reuse across depth.** One library is serialized at every depth (unlike per-layer experts), so each primitive is trained by every path through it. In neural form this needs a shared interface between primitives (norms, representation drift). The symbolic toy assumes the interface away.
+4. **Depth for representation.** On Z_7 with 49 inputs, every function is a 49-entry table, and composing maps on 49 states has shallow shortcuts (parallel prefix, as in Liu 2023). The toy therefore *cannot* test depth's representational advantage, only inference over compositions and compute allocation. Testing it needs an unbounded input, such as a world program iterated over a variable-length sequence (state tracking), where a fixed-depth static model must fail as the sequence grows (TC⁰ limits; non-solvable groups).
+
+**The open risk.** The combinatorial family is only as good as the selector's inference over it. The selector is itself a static network, iterated once per step. Module-network results locate generalization failures there.
+
+**Decisions.**
+- **D54.** Revision 3 adds a per-step cost or length prior (which serves as both tie-break and compute-allocation objective), and steps used against ℓ as a metric.
+- **D55.** The representational-depth claim is recorded as untestable on the current toy, and is deferred to a sequence-input domain.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
