@@ -323,4 +323,45 @@ Known exact solutions do not *ensure* the general circuit is learned; they make 
 7. **Adopt Mittal's metrics** (collapse, alignment to the nearest permutation, plus mutual information between routes and ground-truth sub-programs) alongside the instrumentation in §6.
 8. **Prediction from kernel theory (Lippl):** monolithic models should do well on additive or abelian composites and fail on non-additive serial ones. The primitive families should include both, so the comparison can discriminate.
 
+## 8. State, control and how the library is built (26 Oct 2026)
+
+**Decision (researcher): no intermediate supervision, and no sweep of it.** The claim to prove is instead that each grown block's output carries two things:
+1. **the value:** the primitive's output on its input;
+2. **control:** where the computation should go next, learned from the training mix.
+
+### Data and control in the state
+- In a serial routed library, the state after each block must carry the *value* and the *control*: the remaining program, or at least the next operation.
+- In a PFN world the program is inferred from the context, so a first step has to write the inferred program into the state. Each block then executes one operation and passes the rest along (it "pops" the program). That is a learned interpreter's state: a value register plus a program register.
+- **Whether blocks must carry control depends on what the router reads:**
+  - **state only** (the researcher's original idea: "the output of a layer routes to the next"): blocks *must* carry control, so control decodability in the state is a testable claim, and width is a meaningful knob;
+  - **state plus the context:** the router can re-derive control at every step, and blocks need not carry it.
+- **What to measure, per step:**
+  - a probe decoding the value;
+  - a probe decoding the next operation and the remaining program;
+  - interference between the two (does adding control degrade the value readout?).
+- **Width:** in bits the need is small (value ≈ log2 p, control ≈ L·log2 K). The real limits are linear decodability and interference (superposition), not raw capacity.
+
+### Building the library: three options
+
+| option | gives | doesn't give |
+|---|---|---|
+| **A. Train each primitive block alone** to exhaustive correctness on its finite domain, verify it, freeze it, add it to the library; then train routing and control on the mix | blocks provably compute their primitives; no collapse or specialization failure | library *discovery* (we defined the decomposition); control is still learned only in the composed stage; blocks trained apart must share an interface (value code) |
+| **B. Train library and router jointly** on the mix | the real test of discovery | likely to fail at first (Mittal; Boopathy); needs the instrumentation to diagnose |
+| **C. Staged:** A as a positive control, then B on the same generator, comparing discovered blocks with the known ones | splits "composition fails" into router, interface and stability problems (if A fails) versus discovery problems (if A works and B fails) | costs two stages |
+
+**Note on "grokking" a primitive.** Over a finite value domain, a block trained on *all* inputs simply fits the function; there's nothing to generalize to within the block. Generality across worlds comes from the symbol randomization being handled *before* the blocks: an encoder maps context symbols to a shared value code, and blocks operate on values, not symbols. Grokking-style generalization matters only if a block sees part of its domain.
+
+### Norms, interfaces and stability
+- **Interface drift:** each block's output must land in the distribution the next block was trained on. Norm growth along a route moves later blocks off their training distribution, which is especially damaging for blocks trained alone.
+- **Residual addition against function composition:** f(g(x)) *replaces* the value, but a residual stream *adds*. Additive updates help optimization; composition needs overwriting. Options:
+  - a value subspace that each block replaces;
+  - a learned erase;
+  - normalization at block boundaries so the state's scale is fixed.
+- **A fixed value code:** for Z_p, a unit-norm Fourier (cos/sin) code is natural, and it's what networks learn for modular arithmetic anyway. It fixes the scale and geometry of the interface.
+- **Error accumulation at inference:** with per-step error ε, accuracy decays with length unless the code has margin and a clean-up step (snap to the nearest code word, as in vector-symbolic architectures). Some failures to generalize to longer programs may be exactly this, not a failure of composition.
+- **Instrumentation to add:**
+  - norm and distance-to-codebook of the state at every step;
+  - gain on the value subspace (≈ 1 for stable composition);
+  - the accuracy-versus-step curve with and without clean-up.
+
 **Sources** are linked inline in the chat discussion of 26 Oct 2026 and in history Entry 29.
