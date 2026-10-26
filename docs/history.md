@@ -405,6 +405,37 @@ All were fixed before launch (listed in the preregistration). New lesson L17.
 - **D46.** 9 cells × 3 arms × 3 seeds = 81 runs. The structural splits get their own cells (S5, X5), because their training restrictions conflict.
 - **D47.** Stacked-run batching (every run of an arm in one batched model, with data generation and execution on the GPU) is the throughput strategy. Implemented and tested for exact equivalence and independence. The GPU throughput test (`launch.py --bench-worlds`) precedes the preregistration.
 
+## Entry 31 (26 Oct 2026): exact branch classification, and commitment vs averaging (discussion)
+
+**Premise.** The researcher noted two things.
+- On Z_7 we can prove, for every sampled next primitive, whether it moves toward the shortest branch set, laterally, or away; whether it makes the optimal path impossible; or whether it makes any solution impossible within the program-length cap.
+- A static PFN averages worlds in its output, while the dynamic meta-model selects a graph that commits to one world. Attention's ability to combine unseen tokens is thereby moved from the output logits to the branch selection.
+
+**Evidence.** `experiments/worlds/branch_classify.py` sampled 25 target functions of minimal length 4 and tried all 32 first moves for each:
+
+| Class | Share of first moves |
+|---|---|
+| Optimal (distance −1) | 5.9% |
+| Lateral (distance unchanged; optimum lost by one step) | 24.9% |
+| Away or worse | 69.3% |
+| Provably dead (the state merges inputs that the target separates) | 42.2% |
+
+The provably dead moves are a subset of "away or worse". The branch space is mostly irreversible death: overwriting a register destroys information, and nothing recovers it.
+
+**Argument.**
+- **Step classes.** Each step's regret is 1 + d(s′) − d(s). Distance falls by at most one per step but can rise without bound, so every non-optimal step makes the minimal length unreachable.
+- **What "target" means.** With k context examples, the target is the version space consistent with the context. The exact Bayes-optimal step policy is the posterior mass of minimal programs that extend each prefix.
+- **Commitment vs averaging.** Under log loss, a mixture over paths has the same optimum as the PFN: the posterior predictive. What differs:
+  - the meta-model's errors are wrong but valid worlds, never blends;
+  - a committed path gives coherent joint predictions across queries;
+  - a committed path can be checked against the context;
+  - novelty is extrapolated in path space rather than in logit space.
+- **The price of commitment.** It is irreversible. Breadth (keeping a branch set while the version space is wide) or verification is required.
+
+**Decisions.**
+- **D48.** Record I26.
+- **D49.** The redesign uses exact step classification and the exact step-level Bayes policy as diagnostics and references. Dense distance or value targets are privileged information and appear only as an optional arm.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
