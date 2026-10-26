@@ -484,4 +484,53 @@ With frozen, verified primitives and a composer that infers programs from exampl
 
 **Value code.** Neural Execution Engines show that structured value codes decide generalization. For residues, a Fourier code is the natural choice. Whether to fix the code or compare two is open.
 
+## 12. Open-loop vs execution-conditioned, the value code, and sizing the instruction set (26 Oct 2026)
+
+### Open-loop vs execution-conditioned composition
+- **Open-loop:** the composer reads the context examples and emits the whole program; the frozen blocks then run it.
+- **Execution-conditioned:** after each instruction, the composer also sees the intermediate values for every context example, next to the target outputs.
+- **For an ideal Bayesian composer these are equivalent.** Intermediate values are a deterministic function of the examples and the partial program, so they carry no new information.
+- **The difference is computational.** An open-loop composer must *internally simulate* the library: it has to know what each primitive does in order to predict what a program will do. An execution-conditioned composer offloads that simulation to the blocks. Open-loop therefore tests whether the composer learned an internal model of its primitives' semantics. Errors in that internal model should compound with program length.
+- **Prediction:** the two are similar in distribution; open-loop degrades faster on longer programs and on held-out compositions. This matches ExeDec and execution-guided synthesis.
+- **The comparison is cheap:** the same composer, with or without an execution-trace input.
+
+### The value code
+The value code is how a value (e.g. "3 mod 7") is written as a vector in the state, the format every frozen block reads and writes. Options:
+- **one-hot / table** (no geometry);
+- **binary** (positional bits);
+- **Fourier** (cos and sin of 2πkv/p for a few k; modular addition becomes rotation, so it builds in modular structure);
+- **learned** (an embedding learned jointly with the blocks in Stage 1).
+
+It matters for four things:
+1. **The interface:** blocks trained apart must agree on it.
+2. **Generalization within a block:** this matters only if a block sees part of its domain. Stage 1 trains on full domains, so it largely drops out.
+3. **Stability over long programs:** a discrete code allows clean-up (snap to the nearest code word) after each block, so errors cannot accumulate. Without clean-up, drift and norm effects become observable.
+4. **A built-in prior:** Fourier builds in modular structure; one-hot builds in none.
+
+**Default:** one-hot with clean-up for the main experiment, which gives an exact, discrete interface and isolates the composer. A soft interface without clean-up is the variant for studying stability.
+
+**Related simplification:** keep value semantics fixed across worlds (no per-world symbol randomization) in this round. Randomizing symbols adds a second hidden variable (which symbol means which value, identifiable only up to automorphisms) on top of program inference.
+
+### Sizing the instruction set: counts from `experiments/worlds/count_isa.py`
+Setup: two registers (r0 = x, r1 = y), output r0, instructions dest ← src1 op src2 or dest ← f(src).
+
+| instruction set | L = 1 | 2 | 3 | 4 | 5 | 6 | examples to identify |
+|---|---|---|---|---|---|---|---|
+| p = 5, {add, sub, mul, neg, inc} (32 instructions), new functions by minimal length | 13 | 74 | 475 | 3,214 | 21,777 | 145,201 | 8 → 36% unique, 12 → 86% |
+| p = 5, additive only {add, sub, neg, inc} | 10 | 30 | 57 | 27 | 0 | 0 (saturates at **125** = p³ affine maps) | 3 → 86%, 4 → 100% |
+| p = 7, mixed | 13 | 80 | 552 | 4,179 | 32,741 | — | 6 → 48%, 8 → 87%, 12 → 98% |
+
+**What the counts say:**
+- **The closure trap, measured.** Additive-only programs of any length collapse to 125 affine functions, identifiable from 3–4 examples, so a learner can identify the function without composing. Adding multiplication makes the number of distinct functions grow about 6–7× per step, so composition is necessary.
+- **Diversity against thresholds.** Distinct functions at length ≤ 4: about 3.8k (p = 5) or 4.8k (p = 7). At ≤ 5: about 25k or 38k. At ≤ 6: about 171k (p = 5). Kirsch's general-learning threshold was about 2^13 ≈ 8k tasks, so training up to length 5 gives a few times that, with length 6 as the held-out length split (145k functions that provably need 6 steps).
+- **Context size.** Pinning a function down takes 8–12 examples (p = 5) or 6–8 (p = 7). p = 7 leaves more held-out query inputs (49 inputs per world).
+- **Concept groups fall out naturally:**
+  - additive-only programs form a closed family (affine maps);
+  - multiplication-only programs are near-closed (monomials);
+  - mixed programs reach polynomial space.
+
+  So ExeDec's "compose different concepts" split is certifiable: train on single-concept programs, test on mixed ones.
+
+**Still to fix:** p, the number of registers (more registers raise diversity per length), whether to add a constant or comparison/select instruction, and the program prior (uniform over programs vs uniform over distinct functions; Shin's salient variables).
+
 **Sources** are linked inline in the chat discussion of 26 Oct 2026 and in history Entry 29.
