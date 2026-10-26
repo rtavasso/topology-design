@@ -364,4 +364,52 @@ Known exact solutions do not *ensure* the general circuit is learned; they make 
   - gain on the value subspace (≈ 1 for stable composition);
   - the accuracy-versus-step curve with and without clean-up.
 
+## 9. Simplified design: a frozen primitive library plus a learned composer (26 Oct 2026, the researcher)
+
+**Stage 1:** a library of single-layer primitive blocks, each trained alone on a known task to exhaustive correctness, then frozen. The primitives are chosen to compose serially into a wide variety of programs, as higher-level abstractions, not necessarily fully general yet.
+
+**Stage 2:** a meta-model trained on a second mix learns to compose programs from the frozen blocks. Routing is learned here. Composition must be contextual (attention over the examples), so it can generalize to compositions unseen in training.
+
+Joint discovery is deferred.
+
+### Where control lives
+- With frozen blocks trained alone, blocks cannot carry control: they never saw composition. **Control lives in the meta-model:**
+  - at each step it reads the context examples (attention), the current value state (the last block's output) and its own execution history;
+  - it chooses the next block or halts.
+- This is the separation of task inference from execution that fixed compositional generalization in "When can transformers compositionally generalize in-context?".
+- Value-dependent routing (conditionals) is still possible, because the meta-model reads the value state.
+- **The provable claims become:**
+  - blocks provably compute their primitives (Stage 1, exhaustive);
+  - the inferred program is decodable from the meta-model's state on held-out worlds, which separates inference failures from execution failures.
+
+### The machine model (what the state is)
+- Serial composition of value → value blocks covers only unary chains. Binary operations need several values in the state, so the state should be a small **register or stack machine** over a fixed value code:
+  - blocks are instructions (operations on registers, plus moves or copies);
+  - a program is a straight-line instruction sequence.
+
+  With enough registers and length, straight-line programs express any finite function. Loops would need halting.
+- With mixed operations (add, multiply, compare/select), composites leave any small family, which avoids the closure trap (§7). Reachable functions per program length are enumerable.
+- Higher-level abstractions (chunks) can be added to the library later as compressed sub-programs.
+
+### Training signal for the composer (a new decision)
+
+| signal | effect |
+|---|---|
+| **Program supervision** (the known program as target) | easiest, but hands in programs. Equivalent programs must be accepted: supervise against *any* minimal program |
+| **Final output only** | soft routing with clean-up, straight-through, or policy gradient; the hardest credit assignment |
+| **Search plus self-training (expert iteration)** | the composer proposes; exact frozen blocks execute candidates *on the context examples*; verified programs become training targets (DreamCoder's recognition model). No hand-given programs. |
+
+### Verification and search at inference
+- Frozen exact primitives make verification cheap and exact. Run any candidate program on the context inputs and compare with the context outputs.
+- The composer proposes; search branches over candidates in parallel (VRAM); mismatches are pruned. Generalization to unseen compositions then doesn't depend on the composer having seen them.
+- **Evaluation axis:** first-proposal accuracy ("seeing") against accuracy within k verified samples ("searching"). The gap measures how much of the competence is the learned prior and how much is search.
+
+### What the experiment now tests
+Given a verified primitive library, can a meta-model infer and compose programs in context, and generalize to unseen compositions and longer programs, compared with a monolithic PFN of equal compute on the same worlds? Measured with:
+- first-proposal and with-search accuracy;
+- program decodability;
+- sweeps of the composition mix.
+
+Joint discovery comes after.
+
 **Sources** are linked inline in the chat discussion of 26 Oct 2026 and in history Entry 29.
