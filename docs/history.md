@@ -354,6 +354,26 @@ All were fixed before launch (listed in the preregistration). New lesson L17.
 
 **Expected falsifiers:** S ≥ 4 (search matters); a narrow network groking at ≤ 348 pairs; pooled median D ≤ 0 against the radial null.
 
+## Entry 28 (25 Oct 2026): priors round results — the gap is the prior
+
+**Premise.** Q1 and Q2 ran on Kaggle (634 runs). They were analysed with the committed code and independently recomputed: every preregistered number matched. See [priors/RESULTS.md](../experiments/priors/RESULTS.md).
+
+**Evidence:**
+- **Q1:** in the stable network, the ungrokking threshold equals the scratch floor (870 pairs, S = 1.0; 1.0–1.5 under matched variants).
+  - P1 and P2 supported; P4b supported; P4 not supported; P3 an uninformative tie.
+  - The Varma-style S ≈ 2 appears only under a lenient criterion.
+- **Q2:** the drift direction beats a matched-norm null in all 4 cells (P5 supported), with small effects and qualifications.
+
+**Argument.**
+- Below about 870 pairs, the training equilibrium itself prefers memorizing, so the gap is not a failure of the walk to find what it would prefer.
+- This removes the motivation for search-side fixes (credit routing, competing members, growth by residual) *as routes to data efficiency*. It points to changing the prior.
+
+**Decisions:**
+- **D42.** Record F19–F21 and X17. Note F16 (narrower form), H3 (the prior reading of masking) and I17/I13/I18 (answered). Deprioritize I20/I21. New lesson L18.
+- **D43.** The next round's question is about priors: what makes the rule cheaper than a lookup table from a few examples, and can that prior be learned across tasks (I19, I23)? To be discussed with the researcher before any design.
+
+**Correction.** My first message to the researcher said "S ≈ 1–2" and gave a width ordering. The recomputation showed S ≈ 1 under matched criteria, and that the ordering turns on single-eval dips. Corrected in RESULTS.md and the ledger (L18).
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
