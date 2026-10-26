@@ -388,6 +388,23 @@ All were fixed before launch (listed in the preregistration). New lesson L17.
 - **D44.** Record I25.
 - **D45.** No experiment is designed until the researcher decides the open questions in §5 of the note: the primitives, how compositional the worlds are, how the real world enters, and the architecture's state.
 
+## Entry 30 (26 Oct 2026): the worlds round designed
+
+**Premise.** The discussion converged on a design ([worlds/DESIGN.md](../experiments/worlds/DESIGN.md); decisions and literature in [generator_design.md](generator_design.md) §§6–14):
+- a frozen library of verified primitive blocks (mod 7: add, sub, mul, neg, inc over two registers);
+- a composer trained as a PFN over programs, open-loop and execution-conditioned, against a monolithic PFN of equal size;
+- training mixes swept over depth, diversity and concept mixing;
+- held-out sets certified by enumeration (in support, length 6, concept mixing, and three structural splits adapted from ExeDec).
+
+**Evidence used:**
+- function counts by minimal length: 13 / 80 / 552 / 4,179 / 32,741 / 260,279;
+- the closure trap measured: additive-only programs saturate at p³ affine maps;
+- identifiability: 12 examples pin a function down 93% of the time among all functions at ℓ ≤ 6.
+
+**Decisions:**
+- **D46.** 9 cells × 3 arms × 3 seeds = 81 runs. The structural splits get their own cells (S5, X5), because their training restrictions conflict.
+- **D47.** Stacked-run batching (every run of an arm in one batched model, with data generation and execution on the GPU) is the throughput strategy. Implemented and tested for exact equivalence and independence. The GPU throughput test (`launch.py --bench-worlds`) precedes the preregistration.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

@@ -98,5 +98,15 @@ elif job["job"] == "grid":
         print(open(os.path.join(W, f"grid_shard{i}.txt")).read()[-3000:], flush=True)
     n = len([f for f in os.listdir(out) if f.endswith(".json.gz")])
     print(f"\nSUMMARY grid={job['grid']} shards={k} rcs={rcs} results={n}", flush=True)
+elif job["job"] == "bench_worlds":
+    rc = run("tests", [sys.executable, "-m", "pytest", "-q", "tests/test_stacked.py"])
+    b = [sys.executable, "experiments/worlds/bench_stacked.py", "--steps", "30"]
+    for i, extra in enumerate((["--d", "128", "--layers", "4", "--R", "1", "9", "27", "54"],
+                  ["--d", "128", "--layers", "4", "--R", "1", "9", "27", "54", "--amp"],
+                  ["--d", "256", "--layers", "6", "--R", "1", "9", "27", "--amp"],
+                  ["--d", "128", "--layers", "4", "--B", "256", "--R", "1", "9", "27", "--amp"],
+                  ["--d", "128", "--layers", "4", "--B", "16", "--R", "27", "54", "108", "--amp", "--no-separate"])):
+        run(f"bench{i}", b + extra)
+    print(f"\nSUMMARY bench_worlds tests_rc={rc}", flush=True)
 else:
     sys.exit(f"unknown job {job}")

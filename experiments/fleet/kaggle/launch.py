@@ -67,6 +67,8 @@ def kaggle(*args, check=True):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--grid", default=None, help="grid JSON (repo-relative) to run instead of the validation")
+    ap.add_argument("--bench-worlds", action="store_true",
+                    help="throughput test of stacked models for the worlds round (experiments/worlds/DESIGN.md §8)")
     ap.add_argument("--max-batch", type=int, default=64)
     ap.add_argument("--no-tests", action="store_true", help="grid jobs: skip the fleet tests before the grid")
     ap.add_argument("--out", default=None)
@@ -78,9 +80,13 @@ def main():
     ap.add_argument("--user", default=os.environ.get("KAGGLE_USERNAME"))
     args = ap.parse_args()
     name = "validate" if args.grid is None else os.path.splitext(os.path.basename(args.grid))[0]
+    if args.bench_worlds:
+        name = "bench-worlds"
     args.out = args.out or os.path.join(ROOT, "results", f"kaggle_{name}")
-    args.kernel = args.kernel or ("topology-fleet-validate" if args.grid is None else f"topology-fleet-{slug(name)}")
-    args.dataset = args.dataset or ("topology-design-code" if args.grid is None else f"{args.kernel}-code")
+    args.kernel = args.kernel or ("topology-fleet-validate" if (args.grid is None and not args.bench_worlds)
+                                  else f"topology-fleet-{slug(name)}")
+    args.dataset = args.dataset or ("topology-design-code" if (args.grid is None and not args.bench_worlds)
+                                    else f"{args.kernel}-code")
     user = args.user
     if not user:
         cfg_dir = os.environ.get("KAGGLE_CONFIG_DIR", os.path.expanduser("~/.kaggle"))
@@ -102,6 +108,9 @@ def main():
             sys.exit(f"grid not found: {args.grid}")
         job = {"job": "grid", "grid": grid_rel, "max_batch": args.max_batch, "tests": not args.no_tests}
         include = INCLUDE + [grid_rel]
+    if args.bench_worlds:
+        job = {"job": "bench_worlds"}
+        include = INCLUDE + ["experiments/worlds/bench_stacked.py", "tests/test_stacked.py"]
     jp = os.path.join(tmp, "job.json")
     with open(jp, "w") as f:
         json.dump(job, f)
