@@ -445,4 +445,43 @@ Joint discovery comes after.
 
 Related: DeepCoder (Balog et al. 2017; a network predicts which functions appear, to guide search) and RobustFill (Devlin et al. 2017; neural synthesis from examples), both trained on synthetic program priors.
 
+## 11. Third literature check: the design is close to neural program synthesis (26 Oct 2026)
+
+With frozen, verified primitives and a composer that infers programs from examples, the design sits inside **neural program synthesis and induction**. What that literature already shows:
+
+| work | finding | consequence for us |
+|---|---|---|
+| **DeepCoder, RobustFill** (2017) | Synthesizers trained on randomly generated programs from a DSL work well in distribution; DeepCoder uses the network to guide search | our Stage 2 is this setup with a neural-implemented DSL |
+| **Shin et al. 2019** | Collapse under shifts in salient variables (Karel 73.5% → 27.9%); fixed by resampling those variables to be uniform | control and report the salient variables |
+| **ExeDec** (Shi et al. 2024) | Compositional-generalization benchmark for synthesis with five splits. A Transformer gets 90.9% in distribution vs 42.4% on the held-out average (string domain); 53.6% vs 5.7% (list domain). **Predicting execution subgoals step by step** raises the held-out average to 87.0% and 23.1% | adopt the five splits as our out-of-support taxonomy (below). The strongest known lever is conditioning on execution |
+| **Execution-guided synthesis** (Chen et al. 2019), **REPL synthesis** (Ellis et al. 2019), **latent execution** (LaSynth 2021) | Conditioning the next choice on the execution state of the partial program improves synthesis. A learned latent executor nearly matches a real interpreter | evidence against purely open-loop composition (see the decision below) |
+| **Neural Execution Engines** (Yan et al. 2020) | Transformer subroutines (compare, add, min) learned **in isolation**, then **reused without retraining** inside sorting and shortest paths. Trained on size 8, near-perfect at size 100. Critical ingredients: **binary (structured) value codes**, and masks separating *where* from *what*. Without them, accuracy fell below 10% at 100 | strong support for the frozen-library stage, and evidence that the **value code is a first-order design choice** |
+| **NPI, and NPI with recursion** (Reed & de Freitas 2016; Cai et al. 2017) | A learned controller over a library of learned subprograms, trained with execution traces. Recursion makes guarantees about generalization tractable | the controller-plus-library lineage. Supervision there was much stronger than we plan |
+| **TerpreT** (Gaunt et al. 2016) | Gradient-based program induction loses to discrete search and constraint solvers | supports verification and search over a purely gradient-based composer |
+| **Hypernetwork in-context** (Schug et al. 2024) | A monolithic transformer infers the task but can't execute held-out combinations; an inference/execution bottleneck fixes it | the closest monolithic-vs-bottleneck comparison |
+
+**Honest framing of Stage 1.** Once the primitives are frozen and verified exact, the neural library behaves like a symbolic interpreter. Stage 1 is then a neural-guided program synthesizer: a positive control and a measurement framework, not the novel part. What is not standard, and is ours:
+1. **A head-to-head with a monolithic PFN on identical worlds,** scored by predict-then-learn code length against the *exact* Bayes posterior.
+2. **A posterior-fidelity check** of the composer against the enumerated posterior over programs.
+3. **Controlled sweeps of composition in the mix,** with certified counts of composable functions.
+4. **The "seeing vs searching" gap:** first proposal against within k verified samples.
+5. **Stage 3:** discovered rather than defined primitives, where the neural implementation actually matters.
+
+**Out-of-support taxonomy (from ExeDec), adopted:**
+- length generalization;
+- compositions across concept groups seen only separately;
+- a switched order of concepts;
+- an operation seen only in isolation, used inside compositions;
+- a held-out functionality of an operation.
+
+**Decision raised by the literature: open-loop or execution-conditioned composition.**
+- The researcher's position: routing should not read block outputs, because they carry no routing information.
+- The literature's strongest lever (ExeDec, execution-guided synthesis) conditions each step on the *execution state relative to the target outputs*: what remains to be achieved. That isn't routing information carried by a block. It is the specification shrinking as the program runs.
+- **Options:**
+  - open-loop only (the cleanest test of the learned structural prior);
+  - execution-conditioned as a variant (the known lever);
+  - both, reported separately.
+
+**Value code.** Neural Execution Engines show that structured value codes decide generalization. For residues, a Fourier code is the natural choice. Whether to fix the code or compare two is open.
+
 **Sources** are linked inline in the chat discussion of 26 Oct 2026 and in history Entry 29.
