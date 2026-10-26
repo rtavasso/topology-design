@@ -173,6 +173,11 @@ A short synthesis for discussion. Each line points to the entry that carries the
   - So the drift's *direction* is informative, beyond "any kick helps".
   - Qualifications: the effects are small (100–475 steps on runs of about 2,900); the rescale-only arm *costs* steps, so part of the margin is the null hurting; and a plain random kick matched the drift in one cell (jump 1,000, H 1,000).
   - F16 stands in a narrower form: a short-range, informative direction.
+- *2026-10-25 (the researcher's reading, adopted):* **Q2 is essentially a result about momentum, not about seeing the destination.**
+  - The drift is an exponential average of the parameter updates over about 500 steps. A jump of H steps along it is a one-off, long-timescale heavy-ball extrapolation, closely related to Lookahead and Grokfast-EMA (prior art: amplifying the slow component of the gradient accelerates grokking).
+  - What the nulls add: the gain comes from the averaged update *direction*, not from the norm change it carries, nor from any kick. That is the premise of momentum, now confirmed in this setting.
+  - The saving (4–14% of the walk) is no larger than what a modestly higher learning rate gives (Q1 scratch: higher rates grok sooner in sym).
+  - It says nothing about a horizon beyond the current heading. H5's "visible destination" reading of F16 is withdrawn: what is visible is the heading, for a few hundred steps.
 
 **F17 — The chain's stability ceiling survives output rescaling.** *Established (preregistered E4 P0, and the H8 falsifier met; recomputed with four alternative summaries).*
 - The longest-chain graph (C4) has essentially no stable region at learning rates from 5e-4 to 6.4e-2, under std, a uniform 1/√L multiplier, or a per-block 1/√depth multiplier.
