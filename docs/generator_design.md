@@ -274,4 +274,53 @@ Known exact solutions do not *ensure* the general circuit is learned; they make 
   - accuracy and code length by world depth, by primitive, and by split (in-distribution, held-out combination, longer);
   - the distribution of route lengths and halting points.
 
+## 7. Second literature check: has this been done, and what sharpens (26 Oct 2026)
+
+### Closest prior work
+
+| work | what it did | relation to our design |
+|---|---|---|
+| **Schug et al. 2024, *Discovering modular solutions that generalize compositionally*** | Modular teacher: a hypernetwork in which a task code combines modules. **Theorem:** modules are identifiable (up to a linear map) given compositional support (every module seen), connected support (no group of modules seen only in isolation) and no overparameterization. A linear number of combinations suffices. Modular students generalize; monolithic ones (ANIL, MAML) don't. | Gives the support conditions for our training mix. But the composition is additive, in weight space, not serial |
+| **"When can transformers compositionally generalize in-context?"** (Schug et al. 2024) | A vanilla transformer fits in-distribution tasks but fails on held-out combinations, **even though the task code is linearly decodable** from its residual stream. A bottleneck separating *task inference* from *task execution* (transformer → code → hypernetwork) fixes it. | Directly supports splitting a PFN into router (inference) and blocks (execution). Gives a diagnostic: decode the true program on held-out tasks to tell an inference failure from an execution failure |
+| **Ramesh et al. 2024, compositional capabilities of transformers** | Serial compositions of bijections and permutations, with the program given as task tokens. Training on a small subset generalizes to exponentially many unseen compositions. **Step-by-step formats (intermediate outputs) help greatly.** Attention selects the function, the MLP computes it. Order biases in training block some compositions. | The serial-composition anchor. Monolithic, and the program is given rather than inferred from examples |
+| **Neural Interpreters** (Rahaman et al. 2021) | Functions with signatures; tokens routed by inferred type; repeated function iterations. Comparable to ViT with fewer parameters; better on abstract-reasoning held-out splits. Signatures collapse unless fixed at initialization. | The nearest architecture to a routed library. Parallel routing per token rather than a chosen serial program; no exact-solution verification |
+| **Alet et al. 2018, modular meta-learning** | A library of modules shared across tasks; per-task composition found by simulated annealing; better than MAML with few examples. | The "library plus search over compositions" idea, with explicit search instead of a learned router |
+| **Mittal et al. 2022, *Is a modular architecture enough?*** | Modular beats monolithic only slightly. The benefit of specialization grows with the number of rules. Learned modules mostly **fail to specialize**. Defines collapse and alignment metrics. | Expect the failure; adopt their metrics |
+| **Jarvis et al. 2023; Boopathy et al. 2025** | Theory: modules help only if they *perfectly* segregate the compositional information; modular sample complexity is independent of input dimension. But learning the right modules is hard, and naive modular networks did *worse* than monolithic ones. | Specialization must be induced or diagnosed, not assumed |
+| **Wiedemer et al. 2023** | Sufficient conditions: compositional and sufficient support, and a model that shares the true composition function. | The formal frame for "provably composable" |
+| **Lippl & Stachenfeld 2025** | Kernel-regime models generalize only "conjunction-wise additively". Deep ReLU networks drift towards lookup tables (memorization leak). | Predicts that monolithic models fail on non-additive (serial, non-abelian) composition, and matches F19 |
+| **Zhao et al. 2024; *From reasoning traces to reusable modules* (2026)** | Training on 2–3-skill combinations transfers to 4–5 and to held-out skills. **Composability must be learned from composed experience:** atom-only data doesn't repair a missing atom's compositions. Skills that always co-occur stay entangled. | Direct evidence on the training-mix variable and on decorrelation |
+
+**Gap that remains.** No study found does all of the following together:
+- serial composition of a routed library of uniform blocks;
+- the program *inferred in context* (PFN-style), rather than given or additive;
+- exact solutions to verify blocks;
+- a monolithic PFN of equal size as the comparison;
+- sweeps of how much composition is in the training mix;
+- per-block instrumentation of composition stability.
+
+### Sharpenings to carry into the design
+
+1. **Closure is a trap. Composition must be *necessary*.** Many algebraic families are closed under composition. A composite affine map over Z_p is another affine map, and a product of S_5 elements is one of 120 permutations. A learner can then *identify the composite directly* (task identification) without composing. Composition is necessary only when the composites leave any small family the learner could index, *and* the test uses composite functions never seen as worlds. For S_5, composition is forced only if the program (the sequence of operations) is part of the input, or the held-out set is defined over unseen products.
+2. **Count tasks as distinct functions, not programs.** For K primitives and depth L there are K^L unary programs, but far fewer distinct functions (identities, commutation, closure). Over small Z_p, the reachable set at each depth can be enumerated exactly (breadth-first search over function tables, as `program_prior.py` does). That gives:
+   - the number of distinct functions at each minimal depth;
+   - the depth at which the reachable set saturates;
+   - the fraction of all functions reachable;
+   - for every held-out function, a *certificate* of composability: its shortest program and the fact that it never appeared in training. That's the "provably composable" set.
+3. **The training mix as a measured variable,** parameterized by:
+   - the fraction of composed worlds (versus single-primitive worlds);
+   - the distribution of minimal depth;
+   - the number of distinct combinations relative to K (Schug: linear can suffice);
+   - the connectivity of the co-occurrence graph (connected versus disconnected support);
+   - decorrelation of operation pairs and orders.
+
+   Prior evidence: atoms alone don't teach composition; connected support is needed; order biases block compositions; 2–3-step training can extrapolate.
+4. **Library size against true primitive count.** Schug: more modules than the structure justifies lets the student memorize one module per task. Sweep K around the true number of primitives, and include K = 1.
+5. **Separate inference from execution, and instrument both.** Decode the ground-truth program from the router's state on held-out worlds:
+   - decodable but wrong → an execution failure;
+   - not decodable → an inference failure.
+6. **New open decision: intermediate supervision.** Ramesh found intermediate outputs help composition greatly, but supervising intermediate values hands the decomposition to the learner. Options: none (cleanest test); for a fraction of worlds (another mix variable); or diagnostic only.
+7. **Adopt Mittal's metrics** (collapse, alignment to the nearest permutation, plus mutual information between routes and ground-truth sub-programs) alongside the instrumentation in §6.
+8. **Prediction from kernel theory (Lippl):** monolithic models should do well on additive or abelian composites and fail on non-additive serial ones. The primitive families should include both, so the comparison can discriminate.
+
 **Sources** are linked inline in the chat discussion of 26 Oct 2026 and in history Entry 29.
