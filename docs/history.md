@@ -458,6 +458,30 @@ The review also raised a novelty point: dynamic module graphs against static net
 - **D51.** Items 2 and 3 change what the round can claim and go to the researcher. The others are fixed in revision 3.
 - **D52.** Correct the comment in `branch_classify.py`: merging inputs is sufficient for unreachability, not necessary.
 
+## Entry 33 (26 Oct 2026): giving the static PFN the same primitives (discussion)
+
+**Premise.** The researcher pointed out that revision 2's static PFN has to learn mod-7 arithmetic while the dynamic arms are handed the primitives, which confounds two differences: access to the primitives, and static averaging vs a committed path. A static model should be able to use the same symbolic primitives.
+
+**Argument.** The static counterpart is **superposed execution**:
+- T layers. In each, all 33 primitive tables are applied to a belief over the 49 register states of every input.
+- Each layer's mixing weights are computed from the context by the same encoder.
+- The output is the final distribution of r0.
+
+Its topology is fixed and it never commits. Its prediction is exactly a mixture over paths whose distribution factorizes across steps, so it trains on exact cross-entropy. A variant conditions each layer's weights on the current belief at the context inputs, which gives execution feedback while keeping the topology fixed.
+
+This holds the library and depth fixed and isolates commitment and step-correlated path distributions. A factorized mixture cannot represent "program A or program B" without the junk cross-terms A₁B₂. So any dynamic advantage is predicted where the context is ambiguous, or where it must choose a composition it never saw. Where the world is already identified, a deterministic soft path is a committed path.
+
+The round becomes a factorial: library (learned arithmetic vs given primitives) × composition (superposed vs committed) × feedback (open vs execution).
+
+**Prior work on module networks**, read for this:
+- With the right layout given, modular networks generalize systematically (Bahdanau 2019, SQOOP).
+- Learning the layout from answers alone is where it fails. IEP and N2NMN bootstrapped from program supervision. In SQOOP, induced layouts often failed to converge to tree layouts, and soft parametrizations blurred.
+- CLEVR-trained models, including an NMN given ground-truth programs, fail CLOSURE's novel combinations.
+- Relaxed program search loses to discrete solvers (TerpreT).
+
+**Decisions.**
+- **D53.** Revision 3 replaces "S vs O/E" with the factorial above. The original S stays as the no-library reference.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
