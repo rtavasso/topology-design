@@ -374,6 +374,20 @@ All were fixed before launch (listed in the preregistration). New lesson L17.
 
 **Correction.** My first message to the researcher said "S ≈ 1–2" and gave a width ordering. The recomputation showed S ≈ 1 under matched criteria, and that the ordering turns on single-eval dips. Corrected in RESULTS.md and the ledger (L18).
 
+## Entry 29 (26 Oct 2026): from the gap-is-prior result to a generator of worlds (discussion)
+
+**Premise.** F19 says the data gap is the prior. The discussion moved through four steps:
+1. learned, context-dependent depth;
+2. a composable library of uniform blocks routed by the state (a learned interpreter);
+3. PFN-style training on generated worlds as the source of the prior;
+4. the researcher's framing: blocks as circuits whose serial composition defines a function; the data generator decides which circuits must be learned; real-world grounding supplies memorized facts.
+
+**Literature read** for how generators were designed: PFN/TabPFN, Learning Universal Predictors, Kirsch 2022, Raventós 2023, Garg 2022, MLC, PCFG SET, CFQ/DBCA, LIME, edge of chaos, formal-language pre-pretraining, and shortcuts to automata. The recurring principles (G1–G10), what carries over, and claims C1–C5 are in [generator_design.md](generator_design.md).
+
+**Decisions:**
+- **D44.** Record I25.
+- **D45.** No experiment is designed until the researcher decides the open questions in §5 of the note: the primitives, how compositional the worlds are, how the real world enters, and the architecture's state.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
