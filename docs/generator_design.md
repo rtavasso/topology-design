@@ -233,4 +233,45 @@ Grounding:
 - **architectures:** monolithic, recursive and routed library (+ memory), at matched compute (D-4);
 - **reference:** the exact Bayes learner.
 
+## 6. Decisions taken (26 Oct 2026, the researcher)
+
+1. **Primitives with exact solutions known in advance.** Hand-chosen operations (D-1 A, possibly B), so every block's intended function is verifiable. The aim is to show that blocks learned the *general* circuit, not memorized, and that blocks learned on some tasks compose, *at inference*, in combinations never seen in training.
+2. **Chunking is allowed.** If frequently co-occurring operations are stored as one block, that is program compression (library learning), not a defect. It becomes a measured outcome. It muddies the experiment only if a composite *replaces* its parts, so that new combinations needing a part alone fail. Held-out compositions test exactly that.
+3. **No memory store or home world at this stage** (D-3 A). Focus on composition and generality.
+4. **Architectures:** a monolithic PFN against the same PFN broken into a routed library of uniform blocks (D-4 A vs C). No memory block.
+   - The shared-block recursion (B) is not a separate arm. It is the K = 1 end of a sweep over library size, kept only as a diagnostic.
+   - **Instrumentation is a primary deliverable,** so that a failure of composition can be diagnosed rather than taken as a refutation (L6).
+
+### What "learned the general circuit" can mean, operationally
+
+The domains are finite, so some claims are provable by exhaustive evaluation, and others can only be measured:
+- **Exhaustive correctness:** on held-out worlds (fresh symbol bijections, unseen moduli in range), every query in the domain is correct. For a finite domain this *proves* the computed function, within that domain.
+- **Specificity:** each block's use aligns with ground-truth sub-programs (primitive or chunk). Ablating a block breaks exactly the programs that contain its sub-program.
+- **Novel composition at inference:** held-out combinations (DBCA-style, atoms matched) are correct with zero gradient steps.
+- **A shared interface:** the intermediate value after each step is decodable by one fixed probe across contexts and steps. If decodability decays along a route, the blocks don't share an interface.
+- **Beyond the domain** (longer compositions, moduli outside the range): measured, not proven.
+
+Known exact solutions do not *ensure* the general circuit is learned; they make it *verifiable*. Memorization and shortcuts remain possible, and are detected by the held-out world × composition design.
+
+### Instrumentation for composition (to diagnose, not to judge)
+
+- **Per block:**
+  - activation norm in and out;
+  - gradient and update norms;
+  - the block's gain, ‖∂h_out/∂h_in‖ (spectral estimate). Repeated application compounds gains: H7 and F17, where chains were unstable;
+  - utilization;
+  - effective rank of its outputs.
+- **Along a route:**
+  - residual-stream norm against step;
+  - tuned-lens prediction and entropy at each step, and the KL divergence between steps (the researcher's stability signal);
+  - probe decodability of the intermediate value.
+- **Router:**
+  - entropy and load per block;
+  - the gradient reaching the router;
+  - how often routes switch over training (non-stationarity);
+  - collapse indicators.
+- **Outcomes:**
+  - accuracy and code length by world depth, by primitive, and by split (in-distribution, held-out combination, longer);
+  - the distribution of route lengths and halting points.
+
 **Sources** are linked inline in the chat discussion of 26 Oct 2026 and in history Entry 29.
