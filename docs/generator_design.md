@@ -556,4 +556,30 @@ Setup: two registers (r0 = x, r1 = y), output r0, instructions dest ← src1 op 
 - the composition-mix sweep levels;
 - model sizes and compute.
 
+## 14. Remaining design criteria (26 Oct 2026, for discussion)
+
+**Decided (researcher):**
+- run both open-loop and execution-conditioned composers and compare them;
+- sweep training mixes, and stratify test performance by composition;
+- size every model for T4 GPUs.
+
+**Registers (counts from `count_isa_registers.py`, mod 7):**
+- three registers (99 instructions) reach 6,257 distinct functions by length 4;
+- two registers (32 instructions) reach 4,825.
+
+So a third register adds about 30% diversity at three times the composer's choice set, and more equivalent programs per function. Leaning towards two registers.
+
+**Mix sweep:** separate the three things that "more composition" bundles together:
+1. the maximum training depth;
+2. the number of distinct training functions (diversity, the Kirsch / Raventós threshold);
+3. concept mixing (single-concept versus mixed programs).
+
+Depth and diversity are confounded unless diversity is subsampled at a fixed depth cap.
+
+**T4 sizing:**
+- each example is one token (x, y, f(x, y)), with a context of 12–16 examples and programs of ≤ 6 instruction tokens;
+- composer and monolithic PFN are small transformers (≈ 1–5M parameters), with parameters and training episodes matched;
+- the frozen blocks are tiny maps on one-hot values;
+- several runs should share a GPU (fleet-style batching), given Kaggle's weekly GPU quota.
+
 **Sources** are linked inline in the chat discussion of 26 Oct 2026 and in history Entry 29.
