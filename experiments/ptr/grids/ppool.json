@@ -1,0 +1,1122 @@
+[
+{
+"name": "ppool_f0.1_S8_s0",
+"arm": "S8",
+"seed": 0,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_S8_s1",
+"arm": "S8",
+"seed": 1,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_S8_s2",
+"arm": "S8",
+"seed": 2,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_S8_s3",
+"arm": "S8",
+"seed": 3,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_S8_s4",
+"arm": "S8",
+"seed": 4,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_S8_s5",
+"arm": "S8",
+"seed": 5,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_S8_s6",
+"arm": "S8",
+"seed": 6,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_S8_s7",
+"arm": "S8",
+"seed": 7,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_S8_s8",
+"arm": "S8",
+"seed": 8,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_S8_s9",
+"arm": "S8",
+"seed": 9,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s0",
+"arm": "LO",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s1",
+"arm": "LO",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s2",
+"arm": "LO",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s3",
+"arm": "LO",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s4",
+"arm": "LO",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s5",
+"arm": "LO",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s6",
+"arm": "LO",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s7",
+"arm": "LO",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s8",
+"arm": "LO",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LO_s9",
+"arm": "LO",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s0",
+"arm": "LHs",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s1",
+"arm": "LHs",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s2",
+"arm": "LHs",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s3",
+"arm": "LHs",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s4",
+"arm": "LHs",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s5",
+"arm": "LHs",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s6",
+"arm": "LHs",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s7",
+"arm": "LHs",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s8",
+"arm": "LHs",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.1_LHs_s9",
+"arm": "LHs",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.1
+},
+{
+"name": "ppool_f0.01_S8_s0",
+"arm": "S8",
+"seed": 0,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_S8_s1",
+"arm": "S8",
+"seed": 1,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_S8_s2",
+"arm": "S8",
+"seed": 2,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_S8_s3",
+"arm": "S8",
+"seed": 3,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_S8_s4",
+"arm": "S8",
+"seed": 4,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_S8_s5",
+"arm": "S8",
+"seed": 5,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_S8_s6",
+"arm": "S8",
+"seed": 6,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_S8_s7",
+"arm": "S8",
+"seed": 7,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_S8_s8",
+"arm": "S8",
+"seed": 8,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_S8_s9",
+"arm": "S8",
+"seed": 9,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s0",
+"arm": "LO",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s1",
+"arm": "LO",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s2",
+"arm": "LO",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s3",
+"arm": "LO",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s4",
+"arm": "LO",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s5",
+"arm": "LO",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s6",
+"arm": "LO",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s7",
+"arm": "LO",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s8",
+"arm": "LO",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LO_s9",
+"arm": "LO",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s0",
+"arm": "LHs",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s1",
+"arm": "LHs",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s2",
+"arm": "LHs",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s3",
+"arm": "LHs",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s4",
+"arm": "LHs",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s5",
+"arm": "LHs",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s6",
+"arm": "LHs",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s7",
+"arm": "LHs",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s8",
+"arm": "LHs",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.01_LHs_s9",
+"arm": "LHs",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.01
+},
+{
+"name": "ppool_f0.001_S8_s0",
+"arm": "S8",
+"seed": 0,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_S8_s1",
+"arm": "S8",
+"seed": 1,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_S8_s2",
+"arm": "S8",
+"seed": 2,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_S8_s3",
+"arm": "S8",
+"seed": 3,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_S8_s4",
+"arm": "S8",
+"seed": 4,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_S8_s5",
+"arm": "S8",
+"seed": 5,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_S8_s6",
+"arm": "S8",
+"seed": 6,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_S8_s7",
+"arm": "S8",
+"seed": 7,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_S8_s8",
+"arm": "S8",
+"seed": 8,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_S8_s9",
+"arm": "S8",
+"seed": 9,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s0",
+"arm": "LO",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s1",
+"arm": "LO",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s2",
+"arm": "LO",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s3",
+"arm": "LO",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s4",
+"arm": "LO",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s5",
+"arm": "LO",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s6",
+"arm": "LO",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s7",
+"arm": "LO",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s8",
+"arm": "LO",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LO_s9",
+"arm": "LO",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s0",
+"arm": "LHs",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s1",
+"arm": "LHs",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s2",
+"arm": "LHs",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s3",
+"arm": "LHs",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s4",
+"arm": "LHs",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s5",
+"arm": "LHs",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s6",
+"arm": "LHs",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s7",
+"arm": "LHs",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s8",
+"arm": "LHs",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.001_LHs_s9",
+"arm": "LHs",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.001
+},
+{
+"name": "ppool_f0.0001_S8_s0",
+"arm": "S8",
+"seed": 0,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_S8_s1",
+"arm": "S8",
+"seed": 1,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_S8_s2",
+"arm": "S8",
+"seed": 2,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_S8_s3",
+"arm": "S8",
+"seed": 3,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_S8_s4",
+"arm": "S8",
+"seed": 4,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_S8_s5",
+"arm": "S8",
+"seed": 5,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_S8_s6",
+"arm": "S8",
+"seed": 6,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_S8_s7",
+"arm": "S8",
+"seed": 7,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_S8_s8",
+"arm": "S8",
+"seed": 8,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_S8_s9",
+"arm": "S8",
+"seed": 9,
+"lr": 0.0003,
+"kind": "static",
+"layers": 8,
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s0",
+"arm": "LO",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s1",
+"arm": "LO",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s2",
+"arm": "LO",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s3",
+"arm": "LO",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s4",
+"arm": "LO",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s5",
+"arm": "LO",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s6",
+"arm": "LO",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s7",
+"arm": "LO",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s8",
+"arm": "LO",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LO_s9",
+"arm": "LO",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "oracle",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s0",
+"arm": "LHs",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s1",
+"arm": "LHs",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s2",
+"arm": "LHs",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s3",
+"arm": "LHs",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s4",
+"arm": "LHs",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s5",
+"arm": "LHs",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s6",
+"arm": "LHs",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s7",
+"arm": "LHs",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s8",
+"arm": "LHs",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+},
+{
+"name": "ppool_f0.0001_LHs_s9",
+"arm": "LHs",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"tail_factor": 0.0001
+}
+]

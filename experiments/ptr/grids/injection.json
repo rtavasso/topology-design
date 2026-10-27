@@ -1,0 +1,192 @@
+[
+{
+"name": "inj_LFni_s0",
+"arm": "LFni",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LFni_s1",
+"arm": "LFni",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LFni_s2",
+"arm": "LFni",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LFni_s3",
+"arm": "LFni",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LFni_s4",
+"arm": "LFni",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LFni_s5",
+"arm": "LFni",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LFni_s6",
+"arm": "LFni",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LFni_s7",
+"arm": "LFni",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LFni_s8",
+"arm": "LFni",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LFni_s9",
+"arm": "LFni",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "fixed",
+"injection": false
+},
+{
+"name": "inj_LHsni_s0",
+"arm": "LHsni",
+"seed": 0,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+},
+{
+"name": "inj_LHsni_s1",
+"arm": "LHsni",
+"seed": 1,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+},
+{
+"name": "inj_LHsni_s2",
+"arm": "LHsni",
+"seed": 2,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+},
+{
+"name": "inj_LHsni_s3",
+"arm": "LHsni",
+"seed": 3,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+},
+{
+"name": "inj_LHsni_s4",
+"arm": "LHsni",
+"seed": 4,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+},
+{
+"name": "inj_LHsni_s5",
+"arm": "LHsni",
+"seed": 5,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+},
+{
+"name": "inj_LHsni_s6",
+"arm": "LHsni",
+"seed": 6,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+},
+{
+"name": "inj_LHsni_s7",
+"arm": "LHsni",
+"seed": 7,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+},
+{
+"name": "inj_LHsni_s8",
+"arm": "LHsni",
+"seed": 8,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+},
+{
+"name": "inj_LHsni_s9",
+"arm": "LHsni",
+"seed": 9,
+"lr": 0.001,
+"kind": "looped",
+"halting": "learned",
+"halt_input": "state",
+"injection": false
+}
+]

@@ -108,5 +108,32 @@ elif job["job"] == "bench_worlds":
                   ["--d", "128", "--layers", "4", "--B", "16", "--R", "27", "54", "108", "--amp", "--no-separate"])):
         run(f"bench{i}", b + extra)
     print(f"\nSUMMARY bench_worlds tests_rc={rc}", flush=True)
+elif job["job"] == "ptr":
+    out = os.path.join(W, "results")
+    os.makedirs(out, exist_ok=True)
+    if os.path.isdir("prior"):
+        for f in os.listdir("prior"):
+            shutil.copy(os.path.join("prior", f), out)
+        print(f"resumed with {len(os.listdir(out))} prior results", flush=True)
+    rc = run("tests", [sys.executable, "-m", "pytest", "-q", "-x", "tests/test_ptr.py"])
+    if rc != 0:
+        print("TESTS FAILED: grid not run", flush=True)
+        sys.exit(1)
+    k = max(1, n_gpus()) * int(job.get("per_gpu", 3))
+    g = max(1, n_gpus())
+    procs = []
+    for i in range(k):
+        log = open(os.path.join(W, f"ptr_shard{i}.txt"), "w")
+        e = {**env, "CUDA_VISIBLE_DEVICES": str(i % g)} if n_gpus() > 0 else env
+        cmd = [sys.executable, "experiments/ptr/run_ptr.py", "--grid", job["grid"], "--out", W, "--shard", f"{i}/{k}"]
+        procs.append((subprocess.Popen(cmd, env=e, stdout=log, stderr=subprocess.STDOUT), log))
+    rcs = []
+    for p, log in procs:
+        rcs.append(p.wait())
+        log.close()
+    for i in range(k):
+        print(open(os.path.join(W, f"ptr_shard{i}.txt")).read()[-2000:], flush=True)
+    n = len([f for f in os.listdir(out) if f.endswith(".json.gz")])
+    print(f"\nSUMMARY ptr grid={job['grid']} shards={k} rcs={rcs} results={n}", flush=True)
 else:
     sys.exit(f"unknown job {job}")

@@ -35,6 +35,7 @@ import time
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "tests/test_priors.py", "experiments/fleet",
            "pyproject.toml"]
+PTR_INCLUDE = ["tests/test_ptr.py", "experiments/ptr/run_ptr.py"]
 VALIDATE_EXTRA = ["experiments/paths/results_data/compact.json.gz"]
 
 
@@ -69,6 +70,8 @@ def main():
     ap.add_argument("--grid", default=None, help="grid JSON (repo-relative) to run instead of the validation")
     ap.add_argument("--bench-worlds", action="store_true",
                     help="throughput test of stacked models for the worlds round (experiments/worlds/DESIGN.md §8)")
+    ap.add_argument("--ptr-grid", default=None, help="rung-0 grid JSON (experiments/ptr/grids/*.json) to run")
+    ap.add_argument("--per-gpu", type=int, default=3, help="ptr: concurrent run processes per GPU")
     ap.add_argument("--max-batch", type=int, default=64)
     ap.add_argument("--no-tests", action="store_true", help="grid jobs: skip the fleet tests before the grid")
     ap.add_argument("--out", default=None)
@@ -82,11 +85,12 @@ def main():
     name = "validate" if args.grid is None else os.path.splitext(os.path.basename(args.grid))[0]
     if args.bench_worlds:
         name = "bench-worlds"
+    if args.ptr_grid:
+        name = "ptr-" + os.path.splitext(os.path.basename(args.ptr_grid))[0]
     args.out = args.out or os.path.join(ROOT, "results", f"kaggle_{name}")
-    args.kernel = args.kernel or ("topology-fleet-validate" if (args.grid is None and not args.bench_worlds)
-                                  else f"topology-fleet-{slug(name)}")
-    args.dataset = args.dataset or ("topology-design-code" if (args.grid is None and not args.bench_worlds)
-                                    else f"{args.kernel}-code")
+    special = args.grid is not None or args.bench_worlds or args.ptr_grid is not None
+    args.kernel = args.kernel or ("topology-fleet-validate" if not special else f"topology-fleet-{slug(name)}")
+    args.dataset = args.dataset or ("topology-design-code" if not special else f"{args.kernel}-code")
     user = args.user
     if not user:
         cfg_dir = os.environ.get("KAGGLE_CONFIG_DIR", os.path.expanduser("~/.kaggle"))
@@ -111,6 +115,12 @@ def main():
     if args.bench_worlds:
         job = {"job": "bench_worlds"}
         include = INCLUDE + ["experiments/worlds/bench_stacked.py", "tests/test_stacked.py"]
+    if args.ptr_grid:
+        grid_rel = os.path.relpath(os.path.abspath(args.ptr_grid), ROOT)
+        if not os.path.exists(os.path.join(ROOT, grid_rel)):
+            sys.exit(f"grid not found: {args.ptr_grid}")
+        job = {"job": "ptr", "grid": grid_rel, "per_gpu": args.per_gpu}
+        include = INCLUDE + PTR_INCLUDE + [grid_rel]
     jp = os.path.join(tmp, "job.json")
     with open(jp, "w") as f:
         json.dump(job, f)

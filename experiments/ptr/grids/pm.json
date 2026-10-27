@@ -1,0 +1,92 @@
+[
+{
+"name": "pm_S8pm_s0",
+"arm": "S8pm",
+"seed": 0,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+},
+{
+"name": "pm_S8pm_s1",
+"arm": "S8pm",
+"seed": 1,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+},
+{
+"name": "pm_S8pm_s2",
+"arm": "S8pm",
+"seed": 2,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+},
+{
+"name": "pm_S8pm_s3",
+"arm": "S8pm",
+"seed": 3,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+},
+{
+"name": "pm_S8pm_s4",
+"arm": "S8pm",
+"seed": 4,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+},
+{
+"name": "pm_S8pm_s5",
+"arm": "S8pm",
+"seed": 5,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+},
+{
+"name": "pm_S8pm_s6",
+"arm": "S8pm",
+"seed": 6,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+},
+{
+"name": "pm_S8pm_s7",
+"arm": "S8pm",
+"seed": 7,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+},
+{
+"name": "pm_S8pm_s8",
+"arm": "S8pm",
+"seed": 8,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+},
+{
+"name": "pm_S8pm_s9",
+"arm": "S8pm",
+"seed": 9,
+"lr": 0.001,
+"kind": "static",
+"layers": 8,
+"d": 96
+}
+]
