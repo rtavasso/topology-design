@@ -623,6 +623,23 @@ The derivations in `experiments/worlds/rev3/` gave three numbers:
   - the learned value's agreement with exact distances on unseen worlds.
 - **D64.** Calibrate predictions to modest out-of-distribution effects. Name AlphaDev and AlphaTensor (AlphaZero over instruction-level programs with exact execution, searching per task) as the nearest program-search precedent. Our difference is amortization across worlds in context.
 
+## Entry 40 (26 Oct 2026): a PFN over model composition (discussion)
+
+**Premise (researcher).** A traditional PFN meta-learns at the level of the data set: it amortizes the posterior predictive over *outputs*. The proposal is to meta-learn at the level of *model composition*: amortize the posterior over how the model composes its primitive layers for each token. The model knows from context where it wants to go structurally, but cannot know the output of a composition before running it. A possible analogy to P vs NP.
+
+**Argument.**
+- **The decomposition.** This is the Solomonoff decomposition made explicit. The universal prior is a prior over *programs*, and the prediction is what those programs produce. A PFN approximates the induced predictive directly. A composition-level PFN approximates the posterior over compositions and lets execution produce the prediction.
+- **Same optimum, different extrapolation.** On the training support, both have the same optimum under log loss. They differ in what must be learned: the PFN must absorb every function's input-output behavior into its weights, while the composer only learns *which* composition, because execution supplies the behavior. Off support, the composer can give mass to compositions it has never seen whole, whose parts still execute correctly.
+- **Knowledge separates into two places:** *what* the primitives compute lives in the shared library, and *how to combine* them, the prior, lives in the router. A PFN puts both in one set of weights.
+- **The analogy sharpened into two ideas:**
+  1. **Find vs verify (the P vs NP intuition).** Finding a composition consistent with the context is search in an exponential branch space. Checking a candidate against the context examples is one cheap execution. The meta-model amortizes the finding, as a learned heuristic, and execution does the checking. It exploits the structure of the training distribution (the average case), so it says nothing about worst-case P vs NP.
+  2. **Structure vs output (computational irreducibility).** For general compositions, the only way to know the output is to run them. So the model commits to structure, and the output is revealed by execution.
+- **Measurable on the toy.** The structure-level analog of "PFN vs Bayes" is the router's distribution over compositions against the exact posterior over compositions, taken over equivalence classes of compositions that compute the same thing.
+- **The caveat.** The amortized structure posterior is still a learned network, and whether its support extends to unseen compositions is exactly what module networks failed at when layouts were learned.
+
+**Decision.**
+- **D65.** Revision 4 states the round's thesis as "a PFN over model composition". The primary structure-level endpoint is the router's composition distribution against the exact posterior over composition equivalence classes, alongside the output-level code length against exact Bayes.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
