@@ -131,3 +131,84 @@ def test_parameter_matched_static_width():
     s8 = n(PtrModel(ModelConfig(kind="static", d=96, layers=8), DC))
     lp = n(PtrModel(ModelConfig(kind="looped", halting="learned"), DC))
     assert abs(s8 - lp) / lp < 0.1
+
+
+# ---------- stacked runs (stacked.py, train_stacked.py) ----------
+from topology_design.ptr.gen_torch import TorchGen  # noqa: E402
+from topology_design.ptr.stacked import StackedPtrModel, StackedAdamW, SLinear, oracle_steps_t  # noqa: E402
+
+
+def _copy_into(stack, single, r):
+    sd = single.state_dict()
+    mods = dict(stack.named_modules())
+    for name, p in stack.named_parameters():
+        src = sd[name]
+        owner = mods[name.rsplit(".", 1)[0]] if "." in name else stack
+        if isinstance(owner, SLinear) and name.endswith("weight"):
+            p.data[r] = src.T
+        elif p.dim() == 3 and p.shape[1] == 1:          # SLinear bias / SLayerNorm affine (R, 1, d)
+            p.data[r] = src.view(1, -1)
+        else:
+            p.data[r] = src
+
+
+def test_torch_generator_is_a_forest_with_the_right_tail():
+    G = TorchGen(DC, "cpu", seed=3)
+    b = G.sample(2, 300, tail_factor=[1.0, 0.01])
+    for r in range(2):
+        check_forest(G.to_episodes(b, r), DC)
+    ks0, ks1 = b["q_k"][0].numpy().ravel(), b["q_k"][1].numpy().ravel()
+    assert abs((ks0 >= 6).mean() - zipf_pmf(DC.alpha, DC.kmax)[5:].sum()) < 0.03
+    assert (ks1 >= 6).mean() < 0.01
+    b = G.sample(1, 8, forced_k=32, Qn=3)
+    check_forest(G.to_episodes(b, 0), DC)
+    assert (b["q_k"] == 32).sum(-1).min() == 1
+
+
+@pytest.mark.parametrize("mc", [ModelConfig(kind="static", layers=3), ModelConfig(halting="fixed", T=5),
+                                ModelConfig(halting="oracle", T=5), ModelConfig(halting="learned", T=5),
+                                ModelConfig(halting="learned", halt_input="index", T=5)])
+def test_stacked_matches_single_runs(mc):
+    rng = np.random.default_rng(8)
+    R = 3
+    stack = StackedPtrModel(R, mc, DC)
+    singles = [PtrModel(mc, DC) for _ in range(R)]
+    eps = [generate(DC, 4, rng) for _ in range(R)]
+    b = {k: torch.stack([torch.as_tensor(getattr(e, k)) for e in eps])
+         for k in ("pair_key", "pair_val", "q_start", "q_ans", "q_k")}
+    mode = "ponder_train" if mc.halting == "learned" else "train"
+    with torch.no_grad():
+        for r, sgl in enumerate(singles):
+            _copy_into(stack, sgl, r)
+    out = stack(b, steps=oracle_steps_t(b, DC), mode=mode)
+    loss, per_run, _ = stack.loss(out)
+    loss.backward()
+    for r, (sgl, e) in enumerate(zip(singles, eps)):
+        o = sgl(e, "cpu", steps=oracle_steps(e, DC, "cpu"), mode=mode)
+        assert torch.allclose(o["logits"], out["logits"][r], atol=1e-4)
+        assert torch.equal(o["steps"], out["steps"][r])
+        l, _ = sgl.loss(o, e, "cpu")
+        assert abs(l.item() - per_run[r].item()) < 1e-4
+    # a run's loss gives zero gradient to every other run
+    g = stack.block.qkv.weight.grad if mc.kind == "looped" else stack.blocks[0].qkv.weight.grad
+    stack.zero_grad()
+    per_run[0]  # noqa: B018
+    out2 = stack(b, steps=oracle_steps_t(b, DC), mode=mode)
+    _, pr2, _ = stack.loss(out2)
+    pr2_sum = (out2["logits"][0] ** 2).mean()   # a loss that touches run 0 only
+    pr2_sum.backward()
+    g2 = stack.block.qkv.weight.grad if mc.kind == "looped" else stack.blocks[0].qkv.weight.grad
+    assert g2[1:].abs().max() == 0 and g2[0].abs().max() > 0
+
+
+def test_stacked_adamw_matches_torch_adamw_for_one_run():
+    torch.manual_seed(0)
+    p1 = torch.nn.Parameter(torch.randn(1, 5, 4))
+    p2 = torch.nn.Parameter(p1.detach().clone()[0])
+    o1 = StackedAdamW([p1], torch.tensor([1e-2]), betas=(0.9, 0.95), weight_decay=0.01)
+    o2 = torch.optim.AdamW([p2], lr=1e-2, betas=(0.9, 0.95), weight_decay=0.01, eps=1e-8)
+    for _ in range(5):
+        g = torch.randn(5, 4)
+        p1.grad = g.unsqueeze(0).clone(); p2.grad = g.clone()
+        o1.step(); o2.step()
+    assert torch.allclose(p1[0], p2, atol=1e-6)

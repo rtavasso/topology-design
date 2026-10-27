@@ -85,9 +85,9 @@ def evaluate(m: PtrModel, dc: PtrConfig, mc: ModelConfig, tc: dict, dev, rng, *,
         res["in"][k] = rec
         if trace and mc.kind == "looped":
             traces[k] = residual_traces(m, out, ep, dc, dev, sel, tc["trace_n"])
-            if k >= T:   # every step is a chasing step: features for the step-index probe
+            if k >= 8:   # steps t < k are chasing steps: features for the step-index probe
                 idx = sel.nonzero()[:tc["probe_n"] // 4]
-                for t in range(min(T, 32)):
+                for t in range(min(k, T, 32)):
                     probe_feats.append(m.halt_norm(out["hs"][t][idx[:, 0], out["qpos"][idx[:, 1]]])
                                        if mc.halting == "learned" and mc.halt_input != "index"
                                        else F.layer_norm(out["hs"][t][idx[:, 0], out["qpos"][idx[:, 1]]], (mc.d,)))

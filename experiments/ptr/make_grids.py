@@ -21,11 +21,12 @@ ARMS = {
     "LHx": dict(kind="looped", halting="learned", halt_input="index"),
     "LFni": dict(kind="looped", halting="fixed", injection=False),
     "LHsni": dict(kind="looped", halting="learned", halt_input="state", injection=False),
+    "LOni": dict(kind="looped", halting="oracle", injection=False),
 }
 # learning rates per arm are filled in from the pilot; these are the pilot's candidates
 LR_CANDIDATES = (3e-4, 1e-3, 3e-3)
 DEFAULT_LR = {"S2": 1e-3, "S8": 3e-4, "S8pm": 1e-3, "LF": 1e-3, "LO": 1e-3, "LHs": 1e-3, "LHx": 1e-3,
-              "LFni": 1e-3, "LHsni": 1e-3}
+              "LFni": 1e-3, "LHsni": 1e-3, "LOni": 1e-3}
 
 
 def run(name, arm, seed, **extra):
@@ -38,7 +39,7 @@ def main():
     grids = {}
     # pilot: learning rates (3 x 2 seeds per arm) and PonderNet constants for LHs, short budget
     g = []
-    for arm in ("S2", "S8", "LF", "LO", "LHs", "LHx"):
+    for arm in ("S2", "S8", "LF", "LO", "LOni", "LHs", "LHx"):
         for lr in LR_CANDIDATES:
             for seed in (0, 1):
                 g.append(run(f"pilot_{arm}_lr{lr:g}_s{seed}", arm, seed, lr=lr, steps=6000, eval_every=2000))

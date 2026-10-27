@@ -119,13 +119,14 @@ elif job["job"] == "ptr":
     if rc != 0:
         print("TESTS FAILED: grid not run", flush=True)
         sys.exit(1)
-    k = max(1, n_gpus()) * int(job.get("per_gpu", 3))
+    k = max(1, n_gpus()) * int(job.get("per_gpu", 1))
     g = max(1, n_gpus())
     procs = []
     for i in range(k):
         log = open(os.path.join(W, f"ptr_shard{i}.txt"), "w")
         e = {**env, "CUDA_VISIBLE_DEVICES": str(i % g)} if n_gpus() > 0 else env
-        cmd = [sys.executable, "experiments/ptr/run_ptr.py", "--grid", job["grid"], "--out", W, "--shard", f"{i}/{k}"]
+        cmd = [sys.executable, "experiments/ptr/run_ptr.py", "--grid", job["grid"], "--out", W, "--shard", f"{i}/{k}",
+               "--max-stack", str(job.get("max_stack", 32))]
         procs.append((subprocess.Popen(cmd, env=e, stdout=log, stderr=subprocess.STDOUT), log))
     rcs = []
     for p, log in procs:
