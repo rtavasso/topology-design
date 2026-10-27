@@ -10,15 +10,19 @@ for alpha in (0.5, 1.0, 1.5, 2.0):
     k, p = zipf(alpha, 32)
     row = [f"{(p * (k <= 2 ** (L - 2))).sum():.3f}" for L in (3, 4, 5, 6, 7)]
     print(f"{alpha:6.1f} {(p*k).sum():6.2f} {(p*(k>8)).sum():7.3f} {(p*(k>16)).sum():8.3f} | " + " ".join(f"{r:>4}" for r in row) + f" | {(p*k).sum()+1:.2f}")
-print("\nB. compute per token over a whole sequence (P context pairs = 2P tokens needing 1 step; Q query tokens needing k+1),")
-print("   P = 48 pairs, Q = 8 queries, alpha = 1.5, kmax = 32: static L costs L per token for every token.")
-k, p = zipf(1.5, 32); P, Q = 48, 8
-toks = 2 * P + 3 * Q
-oracle = (2 * P * 1 + 2 * Q * 1 + Q * ((p * k).sum() + 1)) / toks
-for L in (4, 6, 8, 16, 32):
+print("\nB. compute per token over a whole training sequence: 1 BOS + P pair tokens + Qn query tokens + Qn answer tokens;")
+print("   context tokens take 1 step, a query takes k (its chain length). P = 48, Qn = 6, alpha = 1.5, kmax = 8 (training).")
+k, p = zipf(1.5, 8); P, Q = 48, 6
+toks = 1 + P + 2 * Q
+oracle = (1 + P + Q + Q * (p * k).sum()) / toks
+for L in (2, 4, 8, 16):
     print(f"   static L={L:2d}: {L:5.2f} steps/token   oracle loop: {oracle:5.2f} steps/token   ratio {L/oracle:4.1f}x")
-print("\nC. training examples at each depth k, for N = 2,000,000 query tokens, alpha = 1.5, kmax_train = 8 (then k > 8 unseen):")
-k, p = zipf(1.5, 8); N = 2_000_000
-print("   " + "  ".join(f"k={kk}: {int(N*pp):,}" for kk, pp in zip(k, p)))
-k, p = zipf(2.0, 8)
-print("   alpha = 2.0: " + "  ".join(f"k={kk}: {int(N*pp):,}" for kk, pp in zip(k, p)))
+k, p = zipf(1.5, 32)
+print(f"   at evaluation with k up to 32 (same tail): oracle {(1 + P + Q + Q * (p * k).sum()) / toks:5.2f} steps/token")
+print("\nC. training examples at each depth k for the planned budget N = 20,000 steps x 64 episodes x 6 queries = 7.68M queries,")
+print("   alpha = 1.5, kmax = 8; then with the tail (k >= 6) scaled by the P-pool factor:")
+k, p = zipf(1.5, 8); N = 20000 * 64 * 6
+print("   factor 1:    " + "  ".join(f"k={kk}: {int(N*pp):,}" for kk, pp in zip(k, p)))
+for f in (1e-1, 1e-2, 1e-3, 1e-4):
+    q = p.copy(); q[k >= 6] *= f; q /= q.sum()
+    print(f"   factor {f:<6}" + "  ".join(f"k={kk}: {int(N*pp):,}" for kk, pp in zip(k, q) if kk >= 6))

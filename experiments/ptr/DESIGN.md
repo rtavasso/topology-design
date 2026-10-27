@@ -1,158 +1,177 @@
-# Rung 0: learned depth allocation on pointer chasing with hidden chain length
+# Rung 0: learned depth allocation on pointer chasing with hidden chain length (revision 2)
 
-**Status:** design, 27 Oct 2026. Not yet a preregistration. This is the first toy of the ladder in history Entries 45–51: one shared block, learned halting, no selection among primitives yet. It is written to be reviewed for soundness *and* for experimental value before any code (lesson L22), then implemented, piloted and preregistered.
+**Status:** design, 27 Oct 2026, revised after the independent review of revision 1 (kept at the end, with how each finding is handled). Implemented in `src/topology_design/ptr/` with tests (`tests/test_ptr.py`); the pilot and gates (§10) decide the preregistration.
 
-**Ledger:** I25/I26 retired as thesis tests (Entry 44); the thesis itself is Entry 48 (amortized EM over per-token routes) and the motivation Entry 49.
+**Ledger:** the thesis is history Entry 48 (amortized EM over per-token routes); the motivation Entry 49; the predictions' origins Entries 50–51. The Z_7 toys are retired as thesis tests (Entry 44).
 
 **Scope note (AGENTS hard rule 1).** This round compares static depth with learned dynamic depth, at the researcher's direction. Every claim is labeled expressivity, optimization or mechanism.
 
 ---
 
-## 1. The question, and why this toy
+## 0. What changed from revision 1
 
-**The thrust (Entry 49).** A static transformer charges every token its full depth. The depth a token needs is dynamic and heavy-tailed: most tokens settle early, a few need many steps. Looping a shared block fixes the parameter cost, not the compute cost. The object to learn is a *depth policy*.
+| finding (review 1) | revision 2 |
+|---|---|
+| The static ceiling 2^(L−2) does not apply to pairs-as-tokens; pair tokens can double in parallel | **Context tokens are read-only** in the primary regime: pairs attend only to BOS and themselves, so a static depth-L model reaches exactly k ≤ L (serial hops only). Stated as a restriction by construction. The "doubling allowed" regime is a secondary cell with the reviewer's simulated causal-doubling reach as the static reference. |
+| The §5 planted block destroyed the answer after reaching it | The implemented block (`planted.py`) uses a BOS sink, a marker-gated MLP overwrite and keeps the answer part of the register: exact, idempotent after termination through 40 loops, context tokens fixed points (tested). |
+| Halting semantics differed between training and test | **Context tokens run exactly one step by construction** in every looped arm, in training and at test. Only query tokens have a learned depth. Train and test agree. |
+| H8 (symbol transfer) was empty either way | Dropped. No held-out symbols. "Content lives in the context" is enforced by frozen embeddings and fresh permutations per episode, not tested as a hypothesis. |
+| H3 (state vs state+index) confounded | LH-i replaced by **LH-x, an index-only halter** (the constant-depth null). A linear probe for the step index from the state is an endpoint. H3 demoted to a diagnostic. |
+| H5 (P-pool) would saturate; the α axis changes the curriculum | α fixed at 1.5; **the deep tail (k ≥ 6) is subsampled directly** by a factor over four decades. |
+| Width confound (d 360 vs 128) | **Equal width is primary** (d = 264 for every arm; S8 then has 8× the parameters, and the same per-step cost as one loop). Parameter-matched static (d = 96) is secondary. |
+| Compute accounting off; T_train = k_max + 1; cost underestimated | Token count 61; T_train = 10 = k_max + 2; cost from the pilot, with concurrent runs per GPU. |
+| No chance baseline beyond 1/16 | The no-hop baseline (uniform over the terminals present in the context) is computed per evaluation. |
+| Q3 barely tested | Stated: rung 0's halting *detects* completion (a 0/1 register flag), it does not predict demand. |
 
-**What exists.** Per-token recursion over a shared block (Mixture-of-Recursions, depths ≤ 4, no ground truth for demand); learned halting (ACT, PonderNet, Universal Transformer; ACT collapses toward constant depth); looped transformers needing input injection (Yang 2024) and known step counts for length generalization (Fan 2025).
+## 1. The question
 
-**The minimal unanswered question.** Whether a depth policy learned from next-token loss plus a compute cost, with no step-count supervision:
-- **Q1** allocates depth to match true per-token demand when demand is heavy-tailed, so deep tokens are rare and carry rare gradient;
-- **Q2** extrapolates to demands deeper than any seen in training;
-- **Q3** can be driven by an internal signal (the reducible residual, Entry 46) rather than a ponder cost;
-- **Q4** trains stably through many loops.
+**Thrust (Entry 49).** A static transformer charges every token its full depth; demand is dynamic and heavy-tailed; looping shares parameters but not compute; the object to learn is a depth policy.
 
-Plus the learning-signal claim of Entry 50 (**Q5**): one shared block pools gradient across depths, so its accuracy on rare deep tokens should not depend on how rare they are, while a static model's does.
+**Known.** Per-token recursion over a shared block (Mixture-of-Recursions, depths ≤ 4, no ground truth); learned halting (ACT, PonderNet, Universal Transformer, Sparse Universal Transformer); recurrent-depth extrapolation by iterating longer with recall/injection (Bansal 2022; Geiping 2025); adaptive loops with *known* step counts (Fan 2025); pointer chasing with recurrent depth is fragile out of distribution (Kohli 2026; a public recurrent-depth run reaches 0.27–0.44 beyond its training range).
 
-**Why pointer chasing.** The required depth per token is exact, serial by construction and hidden until executed; the static ceiling is derivable; exact references survive; and it is a real transformer circuit (iterated induction-head composition).
+**Open, and asked here.**
+- **Q1/Q2 (headline).** With hidden per-token demand and no step supervision, does a halting policy learned from next-token loss plus a step prior extrapolate its "continue" decisions beyond the training depth, scored against exact demand? **LO isolates block extrapolation from halting extrapolation:** the gap LH-s − LO is the cost of learning *when to stop*.
+- **Q5 (P-pool, Entry 50).** Does one shared block's accuracy on deep examples depend on how rare they are, less than a static stack's does?
+- **Q3** only as a diagnostic: which internal signals track completion (LR, the step probe).
+- **Q4** as a one-cell ablation: input injection on/off.
 
 ## 2. The task
 
-**Symbols.** Keys K (|K| = 64), answers A (|A| = 16), markers {Q}. Keys and answers have **frozen random orthogonal embeddings** (80 symbols ≤ d); the marker and position embeddings are learned.
-- Rationale: content must live in the context, not the weights, which is the thesis's assumption; it makes held-out symbols meaningful at test (P-transfer); and it makes the planted construction exact (§5).
-- A control with learned symbol embeddings is run in one cell on in-vocabulary symbols.
+**Symbols.** 48 keys, 16 answers; frozen orthonormal embeddings in four disjoint subspaces of the stream (key slot, value slot, register, scratch), all orthogonal to the ones direction so LayerNorm is a pure rescaling on them. The BOS token, the query marker, the answer-token marker and the positions are learned. Every episode uses all 48 keys in a fresh permutation, so content is in the context.
 
-**An episode.** A forest of chains over keys, each chain ending at an answer symbol. A chain of length k is k pairs: key₁→key₂, …, key_k→answer.
-- Qn = 8 queried chains with lengths k_i ~ Zipf(α) truncated at k_max; distractor chains fill the pair budget P = 48. Keys are unique across all pairs (a forest), drawn fresh per episode.
-- **Tokens.** Each pair is **one token** whose embedding is e_key(key) + e_val(value), with separate tables for the key slot and the value slot (so the slots occupy different subspaces). After the P shuffled pair tokens come the queries: for each, a query token e_Q + e_start(start key), then the answer token e_ans(answer). Sequence length P + 2·Qn = 64.
-- **Loss.** Standard next-token loss at every position. Only the answer predictions (at the query positions) are informative; pair tokens and starts are uniform random. Accuracy and all per-k metrics are measured at query positions.
-- **Hidden k.** The chain's length is not visible from the start key, the pair order or anything positional: it is learned only by following the chain.
-- **Compute demand per token.** A pair token needs no computation (its own embedding is its final state up to a linear map); a query token needs k hops. So per-token demand is heavy-tailed within every sequence: 48 tokens at 0–1 steps, 8 tokens at k+1.
+**An episode.** A forest of chains over the 48 keys, each ending at an answer. Qn = 6 queried chains with lengths k ~ Zipf(1.5) truncated at k_max = 8 (Qn·k_max = 48 = P, so no length is ever rejected); distractor chains fill the P = 48 pairs. Tokens: BOS, then the 48 pair tokens in shuffled order (one token per pair: key-slot(key) + value-slot(value)), then for each query a query token (marker + register(start)) and its answer token (marker + register(answer)). 61 tokens.
 
-**No shortcuts.** Pair order is shuffled; keys and answers are fresh per episode; starts are chain heads of distinct chains, so earlier queries' answers never help later queries; answers are uniform. The only static shortcut is doubling (a layer that turns i→j and j→l into i→l for every pair at once), which is exactly the ceiling we derive.
+**Loss.** Cross-entropy over the 16 answers at the query positions, read out from the register subspace of the final state through the frozen answer embeddings. (Pair tokens and starts are uniform random, so no other position is informative.)
 
-**Distributions.**
-- Training: α ∈ {1.0, 1.5, 2.0} (three cells), k_max = 8.
-- Evaluation: k = 1 … 32 stratified (uniform over k, 1,000 queries per k), on three symbol sets: in-vocabulary, held-out keys, held-out answers.
+**Hidden k.** Nothing but following the chain reveals its length.
+
+**Read-only context (primary regime).** Pair tokens attend only to BOS and themselves; query tokens attend to everything before them. A static depth-L model can then make at most L hops: each layer lets the query read one pair, and the pair the query needs next is determined only by the register it already holds. This is a restriction by construction, chosen so that the static reach is exact. The **doubling-allowed regime** (pairs attend to earlier pairs and, in looped arms, may loop) is a secondary cell; there the static reference is the simulated greedy causal-doubling reach (`review/static_reach_causal.py`): S4 reaches k = 5/6/7/8 with probability 0.96/0.85/0.68/0.51; S8 reaches k = 16 with 0.98 and k = 32 with 0.68.
+
+**Evaluation.** k ∈ {1,…,8, 10, 12, 16, 20, 24, 32} stratified: one forced query per episode (at a random query position) plus two Zipf fillers, 250 episodes per k, T_eval = 40 loops. The no-hop baseline (uniform over the terminals present) is reported per k; it is ≈ 0.08 here.
 
 ## 3. Arms
 
-Block = pre-norm causal attention + MLP + a linear map on the stream. The linear map lets a block *overwrite* a subspace (register replacement), which looped execution needs and which static stacks get for free by rotating into new subspaces each layer. All arms use the same block type.
+Block = pre-norm causal attention + MLP + a linear map on the stream (identity at init). All arms share it. d = 264, 2 heads, MLP 4×.
 
-| arm | depth | halting | injection | role |
-|---|---|---|---|---|
-| **S4** | 4 unique blocks | — | — | static; doubling ceiling k ≤ 4 |
-| **S8** | 8 unique blocks | — | — | static; ceiling k ≤ 64 by doubling, k ≤ 7 by serial hops |
-| **LF** | 1 shared block × T_train = 9 loops (test up to 33) | none (fixed) | yes | reuse without allocation |
-| **LO** | shared, oracle | loops k+1 on queries, 1 on pairs (uses ground truth) | yes | privileged upper bound on allocation |
-| **LH-s** | shared, learned | halting head reads the **state only** | yes | the thesis arm |
-| **LH-i** | shared, learned | halting head reads state **and step index** | yes | P-signal control |
-| **LF-ni**, **LH-s-ni** | as above | | **no** injection | Q4 |
-| **LR** | LF's checkpoint | residual-triggered at test: ‖Δh‖ or step-KL below a threshold | yes | Q3, no extra training |
-| **LV** | shared | a value head trained on remaining hops (privileged) decides halting | yes | labeled privileged; Entry 46 |
+| arm | depth | halting (queries) | role |
+|---|---|---|---|
+| **S2** | 2 unique blocks | — | static, compute-matched to allocation (≈ 2 steps/token); reach k ≤ 2 |
+| **S8** | 8 unique blocks | — | static, equal width (8× parameters, same per-step cost as a loop); reach k ≤ 8 |
+| **S8-pm** | 8 unique blocks, d = 96 | — | static, parameter-matched (secondary) |
+| **LF** | 1 shared block, T_train = 10 | none; evaluated at T = 10 and T = 40 | reuse without allocation |
+| **LO** | shared | oracle: exactly k loops (uses ground truth) | privileged upper bound; block extrapolation alone |
+| **LH-s** | shared | PonderNet, head reads the state | **the thesis arm** |
+| **LH-x** | shared | PonderNet, head reads the step index only | constant-depth null (what a policy that cannot see the state does) |
+| **LR** | LF's checkpoint | residual-triggered at test (step-KL or ‖Δh‖ threshold) | Q3 diagnostic, no extra training |
+| **LF-ni, LH-s-ni** | as LF, LH-s | | injection off (one cell) |
 
-**Learned halting (LH).** PonderNet: λ_t = σ(w·LN(h_t) + b) (plus a step-index embedding for LH-i); p_t = λ_t Π_{s<t}(1 − λ_s); training loss Σ_t p_t · CE(head(h_t), y) + β · KL(p ‖ Geometric(λ_p)); at test, halt at the first t with cumulative p ≥ 0.5, and **freeze** the token's state thereafter (other tokens attend to the frozen state). Compute is counted as loops used per token. β and λ_p are tuned in the pilot; λ_p sets the compute prior and is reported.
+Context tokens (BOS, pairs, answers) run **exactly one step** in every looped arm, in training and at test, so their states are fixed and the semantics are coherent. Only queries loop.
 
-**Input injection.** h_{t+1} = h_t + Block(h_t + e₀), with e₀ the token's embedding; the no-injection arms drop e₀.
+**Learned halting.** λ_t = σ(w·LN(h_t) + b) (LH-s) or λ_t = σ(b_t) (LH-x; the last logit repeats beyond T_train); p_t = λ_t Π_{s<t}(1 − λ_s); loss = Σ_t p_t·CE(readout(h_t), y) + β·KL(p ‖ Geometric(λ_p)) over query tokens. At test: halt at the first t with cumulative p ≥ 0.5, then freeze. β, λ_p from the pilot (G4). Compute is counted as loops per token.
 
-**Parameter matching.** Looped blocks are widened so that each looped arm has the parameter count of S8 within 5% (d ≈ 360 against d = 128). A width-matched LF (d = 128) is run in one cell as a secondary comparison. Compute is reported as steps per token (average and maximum), so S4 (4 per token) is compared with looped arms at their *average* cost (≈ 1.3 at oracle allocation, §4).
+**Input injection.** h_{t+1} = h_t + Block(h_t + e₀); the no-injection arms drop e₀.
 
 ## 4. Derived before measuring (`derive/`)
 
-**4.1 The static ceiling and the compute ratio** (`ceiling.py`). k ~ Zipf(α) truncated at 32:
+**Compute** (`ceiling.py` B). Over a 61-token training sequence, oracle allocation costs **1.12 steps per token** (1.33 at evaluation with k up to 32); S2 costs 2 (1.8×), S8 costs 8 (7.1×).
 
-| α | E[k] | P(k > 8) | static L = 3 | L = 4 | L = 5 | L = 6 | oracle query cost E[k]+1 |
-|---|---|---|---|---|---|---|---|
-| 1.0 | 7.9 | 0.33 | 0.37 | 0.51 | 0.67 | 0.83 | 8.9 |
-| 1.5 | 4.4 | 0.15 | 0.60 | 0.74 | 0.85 | 0.94 | 5.4 |
-| 2.0 | 2.5 | 0.05 | 0.77 | 0.88 | 0.95 | 0.98 | 3.5 |
+**Reach.** Read-only regime: exactly k ≤ L for a static depth-L model; so S2 fails k ≥ 3 and S8 fails k ≥ 9 by construction (the latter is the point: a static model cannot extrapolate in k at all here). Doubling regime: the table in §2.
 
-(Static entries are the fraction of queries within the doubling ceiling 2^(L−2).) Over a whole sequence at α = 1.5, oracle allocation costs **1.29 steps per token**; S4 costs 4 (3.1×), S8 costs 8 (6.2×). The distinguishing quantity is nonzero and exact: S4 loses 26% of queries at α = 1.5 by construction, and any looped arm saves ≥ 3× compute at equal accuracy.
+**Examples per depth** (`ceiling.py` C). Budget 20k steps × 64 episodes × 6 queries = 7.68M queries. At factor 1, k = 8 has 176k examples; factors 10⁻¹…10⁻⁴ give 19k / 1.9k / 192 / 19 at k = 8.
 
-**4.2 Examples per depth** (`ceiling.py` C). With 2M training queries and k_max = 8: at α = 1.5, k = 8 has 46k examples and k = 1 has 1.04M; at α = 2.0, k = 8 has 20k. The α cells therefore vary the count of deep examples by 2–3× at fixed total, which is what P-pool needs.
+**Basis frontier** (`basis_frontier.py`, Entry 51 level 1): all n^n token maps are generated by 3 primitives with mean word length ≈ 2.5n (diameter 24 at n = 6), or by all transpositions and collapses with mean length ≈ n − 2 and ~400 minimal words per map at n = 6. Not used by the arms; it calibrates what a language of primitives costs.
 
-**4.3 The basis frontier** (`basis_frontier.py`, Entry 51 level 1). All maps of an n-symbol alphabet to itself (n^n of them) are generated by 3 primitives {cycle, transposition, collapse}, at the price of long words; many generators give short words and huge redundancy:
+## 5. Exact references and the planted block
 
-| n | n^n | 3 gens: mean length / diameter / minimal words per map | all transpositions + collapses: gens / mean length / diameter / words per map |
+- Answers are deterministic; the no-hop baseline is the chance reference.
+- Branch value: remaining hops from any state (`data.remaining_hops`).
+- Reducible residual per step: 1 while the register holds a key, 0 once it holds an answer. State-based halting is therefore linearly decodable from the register subspace.
+- **Planted block (G1, implemented and tested).** Attention head 0 matches the register against the key slots (score β = 30 on the unique match) with a BOS sink (score κ = 15, value 0) for tokens with no match, and copies the matched value slot into the query's scratch subspace. The MLP is a marker-gated linear map on query tokens: clear the key part of the register, move scratch into the register, clear scratch; the answer part of the register is kept, so a finished query is a fixed point. One loop = one hop, exactly: accuracy 1.0 at k ≤ 32 under oracle halting and under 40 fixed loops; context tokens are fixed points; T = 4 fails k = 16 as it should.
+
+## 6. Cells and grid
+
+| cell | regime | arms | seeds |
 |---|---|---|---|
-| 4 | 256 | 6.0 / 9 / 1.5 | 18 / 2.5 / 3 / 8.5 |
-| 5 | 3,125 | 9.9 / 16 / 2.1 | 30 / 3.4 / 4 / 51 |
-| 6 | 46,656 | 14.9 / 24 / 4.4 | 45 / 4.3 / 5 / 404 |
+| **main** | read-only, α = 1.5, factor 1 | S2, S8, LF, LO, LH-s, LH-x (+ LR derived) | 29 for S8, LO, LH-s; 10 for the rest |
+| **P-pool** | read-only, factors 10⁻¹, 10⁻², 10⁻³, 10⁻⁴ | S8, LO, LH-s | 10 |
+| **injection** | read-only, factor 1 | LF-ni, LH-s-ni | 10 |
+| **doubling** | pairs attend to earlier pairs and loop; hard-freeze halting semantics | S8, LF, LO, LH-s | 10 |
+| **param-matched** | read-only | S8-pm | 10 |
 
-Permutations alone (2 gens) cover 1.5% at n = 6. This is the level-1 fact behind the thesis: a small basis exists for the token-map part of any layer, and basis size trades against serial length and against identifiability (words per map). It is not used by rung 0's arms; it calibrates what "a language of primitives" costs.
+Runs: main 29·3 + 10·3 = 117; P-pool 120; injection 20; doubling 40; param-matched 10: **307**, plus the pilot. Cut order if the budget is short: doubling cell; P-pool to factors 10⁻¹, 10⁻², 10⁻³; LH-x. Never fewer than 10 seeds; the headline's 29 are kept.
 
-## 5. Exact references and the planted construction
+**Training.** 20k steps, batch 64, AdamW (0.9, 0.95), weight decay 0.01, cosine schedule with 500 warm-up steps, gradient clip 1.0; learning rate per arm from the pilot. Evaluation every 2,500 steps.
 
-- **Answers are deterministic**; chance is 1/16.
-- **Branch value:** remaining hops from any state, from the symbolic executor.
-- **Reducible residual per step:** 1 if the register holds a key, 0 if it holds an answer. State-only halting is therefore linearly decodable from the register subspace by construction.
-- **Planted block (gate G1).** With orthogonal symbol embeddings, one block implements a hop exactly: attention queries the register subspace against the key slot (dot product 1 on the unique match, 0 elsewhere; softmax scale 30), copies the value slot into a scratch subspace; the linear map writes scratch → register and clears scratch. Applied k times from the start key it reaches the answer with accuracy 1.0 on k ≤ 32. This proves the looped architecture can express the algorithm, validates the data pipeline, and gives the oracle executor's neural twin.
+## 7. Endpoints
 
-## 6. Endpoints
+All at query positions, by k.
+1. Accuracy and code length by k, against the no-hop baseline; in range (k ≤ 8) and out of range (9–32).
+2. Steps used vs k for LO, LH-s, LH-x: slope, excess over k, the full distribution.
+3. **P-pool:** for k ∈ {6, 7, 8}, accuracy against log example count across the five factors, per arm; the fitted slope and the count at which each arm leaves ceiling.
+4. **Extrapolation:** accuracy at k ∈ {10, 12, 16, 24, 32} for LF (T = 40), LO, LH-s, LH-x.
+5. **Residual signals** (traces on every looped arm): per step, ‖Δh‖, step-KL of the readout, readout entropy, correctness, against remaining hops; precision–recall of threshold rules for "done"; accuracy and compute of LR against LO.
+6. **Step-index probe:** linear decodability of t from LN(h_t) on chasing states (how far "state-only" can count).
+7. **Random-halting control** (free): from LO/LF traces, the accuracy of halting at a random step drawn from LH-s's empirical step distribution, independent of the token: matched average compute, no information.
+8. Trainability: gradient norms, loss curves by k, time to 99% at k ≤ 3; comparisons at matched training loss from the curves.
+9. Instrumentation (L6): loss by k, halting λ_t by step and k, attention entropy.
 
-All at query positions, by k, by α cell, by symbol set.
-
-1. **Accuracy and code length** by k, in range (k ≤ 8) and out of range (9–32).
-2. **Steps used vs k** for halting arms: slope, intercept and excess over k+1; steps on pair tokens; the full compute distribution.
-3. **P-pool:** for k ∈ {6, 7, 8}, accuracy against the number of training examples at that k across the three α cells, per arm; the fitted slope.
-4. **Extrapolation:** accuracy at k ∈ {12, 16, 24, 32}.
-5. **Transfer:** accuracy and steps on held-out keys and held-out answers, against in-vocabulary.
-6. **Residual signals** (LF/LR): per step, ‖Δh‖, step-KL of the readout, readout entropy, against the exact reducible residual and remaining hops; precision–recall of each threshold rule for "done".
-7. **Trainability:** gradient norms through loops, loss curves by k over training, time to 99% at k ≤ 3.
-8. **Instrumentation** (L6): loss by k, attention entropy, the halting head's λ_t by step and by k, the share of halted tokens per step.
-
-## 7. Predictions (to be fixed with thresholds at preregistration)
-
-Verdicts by run-level paired bootstrap over 10 seeds; "P > 0.9" means P(A better than B) > 0.9.
+## 8. Predictions (thresholds fixed at preregistration; run-level paired bootstrap)
 
 | # | prediction | falsifier | type |
 |---|---|---|---|
-| H1 | **Ceiling.** S4 is at chance for k ≥ 6 in every cell; S8 and all looped arms exceed 0.95 for k ≤ 8 in the α = 1.5 cell. | S4 above 0.5 at k = 8 (then the doubling ceiling is wrong or there is a shortcut); or any looped arm below 0.95 in range (then the block is not trainable as a hop). | expressivity (sanity) |
-| H2 | **Extrapolation.** LH-s ≥ 0.9 at k = 16 and ≥ 0.8 at k = 32 (trained on k ≤ 8); S8 < 0.5 at k = 16. | LH-s < 0.6 at k = 16, or S8 ≥ LH-s at k = 16 (P > 0.9). | mechanism (dynamic depth buys what static cannot) |
-| H3 | **P-signal.** LH-i extrapolates worse than LH-s: at k = 16, LH-s − LH-i ≥ 0.3, and LH-i's steps stop growing beyond T_train. | LH-i within 0.1 of LH-s at k = 16 (P > 0.9). | mechanism (state-based halting pools across depth) |
-| H4 | **Calibration.** LH-s steps on queries: slope ≥ 0.9 against k, excess ≤ 1.5 steps; steps on pair tokens ≤ 2. | Steps constant in k (collapse), or excess > 3, or pair tokens > 4. | mechanism (compute allocation) |
-| H5 | **P-pool.** Across α cells, S8's accuracy at k = 8 rises with the example count (slope > 0 in log count, P > 0.9); LH-s's and LO's do not (slope within the null). | LO's or LH-s's slope ≥ half of S8's. | mechanism (signal pooling) |
-| H6 | **Injection.** LF-ni and LH-s-ni lose ≥ 0.2 accuracy against their injected twins at k ≥ 16. | Difference < 0.05. | optimization |
-| H7 | **Residual triggers.** On LF's checkpoint, a step-KL threshold reaches ≥ 0.9 of LO's accuracy at ≤ 1.5× LO's compute at k ≤ 16; the exact reducible residual is linearly decodable from LF's state with ≥ 0.99 accuracy. | Needs ≥ 3× compute, or loses > 0.1 accuracy, or decodability < 0.9. | mechanism (Entry 46) |
-| H8 | **Transfer.** Every arm within 0.05 of its in-vocabulary accuracy on held-out keys and answers; LH-s's steps within 0.5 of in-vocabulary. | Any drop > 0.1 (then content leaked into the weights). | mechanism |
+| H1 | **Sanity.** S2 at the no-hop baseline for k ≥ 3; S8 ≥ 0.95 for k ≤ 8 and at baseline for k ≥ 9; LO ≥ 0.99 for k ≤ 8. | Any violation: the static reach is wrong (expressivity) or the block is not trainable as a hop (G2). | expressivity / optimization |
+| **H2** | **Headline: halting extrapolates.** LH-s ≥ 0.9 at k = 16 and ≥ 0.8 at k = 32, trained on k ≤ 8; LH-s within 0.1 of LO at every k ≤ 32 (the halting-extrapolation gap). | LH-s < 0.6 at k = 16 while LO ≥ 0.9 (the block extrapolates, the policy does not); or LO itself < 0.6 at k = 16 (block extrapolation fails, as in Kohli 2026, and the gap cannot be measured). | mechanism (optimization of the policy) |
+| H4 | **Calibration.** LH-s steps on queries: slope ≥ 0.9 against k, excess ≤ 1.5 for k ≤ 32. LH-x's steps are constant. | Steps constant in k (collapse to LH-x), or excess > 3. | mechanism (compute allocation) |
+| **H5** | **P-pool.** S8's accuracy at k = 8 leaves ceiling by factor 10⁻² (≈ 2k examples) and falls with log count (slope > 0, P > 0.9); LO's and LH-s's stay at ceiling down to 10⁻³ (≈ 200). | LO/LH-s leave ceiling at the same count as S8, or S8 stays at ceiling at 10⁻⁴. | mechanism (signal pooling) |
+| H7 | **Residual triggers.** On LF, a step-KL threshold reaches ≥ 0.9 of LO's accuracy at ≤ 1.5× LO's compute at k ≤ 16. | Needs ≥ 3× compute or loses > 0.1. | mechanism (diagnostic) |
 
-**Planted models give both verdicts (L17):** the planted block with oracle halting (passes H1, H2, H4, H8); a constant-depth halter at T_train (fails H2, H4); a memorizer of (start → answer) within an episode is impossible by construction, so a "copy the previous answer" model stands in (fails H1); a doubling construction of depth L (passes H1 up to its ceiling, fails H2).
+Dropped from revision 1: H3 (confounded; replaced by the probe and LH-x), H6 (established; kept as an ablation), H8 (empty).
 
-## 8. Cells, grid and seeds
+**Planted models give both verdicts (L17):** the planted block with oracle halting (passes H1, H2, H4); the planted block with a constant halter at T_train (fails H2, H4); a no-hop guesser (fails H1); LF at T = 10 (fails H2).
 
-- **Cells:** α ∈ {1.0, 1.5, 2.0}, k_max = 8, P = 48, Qn = 8.
-- **Arms:** S4, S8, LF, LO, LH-s, LH-i, LF-ni, LH-s-ni, LV (9 trained arms; LR is derived from LF).
-- **Grid:** 9 arms × 3 cells × 10 seeds = **270 runs**, plus a width-matched LF and a learned-embedding control in the α = 1.5 cell (20 runs).
-- **Pilot first:** learning rate per arm (3 values × 2 seeds, α = 1.5); PonderNet β and λ_p for LH; the null spread between seeds; gates G1–G3.
-- **Size:** d = 128 for static (≈ 1.6M parameters for S8), d ≈ 360 for looped (matched); 4 heads; batch 64 episodes; 30k steps (≈ 15M query tokens); AdamW; cosine schedule.
+## 9. Fairness (AGENTS rule 4)
 
-## 9. Cost
-
-Sequences are 64 tokens; models are ≤ 2M parameters. A looped arm runs ≤ 33 block applications per sequence at test and 9 in training. On a T4, one run is minutes; the grid is well under 20 GPU-hours even without stacked batching. Evaluation is 32 k-strata × 1,000 queries × 3 symbol sets per checkpoint, cheap.
+- Learning rate per arm (pilot: 3 values × 2 seeds); β and λ_p for LH chosen so that LH-s's in-range accuracy matches LO's within 0.02 (G4), otherwise a halting arm fails for the wrong reason.
+- Equal width primary (every arm d = 264; the same per-step cost); parameter-matched secondary (S8-pm).
+- Compute reported as steps per token, average and maximum; S2 is the compute-matched static arm; the random-halting control matches LH-s's average compute.
+- 29 paired seeds for the headline trio; 10 elsewhere; a null pilot sets the minimum detectable effect.
+- Matched-training-loss comparisons from the curves.
+- Not done: an initialization-scale sweep (no closed-form richness parameter here); stated.
 
 ## 10. Gates before the main runs
 
-- **G1 planted.** The hand-built hop block reaches 1.0 on k ≤ 32; the symbolic executor and the planted block agree on every state; the generator's forest and length checks pass (tests first, AGENTS rule 7).
-- **G2 trainability.** LO reaches ≥ 0.99 on k ≤ 8 in the pilot budget; if not, the block type or the injection is revised and recorded before any other arm runs.
-- **G3 nulls.** The seed spread of identical arms sets minimum detectable effects for H2–H5.
-- **G4 learning rates** tuned per arm; PonderNet β chosen so that LH's in-range accuracy matches LO's within 0.02 (otherwise a halting arm fails for the wrong reason).
-- **An independent review** of the code against this document before the grid.
+- **G1 planted** (done, `tests/test_ptr.py`): exact hop, idempotent after termination, context fixed points, generator forest and length checks.
+- **G2 trainability.** LO reaches ≥ 0.99 at k ≤ 8 within the pilot budget. If not, the block or the injection is revised and recorded before any other arm runs.
+- **G3 nulls.** Seed spread of identical arms.
+- **G4 learning rates and PonderNet constants.**
+- **G5 cost.** The pilot's wall time sets the step budget and the number of concurrent runs per GPU; the grid must fit about two Kaggle weeks.
+- **An independent review of the code** against this document before the grid.
 
 ## 11. What this rung does not answer
 
-- Selection among several primitives (rung 1), hence nothing yet about composition of distinct circuits or route identifiability.
-- Learned primitives, the interface between them, and library formation.
-- Search and learned values beyond LV's privileged halting.
-- Whether the depth claim survives data with parallel shortcuts other than doubling.
+- Selection among several primitives (rung 1); nothing about composing distinct circuits.
+- Learned primitives, their interface, library formation; search and learned values.
+- Predicting demand (rung 0's halting only detects completion).
+- Whether the result survives data with parallel shortcuts (the doubling cell is a first look only).
 
-## 12. Open for the preregistration
+---
 
-Thresholds in H1–H8 after the null pilot; β, λ_p and learning rates; whether LV runs in all cells; the second literature pass (Mixture-of-Recursions' halting variants; PonderNet's parity extrapolation setup) to confirm nothing here is already measured.
+## Independent review of revision 1 (27 Oct 2026)
+
+The reviewer's scripts are in `review/`.
+
+**Verdict.** The toy is a legitimate, cheap place to ask the one thing not in the literature: whether a halting policy trained from next-token loss plus a step prior, with no step supervision and hidden per-token demand, extrapolates its "continue" decisions beyond T_train, measured against exact demand (LH-s vs LO), plus the P-pool claim if redesigned. Much of the 290-run grid was foregone, confounded or known. Recommended a lean rung 0 plus a redesigned P-pool.
+
+**Blocking findings:**
+1. The static ceiling 2^(L−2) was wrong for pairs-as-tokens (Sanford's +2 includes a previous-token layer this tokenization does not need); simulated causal greedy doubling: S4 reaches k = 5/6/7/8 with 0.96/0.85/0.68/0.51; S8 reaches k = 16 with 0.98. "Chance = 1/16" was also wrong: a no-hop guesser with elimination scores 0.17–0.20.
+2. The §5 planted block, as described (linear overwrite), destroyed the answer one step after reaching it (answer mass 1.00 → 0.02); a gated overwrite holds it. (The implementation already used the gated construction; the text was wrong.)
+3. Halting semantics were incoherent between training (all tokens run all steps) and test (pairs freeze early).
+4. H8 was empty: held-out frozen symbol directions get no gradient, so transfer fails by construction; symbols in the training span transfer trivially.
+5. H3 was confounded: the step index is decodable from the state, so "state-only" can count and LH-i can ignore its index.
+6. H5 would saturate at the budget (k = 8 had 352k examples); the α axis also changed the curriculum.
+
+**Non-blocking:** the compute accounting used the wrong token count; evaluation episodes were unspecified; T_train = k_max + 1 forced the halt at k = 8; width confound (d 360 vs 128); AGENTS gaps (29 seeds for the headline, matched-loss comparison, a random-halting control, a compute-matched static arm); cost ≈ 60–170 GPU-hours, not < 20; rung 0's halting detects completion rather than predicting demand; H6 is established and should be an ablation.
+
+**Prior work found:** PonderNet (per-sequence halting; parity extrapolation), Universal Transformer (per-position ACT, halted state attended), NDR (Csordás 2022), Sparse Universal Transformer (expected halted state as K/V), Bansal 2022 (recall + progressive loss; prefix sums and mazes extrapolate), Geiping 2025 (recurrent-depth LM with a zero-shot KL exit), Fan 2025, Mixture-of-Recursions, Sanford 2024, Kohli 2026 (recurrent-depth pointer chasing is fragile), a public recurrent-depth pointer-chasing run (0.27–0.44 out of range), Ouro (learned per-token exit at LM scale).
+
+**How revision 2 handles each finding:** the table in §0.
