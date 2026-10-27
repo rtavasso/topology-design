@@ -998,6 +998,30 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 **Decision.**
 - **D79.** Rung 0 uses option 1 (depth-aligned, frozen finals), with context tokens single-step so their states are their depth-1 states in every arm. The semantics are stated in the design.
 
+## Entry 53 (27 Oct 2026): novelty assessment, rung 0 and the core idea (discussion)
+
+**Premise (researcher).** Do these experiments provide value the literature hasn't, and is the core idea novel?
+
+**Rung 0.** Narrow but real. Not in the literature, as far as three reviews and our reading found: learned, unsupervised per-token halting on *hidden* serial demand in a causal transformer, scored against exact demand, with LO separating block extrapolation from policy extrapolation; and the signal-pooling test (deep accuracy against the count of deep examples, shared block vs static stack). The rest of the grid is confirmatory or a control. Its value is mainly as the foundation gate of the ladder; as a result it is small-to-moderate.
+
+**The core idea, piece by piece:**
+- per-token dynamic depth over a shared block: exists (ACT, PonderNet, UT, MoR, Ouro, recurrent-depth LMs);
+- per-token selection among shared primitives reused across depth: exists in pieces (Neural Interpreters, MoEUT, SUT, CRL, routing networks);
+- routing trained by search with policy and value: exists for programs (AlphaNPI, REPL, CodeIt) and as offline labels for layer skipping (Dr.LLM); not as online expert iteration over a primitive library in a sequence model;
+- residual-driven refinement and exit: exists (predictive coding, CALM, Geiping's KL exit);
+- "a PFN over model composition" (Entry 48: amortized posterior over the model's own composition, trained on a prior over worlds, with EM/AlphaZero as the training loop): a synthesis of known pieces (planning as inference, wake-sleep, Grill 2020, PFN theory). Not stated this way in the literature we found, but a synthesis is not a result; it earns its place only through predictions the pieces don't make: the MDL/identifiability bet, extrapolation in structure space, structure-level fidelity against an exact posterior over procedures;
+- the circuit-equivalence belief (Entry 51): partially supported (Relaxed Recursive Transformers, layer pruning, cross-layer sharing); the distillation test (fidelity of a trained deep model distilled into m routed primitives, as a curve in m) appears not to have been done.
+
+**Where novelty could actually land:**
+1. the measurement methodology: exact references for routing (Bayes over procedures, exact branch values, structure fidelity) on generators with known compositional structure;
+2. the combination reuse-across-depth × per-token selection × learned allocation, trained from next-token loss with value and search, evaluated for extrapolation in composition space (rung 1 onward);
+3. the distillation curve for circuit equivalence.
+
+**Risk.** The field is converging on this space (MoR, Ouro, MoEUT, Dr.LLM, recurrent-depth LMs, all 2024–2025). Dynamic depth alone will not differentiate; the library axis and the exact-reference methodology will.
+
+**Decision.**
+- **D80.** Run rung 0 lean (main cell and P-pool first; the other cells only if cheap), then move to rung 1 and the distillation test, which carry the novelty.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
