@@ -830,6 +830,35 @@ A transformer trains matrices to produce context-dependent next-token transforma
   - compare halting and routing policies (fixed depth; norm threshold; stability; confidence; learned value; residual-matched routing; greedy vs cost-to-go) against the oracle;
   - test specifically on chains with preparatory steps.
 
+## Entry 47 (27 Oct 2026): setup moves, delayed reward and multi-layer circuits (discussion)
+
+**Premise (researcher).** How does AlphaZero handle moves whose payoff appears only after several more actions, where a single move looks weak but sets up the rest? The same happens in circuits: three sequential layers may be needed for a behavior while no single layer moves the needle.
+
+**Argument.**
+- **AlphaZero has no per-move reward.** Only the final outcome exists.
+  - A move is judged by the value of the position it leads to, v(s) ≈ the expected final outcome. That is cost-to-go, not immediate gain. A setup move is good because the resulting position is good.
+  - v is trained on the final outcomes of self-play games, so positions full of potential learn high value.
+  - Search expands follow-up sequences and averages deep values back to the root. Setups within the search horizon get credit directly.
+  - The policy is distilled from search visit counts, so setup moves become intuitive over iterations.
+  - Root noise and sampling find them in the first place.
+- **AlphaZero's limits:**
+  - combinations beyond the search horizon rely on v's intuition (horizon effects; ladders were a known weakness of AlphaGo-style systems);
+  - learned values have exploitable blind spots (adversarial policies against KataGo, Wang et al. 2023).
+- **The key difference from our setting.** In games every random playout ends in a win or a loss, so a learning signal exists from the start. In composition, a random route almost never reaches a target that needs a specific multi-step chain (the needle in Entry 41's foothold table). Remedies:
+  - curriculum through short chains;
+  - potential-based shaping from a value;
+  - hindsight relabeling (CodeIt, HER, DreamCoder dreams): any route computes *something*, so treat it as a correct example for its actual output. For sequence models this is valid for learning route→behavior models, but changing the target without changing the context makes inconsistent sequences.
+- **How transformers already solve setup credit.** An induction head is a previous-token head, which alone does nothing to the logits, composed with a copying head. Gradient descent credits the preparatory layer through the chain rule, because the composition is fixed and differentiable. The abrupt emergence of induction heads after a plateau (Olsson 2022) is the signature of a multi-step circuit discovered by gradient.
+
+  The difficulty appears only when the composition is a *discrete* routing choice, which gets no gradient. Hence:
+  - soft routing gets chain-rule credit for setup steps, like a transformer;
+  - hard routing needs a value or search;
+  - a hybrid (soft while learning, hardened later, or straight-through estimates) is an option.
+- **The residual to monitor is a value over states, not the change in prediction.** After a setup step the prediction is unchanged, but the state is one step closer. On the exact toy this is the distance to the target: a setup step is optimal exactly when the distance drops, even with zero change in logits.
+
+**Decision.**
+- **D74.** Rung 1 tests whether learned values over states recognize setup progress (distance drops with unchanged predictions), and compares credit for setup steps under soft routing (chain rule), hard routing with value and search, hindsight relabeling, and a soft-to-hard hybrid.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
