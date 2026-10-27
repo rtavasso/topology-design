@@ -98,7 +98,15 @@ Context tokens (BOS, pairs, answers) run **exactly one step** in every looped ar
 | **doubling** | pairs attend to earlier pairs and loop; hard-freeze halting semantics | S8, LF, LO, LH-s | 10 |
 | **param-matched** | read-only | S8-pm | 10 |
 
-Runs: main 29·3 + 10·3 = 117; P-pool 120; injection 20; doubling 40; param-matched 10: **307**, plus the pilot. Cut order if the budget is short: doubling cell; P-pool to factors 10⁻¹, 10⁻², 10⁻³; LH-x. Never fewer than 10 seeds; the headline's 29 are kept.
+Runs: main 29·3 + 10·3 = 117; P-pool 120; injection 20; doubling 40; param-matched 10: **307**, plus the pilot (60 runs). **Run order:** pilot → main → P-pool; the other three cells only with budget left over. Cut order if short: doubling cell; P-pool to factors 10⁻¹, 10⁻², 10⁻³; LH-x. Never fewer than 10 seeds; the headline's 29 are kept.
+
+**Batching.** Runs of one arm are stacked into one model with a leading run dimension (`stacked.py`, as in the worlds round): all 29 seeds of LH-s train in one process, one kernel per layer, per-run learning rates and gradient clipping, fp16 autocast. Episodes are generated on the GPU (`gen_torch.py`), paired by seed across arms. Stacked and separate training agree to float precision (`tests/test_ptr.py`). One shard per T4; Kaggle's two T4s take two shards.
+
+```
+.venv/bin/python experiments/fleet/kaggle/launch.py --user riley9 --ptr-grid experiments/ptr/grids/pilot.json --no-wait
+.venv/bin/python experiments/fleet/kaggle/launch.py --user riley9 --ptr-grid experiments/ptr/grids/pilot.json --fetch
+PYTHONPATH=src python experiments/ptr/analyze.py results/kaggle_ptr-pilot
+```
 
 **Training.** 20k steps, batch 64, AdamW (0.9, 0.95), weight decay 0.01, cosine schedule with 500 warm-up steps, gradient clip 1.0; learning rate per arm from the pilot. Evaluation every 2,500 steps.
 
