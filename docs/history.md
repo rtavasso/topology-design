@@ -1022,6 +1022,24 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 **Decision.**
 - **D80.** Run rung 0 lean (main cell and P-pool first; the other cells only if cheap), then move to rung 1 and the distillation test, which carry the novelty.
 
+## Entry 54 (27 Oct 2026): rung 0 designed, reviewed, revised and implemented
+
+**Premise.** The researcher asked for the rung-0 design, an independent review, and the implementation.
+
+**Design** ([ptr/DESIGN.md](../experiments/ptr/DESIGN.md)): pointer chasing with hidden, heavy-tailed chain length; one shared block with learned halting against static stacks, a fixed loop, oracle halting and an index-only null; the headline is halting extrapolation (LH-s against LO) and the signal-pooling test (deep accuracy against the count of deep examples).
+
+**Derivations before measuring:** oracle allocation costs 1.12 steps per token against 8 for S8; the deep-example counts per tail factor; the basis-size vs word-length frontier for token maps (3 generators cover all maps on 6 symbols at mean word length 15; 45 generators at 4.3 with 400 minimal words per map).
+
+**Review 1** found the static ceiling wrong for pairs-as-tokens (doubling at pair tokens; simulated causal reach S4 0.51 at k = 8), the planted block as *described* destroying its answer, incoherent halting semantics, an empty transfer hypothesis, a confounded state-vs-index test, a saturating P-pool test, and a cost underestimate. **Revision 2:** context tokens read-only and single-step by construction (static reach exactly L; coherent semantics), an index-only null, direct subsampling of the deep tail over four decades, equal width primary, a no-hop baseline, two hypotheses dropped.
+
+**Implementation** (`src/topology_design/ptr/`, 17 tests): numpy and vectorized GPU generators with an exact executor; the planted hop block (exact at every k ≤ 32, idempotent after termination, context tokens fixed points); static and looped models with fixed / oracle / learned / index-only / value halting; run-stacked models with per-run AdamW and clipping, paired per-seed data, equivalence to separate runs to float precision; stratified evaluation with residual traces, a step-index probe and the no-hop baseline; grids (307 runs + 60 pilot), a resumable stacked runner, analysis, and a Kaggle job tested end to end on CPU.
+
+**CPU pilot (gate G2, inconclusive).** With oracle halting and d = 264, the block solves k = 1 within 500 steps and is still near chance on k ≥ 2 after 2,500 steps (loss 1.31 → 1.14, consistent with partial elimination rather than a second hop). Without input injection it moves slightly faster. 2,500 CPU steps is far short of the 6,000–20,000 planned; the GPU pilot decides G2. A no-injection oracle arm was added to the pilot.
+
+**Decisions.**
+- **D81.** Nothing in the grid runs before the GPU pilot settles G2 and the learning rates; if the block cannot learn the second hop, the block (or the injection) is revised and recorded first.
+- **D82.** Run order: pilot → main → P-pool; the other cells only with budget left over.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
