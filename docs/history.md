@@ -754,6 +754,47 @@ A transformer trains matrices to produce context-dependent next-token transforma
 **Decision.**
 - **D71.** The Z_7 program-induction toy is retired as a test of the thesis; it is kept only as a solved positive control. The next design starts from a generic context-circuit library and data from diverse sequence processes that are not written in the library. The L22 check comes first: the distinguishing quantity (dynamic vs static circuit composition) must be non-zero and measurable.
 
+## Entry 45 (27 Oct 2026): what the toy is for, working backward from the end system (discussion)
+
+**Premise (researcher).** The toy exists to build knowledge on the smallest part of the end system we cannot answer now: to make observations, build intuitions and explore on a simple problem. It must be designed so it actually probes the questions about the end goal, a neural, serialized LLM.
+
+**The end system.** A shared library of generic primitive layers (attention circuits and MLP-like transforms). A per-token router chooses, from context, which primitive comes next or whether to halt. It is trained autoregressively, possibly with a learned value and search.
+
+**Open questions about it, and what is already known:**
+
+| question | already known | open |
+|---|---|---|
+| Does per-token routing train at all? | Yes, in soft or top-k form (MoE, MoA/MoH, Neural Interpreters, MoR) | — |
+| Can depth vary per token over a shared block, with learned halting? | Yes (MoR, Universal Transformer/ACT) | — |
+| **Q1.** From next-token loss alone, does a router learn *order-dependent serial chains of distinct generic circuits*, where the chain needed varies by token and context? | — | open |
+| **Q2.** Do learned chains generalize to longer chains and new orders of known circuits, better than static stacks, looped blocks and per-layer head selection? | Module networks warn that learned layouts don't | open |
+| **Q3.** Can arbitrary orders of neural primitives act on one shared state without drift? | — | open: the interface |
+| **Q4.** Do generic primitives form and stay generic when learned jointly with routing? | — | open: library formation |
+| **Q5.** Can a learned value or search make routing selective? | — | open |
+
+**A constraint from theory.** Static transformers solve k-hop induction in ⌊log₂k⌋ + 2 layers by parallel doubling. Trained depth-L models reach k ≈ 2^(L−2) (Sanford, Hsu & Telgarsky 2024), and associative compositions such as state tracking have parallel-prefix shortcuts. So serial routing is unlikely to win on expressivity or parallel compute in these tasks. Its possible advantage is learnability and generalization: one primitive, iterated as needed, extrapolates in k and to new orders, while circuits fixed at a given depth do not.
+
+**Fidelity requirements for the toy:**
+- **F1.** Generic, hypothesis-agnostic primitives (Entry 44).
+- **F2.** Per-token routing in an autoregressive sequence, with teacher-forced next-token loss as the signal.
+- **F3.** Chains that depend on order, and that vary by token and context.
+- **F4.** A state richer than the output, with the output read only from the route's final state.
+- **F5.** Baselines matched on parameters and per-token compute: a standard transformer; a fixed stack of the same primitives; a looped block (reuse without selection); per-layer head selection (MoA/MoH); a soft superposed stack.
+- **F6.** The ground-truth chain known for every token, so route correctness and branch classes are exact.
+- **F7.** The chain not inferable from the token alone.
+
+**What can be abstracted away:** natural language, scale, a large vocabulary, and, at first, learned primitives.
+
+**Decision.**
+- **D72.** A ladder of toys, each isolating one unknown:
+  1. symbolic generic circuits with routing only (Q1, Q2);
+  2. neural primitives initialized or distilled from the circuits (Q3);
+  3. primitives learned jointly with routing (Q4);
+  4. learned value and search (Q5);
+  5. more natural data.
+
+  The first rung: sequences needing mixed, order-dependent chains of generic circuits (e.g. match-and-read-next, previous token, copy, select-by-predicate), with chain length and order varying per query, and the chain inferred from context. Trained on short chains; tested on longer chains and new orders.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
