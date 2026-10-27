@@ -1,0 +1,16 @@
+prior l<=5 equal per length, 4000 episodes; per z position, nats
+k  bayes  effN   uniform  shortest  MAP(floor)  |VS|
+ 0 1.877  3006.1 1.889   2.044    5.038   37565
+ 1 1.799   509.1 1.855   2.614    4.669   6119
+ 2 1.568   109.7 1.789   2.216    3.839   1100
+ 3 1.218    28.6 1.682   1.604    2.831   222
+ 4 0.798     8.4 1.380   1.023    1.873   51
+ 5 0.408     3.2 0.859   0.499    1.037   15
+ 6 0.167     1.7 0.444   0.202    0.503   6
+ 8 0.028     1.1 0.124   0.032    0.077   2
+10 0.007     1.0 0.050   0.007    0.028   1
+12 0.002     1.0 0.027   0.002    0.016   1
+l=2, k=8: share with a strictly shorter consistent fn 0.00; median |VS(l<=5)| 2
+l=3, k=8: share with a strictly shorter consistent fn 0.00; median |VS(l<=5)| 1
+l=4, k=8: share with a strictly shorter consistent fn 0.01; median |VS(l<=5)| 1
+l=5, k=8: share with a strictly shorter consistent fn 0.03; median |VS(l<=5)| 1

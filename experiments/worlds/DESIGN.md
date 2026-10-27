@@ -1,6 +1,6 @@
 # A PFN over model composition: design (revision 4)
 
-**Status:** design, 26 Oct 2026. Not yet a preregistration. Revision 4 follows the researcher's reframing (history Entries 36–40) and the papers read in Entry 39. The previous revisions and their three reviews are kept at the end. Next steps: an independent review of this design and its experimental value, then code, a throughput test, the pilot gates, and the preregistration.
+**Status:** design, 26 Oct 2026. **The independent review of revision 4 judged it not worth running as designed (at the end of this document). Direction goes to the researcher.** Revision 4 follows the researcher's reframing (history Entries 36–40) and the papers read in Entry 39. The previous revisions and their three reviews are kept at the end. Next steps: an independent review of this design and its experimental value, then code, a throughput test, the pilot gates, and the preregistration.
 
 **Ledger:** I25 and I26, following F19 (the data gap is the prior).
 
@@ -420,3 +420,51 @@ The reviewer's scripts and outputs are in `review3/`.
   - ACT/PonderNet for compute allocation.
 
 **Status:** findings 1 and 3 change what the round can claim and go to the researcher. Findings 2, 4 and 5 and the non-blocking items are fixable in revision 4.
+
+---
+
+## Independent review of revision 4: design and experimental value (26 Oct 2026)
+
+The reviewer's scripts and outputs are in `review4/`.
+
+**Verdict: not worth running as designed.**
+- On pair worlds with a library equal to the generator's instruction set, the posterior over compositions, taken up to equivalence, *is* the posterior over 49-entry output tables (§7 says so). So the thesis's distinction between structure and output is zero by construction.
+- Exact inference over all 297,845 functions is a 5 ms table lookup per context, so there is nothing hard for "find vs verify" or "seeing the minima" to amortize.
+- What remains is amortized program induction over a known DSL:
+  - CP is inference compilation, NeSymReS, or DreamCoder/MWS fantasy training;
+  - CX is expert iteration for program synthesis (REPL synthesis, AlphaNPI, MWS replay, CodeIt).
+
+  `generator_design.md` §11 had already called this a positive control.
+- Most predictions are foregone or derivable now, and every outcome leads to the same next step.
+
+**Blocking findings:**
+1. **The thesis is not tested.** Label Stage A a program-induction positive control, cut it to a pilot, and test the thesis where the posterior over structure is not the posterior over outputs: Stage B, or a library that is not the generator's basis.
+2. **CX's training rule doesn't have Bayes as its optimum.**
+   - The terminal score is nearly length-neutral, at ≈ 1% per step, against the prior's ≈ 7× per step.
+   - Visit-count targets seek the mode.
+   - The next-token signal never reaches terminal nodes.
+
+   Excess over Bayes (which itself scores 0.125 nats per z position, at k = 4–15): uniform over consistent functions 0.149; commit to the MAP function 0.199; uniform over the shortest consistent functions 0.030. The 0.149 sits at H1's falsifier. Fix: train on the marginal likelihood, with search only as a proposal (generator_design §10, objective 2), or judge H1 at k ≥ 8 only; and specify the open details.
+3. **H2/E2 for the soft arms are decided by derivation, and CS-8 is not a fair control.** At the level of functions, a best-fit 8-chain mixture puts only 0.48–0.69 of its mass on context-consistent functions (TV 0.51–0.58), although its marginal KL is ≈ 0.001–0.012. §6.2 scored a marginal quantity (L20 again). CX − CS-8 confounds expressivity, estimator, objective and compute.
+4. **Feasibility.** The Python search costs ≈ 38 µs per simulation, so ≈ 16 CPU-hours of tree bookkeeping per CX run at the planned budget. A GPU-batched search is needed and is not specified. "≈ 9× CP" ignores 64 sequential network calls per search.
+
+**Non-blocking findings:**
+- G2 should be scored on unseen targets, since pool functions can be memorized.
+- §6.1's foothold reflects the 33-way needle, not averaging (max-backup doesn't help).
+- E2's estimator is biased at k = 2.
+- Missing from §2:
+  - REPL synthesis (Ellis 2019);
+  - AlphaNPI (Pierrot 2019);
+  - memoised wake-sleep (Hewitt 2020; replay vs fantasy is CX vs CP);
+  - CodeIt (Butt 2024);
+  - NeSymReS (Biggio 2021) and Kamienny 2023;
+  - AVICI (Lorch 2022);
+  - the Latent Program Network (Bonnet & Macfarlane 2024);
+  - inference compilation (Le 2017);
+  - He et al. 2024.
+
+**Suggested sequence:**
+1. Entry 38's learned-value test on CPU (exact version-space distances → rank correlation and search nodes saved on unseen and ℓ = 6 functions).
+2. CP vs N in N400 and Nall (10 seeds) to size the by-construction advantage.
+3. A G2 pilot for CX with the corrected objective (3 seeds).
+4. Then Stage B, or a mismatched library. Skip the 331-run grid.

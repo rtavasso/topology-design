@@ -1,0 +1,9 @@
+l=1: S=64: consistent 10/12, true 10/12; S=256: consistent 12/12, true 12/12; S=1024: consistent 12/12, true 12/12
+l=2: S=64: consistent 3/12, true 3/12; S=256: consistent 5/12, true 5/12; S=1024: consistent 9/12, true 9/12
+l=3: S=64: consistent 1/12, true 0/12; S=256: consistent 2/12, true 2/12; S=1024: consistent 2/12, true 2/12
+l=4: S=64: consistent 0/12, true 0/12; S=256: consistent 0/12, true 0/12; S=1024: consistent 0/12, true 0/12
+l=5: S=64: consistent 1/12, true 0/12; S=256: consistent 0/12, true 0/12; S=1024: consistent 0/12, true 0/12
+
+real	0m3.098s
+user	0m3.120s
+sys	0m0.036s

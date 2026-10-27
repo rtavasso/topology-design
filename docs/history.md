@@ -640,6 +640,34 @@ The derivations in `experiments/worlds/rev3/` gave three numbers:
 **Decision.**
 - **D65.** Revision 4 states the round's thesis as "a PFN over model composition". The primary structure-level endpoint is the router's composition distribution against the exact posterior over composition equivalence classes, alongside the output-level code length against exact Bayes.
 
+## Entry 41 (26 Oct 2026): revision 4 judged not worth running as designed
+
+**Premise.** Revision 4 ("a PFN over model composition") had five arms:
+- N, an output-level PFN;
+- CP, a composition PFN trained on prior samples;
+- CX, expert iteration with exact symbolic search;
+- CS-1 and CS-8, soft routing.
+
+It also had the search-alone foothold (`rev4/mcts_search.py`: ℓ = 1 12/12, ℓ = 2 9/12, ℓ = 3 2/12, ℓ ≥ 4 0/12 at 1,024 simulations) and a prior-work table. The researcher asked for a review of the design *and* of its experimental value.
+
+**The review** (DESIGN.md; `experiments/worlds/review4/`):
+- On pair worlds with the generator's own library, the posterior over composition classes *is* the posterior over output tables, and exact inference is a 5 ms lookup. So the thesis's structure-vs-output distinction is zero by construction, and the round reduces to amortized program induction over a known DSL, already well studied:
+  - inference compilation, NeSymReS, DreamCoder and memoised wake-sleep (for CP);
+  - REPL synthesis, AlphaNPI and CodeIt (for CX).
+- CX's training rule doesn't have Bayes as its optimum.
+- The soft-arm predictions were decided by derivation, scored on marginals again (L20).
+- The search cost needs a GPU-batched implementation that was never specified.
+- Suggested sequence: a learned-value test on CPU; CP vs N; a CX bootstrap pilot; then Stage B or a mismatched library.
+
+**Assessment.** The central point is correct, and it was available earlier: `generator_design.md` §11 had called the composer "a positive control". Testing the thesis needs a world where the posterior over structure carries information the output posterior does not, and where exact inference is not a cheap lookup:
+- unbounded or sequence inputs (Stage B);
+- or a library whose basis differs from the generator's.
+
+**Decisions:**
+- **D66.** Record the review. The 331-run grid is not run.
+- **D67.** Lesson L22.
+- **D68.** Direction goes to the researcher: the suggested sequence, or straight to designing Stage B.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

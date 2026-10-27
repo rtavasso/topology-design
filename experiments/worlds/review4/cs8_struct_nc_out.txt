@@ -1,0 +1,4 @@
+k  neff  marginalKL  CS8:mass-consistent  CS8:mass-in-posterior-support  TV(CS8,post) on non-context inputs only  TV(post-samples,post)
+1   563.3  0.001       0.69                 0.64                          0.51          0.24
+2    90.1  0.003       0.50                 0.49                          0.56          0.08
+3    33.8  0.012       0.48                 0.48                          0.58          0.03
