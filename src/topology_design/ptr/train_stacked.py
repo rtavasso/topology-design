@@ -127,7 +127,9 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None =
     gens = [TorchGen(dc, dev, seed=s * 7919 + 11) for s in seeds]
     gens_eval = [TorchGen(dc, dev, seed=s * 7919 + 12345) for s in seeds]
     use_amp = (dev.startswith("cuda")) if amp is None else amp
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    # manual dynamic loss scaling (PyTorch's GradScaler needs a torch optimizer); runs whose gradients overflow skip
+    # that step on their own, so runs stay independent
+    loss_scale, clean_steps = (2.0 ** 14 if use_amp else 1.0), 0
     recs = []
     for r, c in enumerate(cfgs):
         recs.append({"cfg": {k: v for k, v in c.items() if k not in ("name", "arm")}, "name": c.get("name"),
@@ -147,17 +149,22 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None =
             out = m(b, steps=st, mode=mode)
             loss, per_run, extra = m.loss(out, remaining_hops=rem)
         opt.zero_grad()
-        scaler.scale(loss).backward()
-        if use_amp:
-            inv = 1.0 / scaler.get_scale()
+        (loss * loss_scale).backward()
+        if loss_scale != 1.0:
             for p in m.parameters():
                 if p.grad is not None:
-                    p.grad.mul_(inv)
+                    p.grad.mul_(1.0 / loss_scale)
         gn = clip_grad_norm_per_run(m.parameters(), tc["grad_clip"])
-        opt.step(scale=sched(s))
+        finite = torch.isfinite(gn) & torch.isfinite(per_run)
+        opt.step(scale=sched(s), active=finite if use_amp else None)
         if use_amp:
-            scaler.update()
-        run_loss += per_run
+            if bool((~finite).any()):
+                loss_scale, clean_steps = max(loss_scale / 2, 1.0), 0
+            else:
+                clean_steps += 1
+                if clean_steps >= 1000 and loss_scale < 2.0 ** 16:
+                    loss_scale, clean_steps = loss_scale * 2, 0
+        run_loss += torch.nan_to_num(per_run, nan=0.0, posinf=0.0, neginf=0.0)
         with torch.no_grad():
             ok = (out["logits"].argmax(-1) == out["targets"])                                   # (R, B, Q)
             kk = b["q_k"]
@@ -169,7 +176,7 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None =
         if (s + 1) % 100 == 0:
             rl = (run_loss / 100).tolist()
             for r in range(R):
-                recs[r]["curve"].append({"step": s + 1, "loss": rl[r], "grad_norm": float(gn[r]),
+                recs[r]["curve"].append({"step": s + 1, "loss": rl[r], "grad_norm": float(gn[r]), "loss_scale": loss_scale,
                                          "acc_by_k": {k: float(np.mean(v)) for k, v in sorted(run_acc[r].items())},
                                          **{k: float(v[r]) for k, v in extra.items()}})
             run_loss.zero_()

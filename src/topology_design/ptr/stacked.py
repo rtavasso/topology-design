@@ -160,12 +160,12 @@ class StackedPtrModel(nn.Module):
                 active = active & is_query
             if mc.halting == "learned":
                 if mc.halt_input == "index":
-                    lam = torch.sigmoid(self.halt_bias[:, min(t - 1, 63)]).view(R, 1, 1).expand(R, B, N)
+                    lam = torch.sigmoid(self.halt_bias[:, min(t - 1, 63)].float()).view(R, 1, 1).expand(R, B, N)
                 else:
                     z = self.halt_norm(h)
                     if mc.halt_input == "state+index":
                         z = torch.cat([z, self.step_emb[:, min(t - 1, 63)].view(R, 1, 1, -1).expand(R, B, N, -1)], -1)
-                    lam = torch.sigmoid(self.halt(z)).squeeze(-1)
+                    lam = torch.sigmoid(self.halt(z).float()).squeeze(-1)     # fp32: p_halt must not underflow
                 if t == T:
                     lam = torch.ones_like(lam)
                 p_halt.append(remaining * lam)
@@ -175,7 +175,7 @@ class StackedPtrModel(nn.Module):
                 cum = torch.stack(p_halt, 0).sum(0)
                 active = active & (cum.detach() < 0.5)
             elif mc.halting == "value":
-                v = self.val(self.val_norm(h)).squeeze(-1)
+                v = self.val(self.val_norm(h)).float().squeeze(-1)
                 vals.append(v)
                 if mode != "train":
                     active = active & (v >= 0.5)
@@ -196,7 +196,7 @@ class StackedPtrModel(nn.Module):
         mc = self.mc
         tgt = out["targets"]                                            # (R, B, Q)
         R = tgt.shape[0]
-        ce_of = lambda lg: F.cross_entropy(lg.reshape(-1, lg.shape[-1]), tgt.reshape(-1),
+        ce_of = lambda lg: F.cross_entropy(lg.float().reshape(-1, lg.shape[-1]), tgt.reshape(-1),
                                            reduction="none").view(tgt.shape)
         extra = {}
         if mc.kind == "looped" and mc.halting == "learned" and "per_step_logits" in out:
@@ -204,7 +204,7 @@ class StackedPtrModel(nn.Module):
             ce = torch.stack([ce_of(out["per_step_logits"][t]) for t in range(T)], 0)      # (T, R, B, Q)
             pq = out["p_halt"][:, :, :, out["qpos"]]
             expected = (pq * ce).sum(0).mean((1, 2))                                        # (R,)
-            p = out["p_halt"].clamp_min(1e-9)
+            p = out["p_halt"].float().clamp_min(1e-9)
             if mc.ctx_single_step:
                 p = p[:, :, :, out["qpos"]]
             geo = torch.tensor([mc.lam_p * (1 - mc.lam_p) ** t for t in range(T)], device=tgt.device)
@@ -217,7 +217,7 @@ class StackedPtrModel(nn.Module):
         extra = {"ce": ce.detach()}
         per_run = ce
         if mc.kind == "looped" and mc.halting == "value":
-            vl = F.smooth_l1_loss(out["vals"], remaining_hops, reduction="none").mean((0, 2, 3))
+            vl = F.smooth_l1_loss(out["vals"].float(), remaining_hops, reduction="none").mean((0, 2, 3))
             per_run = per_run + vl
             extra["value"] = vl.detach()
         return per_run.sum(), per_run.detach(), extra
@@ -251,16 +251,26 @@ class StackedAdamW:
         self.t = 0
 
     @torch.no_grad()
-    def step(self, scale: float = 1.0):
+    def step(self, scale: float = 1.0, active: torch.Tensor | None = None):
+        """active: (R,) bool; runs marked False (gradient overflow) skip this step entirely, moments included."""
         self.t += 1
         bc1, bc2 = 1 - self.b1 ** self.t, 1 - self.b2 ** self.t
         for p, m, v in zip(self.params, self.m, self.v):
             if p.grad is None:
                 continue
             g = p.grad
-            m.mul_(self.b1).add_(g, alpha=1 - self.b1)
-            v.mul_(self.b2).addcmul_(g, g, value=1 - self.b2)
+            if active is not None:
+                a = active.view(-1, *([1] * (p.dim() - 1))).to(g.dtype)
+                g = torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0) * a
+                m.mul_(torch.where(a > 0, torch.full_like(a, self.b1), torch.ones_like(a))).add_(g * (1 - self.b1))
+                v.mul_(torch.where(a > 0, torch.full_like(a, self.b2), torch.ones_like(a))).addcmul_(g, g, value=1 - self.b2)
+            else:
+                a = None
+                m.mul_(self.b1).add_(g, alpha=1 - self.b1)
+                v.mul_(self.b2).addcmul_(g, g, value=1 - self.b2)
             lr = (self.lr * scale).view(-1, *([1] * (p.dim() - 1)))
+            if a is not None:
+                lr = lr * a
             upd = (m / bc1) / ((v / bc2).sqrt() + self.eps)
             p.mul_(1 - lr * self.wd).sub_(lr * upd)
 
@@ -279,6 +289,7 @@ def clip_grad_norm_per_run(params, max_norm: float) -> torch.Tensor:
         sq += p.grad.reshape(R, -1).pow(2).sum(1)
     norms = sq.sqrt()
     coef = (max_norm / (norms + 1e-6)).clamp(max=1.0)
+    coef = torch.where(torch.isfinite(norms), coef, torch.zeros_like(coef))
     for p in params:
         p.grad.mul_(coef.view(-1, *([1] * (p.dim() - 1))))
     return norms

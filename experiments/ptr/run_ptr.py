@@ -85,7 +85,13 @@ def main():
                 rec["name"], rec["arm"] = c["name"], c["arm"]
                 save(rec, path_of(c))
             else:
-                recs = run_stack(chunk, dev, log=lambda s: print(f"[{names[0]}+{len(chunk)-1}] {s}", flush=True))
+                logf = lambda s: print(f"[{names[0]}+{len(chunk)-1}] {s}", flush=True)
+                try:
+                    recs = run_stack(chunk, dev, log=logf)
+                except Exception:
+                    traceback.print_exc()
+                    print("=== retrying this stack in fp32 (no autocast)", flush=True)
+                    recs = run_stack(chunk, dev, log=logf, amp=False)
                 for c, rec in zip(chunk, recs):
                     save(rec, path_of(c))
             print(f"=== done in {time.time()-t0:.0f}s", flush=True)
