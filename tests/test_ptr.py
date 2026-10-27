@@ -73,7 +73,8 @@ def test_planted_block_is_an_exact_hop(mask):
         ep = generate(DC, 8, rng, forced_k=16, Qn=3)
         out = m(ep, "cpu", mode="eval")
         ok = (out["logits"].argmax(-1) == out["targets"]).numpy()
-        assert ok[ep.q_k <= 4].all() and not ok[ep.q_k == 16].any()
+        # (an unfinished query has no answer component, so all its logits tie at 0: a chance-level argmax)
+        assert ok[ep.q_k <= 4].all() and ok[ep.q_k == 16].mean() < 0.5
 
 
 def test_oracle_halting_counts_and_freezes():
