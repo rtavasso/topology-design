@@ -795,6 +795,41 @@ A transformer trains matrices to produce context-dependent next-token transforma
 
   The first rung: sequences needing mixed, order-dependent chains of generic circuits (e.g. match-and-read-next, previous token, copy, select-by-predicate), with chain length and order varying per query, and the chain inferred from context. Trained on short chains; tested on longer chains and new orders.
 
+## Entry 46 (27 Oct 2026): residuals as the signal for composition and depth (discussion)
+
+**Premise (researcher).** Learn the PFN over model composition by looking at the residuals of layers, and generalize at test time by monitoring them. What "residual" means is open. The idea is hierarchical refinement and pathfinding, so a token can signal through its residual that it needs more depth.
+
+**Argument: four candidate meanings of "residual".**
+1. **The update.** The change a primitive makes to the token's state, ‖Δh‖ (convergence and fixed-point views; DEQ).
+2. **Prediction change.** The shift in the next-token distribution between steps (logit-lens stability; the researcher's earlier "unstable between layers" intuition; CALM-style consistency exits).
+3. **Error.** Target minus prediction. It is known at training time (teacher forcing) and unknown at test time, so at test time it must be *estimated*. A learned estimate of remaining loss is exactly the value / cost-to-go of Entries 38–39. Stagewise fitting of residuals is the boosting view of residual networks.
+4. **Uncertainty.** The entropy of the current prediction.
+
+**The crucial distinction.** Some residual is *irreducible*: the context genuinely leaves the next token uncertain, and more depth cannot help. The rest is *computational*: the answer is determined by the context but not yet computed. Only the second should earn more depth.
+- Entropy and confidence mix the two. Small update norms can mean "stuck" as well as "done". A stable prediction can be stably wrong.
+- The right definition is the reducible gap: the KL from the current prediction to the Bayes predictive.
+- On an exact toy it is computable. Elsewhere it can be approximated by the gap to the model's own deepest prediction, or learned as a value.
+
+**Routing by residual.** The residual's *direction* can address the library: a primitive is chosen by matching the token's current error representation to primitive signatures (Neural Interpreters-style type matching). Primitives learn which residuals they reduce. Coarse-to-fine refinement follows if large reductions come first.
+
+**The myopia risk.** Some chains need preparatory steps that reduce nothing by themselves, like stepping back before matching. A router that is greedy on immediate residual reduction fails there; it needs a cost-to-go (lookahead or a value). The rung-1 toy's mixed chains contain exactly such steps.
+
+**Prior work:**
+- ACT (Graves 2016) and PonderNet (Banino 2021);
+- Universal Transformers;
+- CALM (Schuster 2022);
+- early-exit and LayerSkip;
+- logit lens and tuned lens (Belrose 2023);
+- DEQ (Bai 2019);
+- residual networks seen as boosting;
+- predictive coding (prediction errors drive processing level by level).
+
+**Decision.**
+- **D73.** Rung 1 adds a residual study:
+  - per step, measure the candidate signals (update norm, step-to-step KL, entropy, learned remaining-loss value) against the exact reducible residual (KL to Bayes) and against the true remaining chain length;
+  - compare halting and routing policies (fixed depth; norm threshold; stability; confidence; learned value; residual-matched routing; greedy vs cost-to-go) against the oracle;
+  - test specifically on chains with preparatory steps.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
