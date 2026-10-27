@@ -948,6 +948,40 @@ This is rung 0 of the ladder: depth allocation with one shared block, before any
 **Decision.**
 - **D77.** Rung 0 gains the three predictions above and the design axis they require: halting from state only vs state plus step index; controlled counts of deep examples; worlds that vary alphabet and structure separately.
 
+## Entry 51 (27 Oct 2026): the circuit-equivalence belief, and a provable way to test it (discussion)
+
+**Premise (researcher).** The underlying belief: in a sufficiently trained very deep transformer, any unique layer can be accurately approximated by a serial composition of simpler layers, a circuit equivalence. Define a computational language of primitives rather than requiring unique layer functions. Asked for the toy and a structured, minimal, provable test.
+
+**Three versions of the belief, of increasing strength.**
+1. *Universality* (trivially true): with enough width and depth, anything approximates anything. Not worth testing.
+2. *A small fixed basis with short compositions covers the structured layer class* (provable by enumeration in a finite setting).
+3. *The layers that training actually produces are short compositions over such a basis* (empirical; falsifiable; the version that matters for the end system).
+
+Version 3 is the one the belief is really about, and there is evidence on both sides:
+- for: cross-layer sharing keeps most quality (ALBERT, Universal Transformer, MoEUT); layer pruning removes many layers cheaply; Relaxed Recursive Transformers (Bae 2024) convert a pretrained unique-layer LLM into a looped block plus small per-depth adapters and recover most of its performance, i.e. each layer ≈ shared block + small correction;
+- against: trained transformers often implement shortcut circuits rather than the natural serial program (Liu 2023, shortcuts to automata; Fourier circuits for modular addition), so a trained layer may not be a short word in the *natural* basis even when it is in *some* basis. Tracr-compiled and learned models look different inside.
+
+**A subtlety the toy must respect.** A transformer layer runs heads in parallel. Serial composition of single-operation primitives emulates parallel heads only if the state carries the intermediate results side by side. With a product state (registers), parallel is serial on different registers; the state must be wide enough, and the basis must include writes to distinct registers.
+
+**The test, in three levels.**
+
+*Level 1, provable by enumeration (no training).* A finite symbolic layer language: a state of a few registers over an alphabet Σ, plus the context; a basis of RASP-like primitives (token maps, select-by-predicate, aggregate, positional shifts, register moves). The set of layer-functions generated under composition is a finite transformation monoid, so for a candidate basis one can compute exactly:
+- **coverage:** which fraction of the structured layer class is reachable at all;
+- **length:** the distribution of minimal composition lengths and the diameter (the longest minimal word), i.e. the circuit complexity of layers over the basis;
+- **redundancy:** the number of words per function (non-identifiability; the MDL prior's job);
+- **the Pareto frontier** basis size vs. composition length: the real trade, a tiny basis buys long serial compositions, more steps and more routing decisions.
+
+The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. The classical anchor: three generators suffice for every map on a finite set, with long words.
+
+*Level 2, decompilation with ground truth (diagnostic).* Train deep unique-layer transformers on sequence tasks whose generating programs are known words over the basis. For each trained layer, fit the shortest basis word that reproduces the layer's input→output behavior on that layer's own input distribution (behavioral equivalence, or causal patching). Measure fidelity against word length. This is where version 3 can fail by shortcuts: a layer that computes a parallel doubling step is not a short serial word unless the basis admits it.
+
+*Level 3, distillation (the direct test of version 3).* Take a trained deep unique-layer model and distill it into m shared primitives routed over T steps. Measure fidelity to the original as a function of (m, T), with m = 1 (looped block with input injection, the Relaxed-Recursive setting) and m = D (no sharing) as the ends. The belief holds for that model if a small m with moderate T reproduces its function; it fails if fidelity needs m ≈ D. This finds the basis by optimization rather than enumeration, which sidesteps the natural-basis objection: the question becomes whether *any* small basis exists for the layers training produced.
+
+**Prediction and falsifier.** On the pointer/match task family (rung 0/1), the distillation curve reaches ≥ 95% fidelity at m ≤ 4 and T ≤ 2D for models trained on compositional data; it needs m close to D on data without compositional structure (random lookup tables), which is the control. The decompilation finds short words for most layers, except where the static model learned a doubling shortcut, which should show up as layers needing parallel bundles. Falsifier: fidelity needs m ≈ D even on compositional data, or decompiled words are as long as the model is deep.
+
+**Decision.**
+- **D78.** The circuit-equivalence belief is tested at three levels on the same toy family as rungs 0–1: enumeration of a symbolic basis (coverage, length, redundancy, the size-vs-length frontier); decompilation of trained unique-layer models into basis words; distillation of trained deep models into m routed primitives, with m = 1 and m = D as the ends. Level 1 reuses the Z_7 enumeration tooling.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
