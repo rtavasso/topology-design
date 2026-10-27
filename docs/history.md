@@ -889,6 +889,41 @@ In one line: **amortized variational EM over per-token routes, with MCTS as the 
 **Decision.**
 - **D75.** This formalism is the frame for rung 1: the model is the latent-route mixture, the loss is the marginal likelihood with the step-cost prior, soft routing is the first E-step, and the six bets are the preregistration's hypothesis list in order.
 
+## Entry 49 (27 Oct 2026): the thrust restated as dynamic depth, and the minimal toy (discussion)
+
+**Premise (researcher).** Depth in a static transformer is prohibitive because compute per token grows linearly with layers while the computation each token needs is dynamic. In a 1,024-layer model most tokens barely change through most layers while a few need deep refinement; at that depth residuals are lost (hence residual-injection tricks) and gradients make the depth hard to train, since few tokens and events demand deep computation. Looped transformers share parameters but not compute. The thrust: learn a policy that allocates computational depth per token, a dynamic looped transformer. Define the toy around the most minimal unanswered question.
+
+**What is already known.**
+- Per-token recursion depth over a shared block with a learned router exists: Mixture-of-Recursions (Bae 2025; better perplexity at equal FLOPs, recursion depths ≤ 4, no ground truth for demand). Mixture-of-Depths (Raposo 2024) skips blocks per token at a fixed capacity.
+- Learned halting exists: ACT (Graves 2016), Universal Transformer, PonderNet (Banino 2021; better extrapolation than ACT on parity). ACT is known to be finicky and to collapse toward constant depth.
+- Looped transformers need input injection to stay stable over many loops (Yang 2024), and adaptive loop counts for length generalization have relied on *known* step counts (Fan 2025).
+
+**What is not known (the minimal question).** Whether a depth policy learned from next-token loss plus a compute cost, with no step-count supervision:
+1. allocates depth matching the true per-token demand when demand is heavy-tailed, so that deep tokens are rare and carry rare gradient signal;
+2. extrapolates to demands deeper than any seen in training;
+3. can be driven by an internal signal (the reducible residual, Entry 46) rather than a ponder cost;
+4. trains stably through many loops without the residual drifting.
+
+This is rung 0 of the ladder: depth allocation with one shared block, before any selection among primitives.
+
+**The toy: pointer chasing with data-dependent termination.** A sequence holds key→value pairs. A query names a start key; the value is the next key; the chain ends at a terminal marker, whose value is the answer. The chain length k is hidden until the chain is executed; its distribution is heavy-tailed and controlled. Several queries per sequence need different k.
+- Required depth per token is exact (k hops), serial by construction, and unknown a priori.
+- The only static shortcut is doubling: an L-layer static model reaches k ≤ 2^(L−2) (Sanford, Hsu & Telgarsky 2024). So the static ceiling and the dynamic advantage are derivable before any run (L22): static pays L per token and fails beyond its ceiling; an oracle-halting loop pays k + 1 and has no ceiling.
+- Exact references: deterministic answers; remaining hops as the exact branch value; the reducible residual is 0/1 per step.
+
+**Baselines, matched on parameters and on average and maximum compute per token:** a static transformer of depth L; a fixed-loop block; a loop with oracle halting (upper bound, uses ground truth); learned halting with a ponder cost (ACT/PonderNet); residual-triggered halting (update norm, prediction stability, learned value); an MoR-style router. Input injection on and off.
+
+**Endpoints:** accuracy by k; depth used against k (calibration slope and excess); extrapolation to k beyond training; accuracy on rare deep tokens against their frequency; compute per token; trainability against loop count (gradient norms through loops).
+
+**Falsifiers of the thrust:**
+- learned halting collapses to constant depth (no compute saved);
+- rare deep tokens are under-served because their gradient is rare, in which case "few tokens need deep computation" is the disease rather than the motivation;
+- no extrapolation beyond the training depth, so dynamic depth buys nothing a static stack cannot;
+- the doubling static model matches up to its ceiling at far less serial cost, which is expected: the win must appear beyond the ceiling and in average compute.
+
+**Decision.**
+- **D76.** Rung 0 is pointer chasing with hidden, heavy-tailed chain length and a single shared block with learned halting. The distinguishing quantity (static ceiling 2^(L−2) and compute L vs k + 1) is derived, nonzero and exact. Primitive selection waits for rung 1.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
