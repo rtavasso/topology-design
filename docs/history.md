@@ -706,6 +706,27 @@ A transformer trains matrices to produce context-dependent next-token transforma
   - how much Bayes over procedures beats a lookup or marginal baseline;
   - at which lengths fixed-depth and recurrence-matched static predictors are limited.
 
+## Entry 43 (26 Oct 2026): the informational lens on attention plus routed primitives (discussion)
+
+**Premise (researcher).** Use ordinary attention over the token sequence to build a context-dependent query state, which then goes through a routed composition of primitives that outputs the ideal next token.
+
+**Argument.**
+- **Two jobs.** Attention gathers: it is where Shannon information about the next token enters, from the prefix. Composition computes: it turns gathered information into the prediction.
+- **Data processing.** Primitives cannot add information. Whatever reaches the output came from the query state or from the route choice. The route choice is itself a channel of at most T·log₂|library| bits, set from the context. So the query state must be a sufficient statistic of the prefix for the next token.
+- **What composition adds is usable information.** In the sense of V-information (Xu et al. 2020, information extractable by a constrained function class), routing enlarges the decoder's function class from one fixed head to compositions. Composition matters exactly when the information is present in the query but not extractable by the fixed part.
+- **Dependent reads.** One attention pass before routing fixes what can be read before any computation happens. Multi-hop dependencies (read A, then use A to read B) need sequential reads. So a hybrid fits best: attention for broad gathering, plus read primitives *inside* routes for dependent gathering. Neural Interpreters puts attention inside its functions.
+- **The shortcut risk.** If the static attention stack can compute the answer itself, the routes become decorative (Entry 42 again). The output head must read only the route's final state, the static part's computation must be limited, and ablations must show where the computation actually happens.
+- **Symbolic primitives need a bridge.** They require discretizing the query state into registers: a neural front end and a symbolic back end. The discrete bottleneck may help systematic generalization but can lose information.
+- **Teacher forcing gives at most log₂|V| bits per position about a route space of size |library|^T.** Routes are identified only through regularities reused across positions and contexts, as a grammar is learned from strings.
+- **Information metrics to measure:**
+  - sufficiency of the query state (a probe for the Bayes predictive);
+  - usable-information gain from routes over the best fixed decoder;
+  - mutual information between routes and the latent procedure;
+  - route description length against the shortest generating program.
+
+**Decision.**
+- **D70.** The candidate architecture: attention front end, then a routed composition that includes read primitives, then an output read only from the route's final state. It comes with ablations that locate the computation, and the information metrics above.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
