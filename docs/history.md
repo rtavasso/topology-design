@@ -559,6 +559,20 @@ The derivations in `experiments/worlds/rev3/` gave three numbers:
 **Decisions.**
 - **D59.** Revisions 1–3 (path = program over task registers) are superseded as a test of the researcher's idea. They remain a valid but different question: amortized program induction. Revision 4 is to be redesigned around per-token routing through a shared library, trained on the full-sequence next-token loss, after the researcher settles neural vs symbolic primitives.
 
+## Entry 37 (26 Oct 2026): correction to Entry 36, symbolic primitives are not the problem
+
+**Premise.** The researcher challenged Entry 36's claim that per-token routing needs neural hidden states: symbolic primitives are abstract functions and compose exactly as layers do.
+
+**The challenge is right. Entry 36 conflated three separate properties:**
+1. **Composition.** Identical for symbolic and neural primitives.
+2. **A state that can hold mixtures between steps.** This is what gives the router a gradient. In mixture-of-experts, a gate-weighted sum of expert outputs is meaningful because the state is a vector. A symbolic state held as a *distribution over symbols* has the same property; that is the superposed belief of SO/SE. With a single exact symbol as the state, routing must be sampled and credit is hit-or-miss (review 3, finding 3), whether the primitives are symbolic or neural.
+3. **Primitives that can read the context.** In revisions 1–3, the primitives acted only on the current pair's registers, and the context entered only through the choice of route. So the route at a z position *had* to compute f(x, y): it was a hypothesis about the world. For the route to be an inference procedure, primitives must be able to read other tokens, e.g. "find the context pair with this x and copy its z". Symbolic primitives can do that too.
+
+**Neural primitives additionally make the primitives learnable.** That is a separate choice about what the experiment studies.
+
+**Decision.**
+- **D60.** Entry 36's "neural vs symbolic" tension is withdrawn. The design question for revision 4 is (a) whether the inter-step state holds mixtures (soft or top-k gated routing) or single symbols (sampled routing), and (b) a primitive set that includes context-reading operations.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
