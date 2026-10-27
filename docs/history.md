@@ -924,6 +924,30 @@ This is rung 0 of the ladder: depth allocation with one shared block, before any
 **Decision.**
 - **D76.** Rung 0 is pointer chasing with hidden, heavy-tailed chain length and a single shared block with learned halting. The distinguishing quantity (static ceiling 2^(L−2) and compute L vs k + 1) is derived, nonzero and exact. Primitive selection waits for rung 1.
 
+## Entry 50 (27 Oct 2026): two intuitions made into predictions, signal pooling across depth and a world-agnostic routing signal (discussion)
+
+**Premise (researcher).** Two intuitions:
+1. there is a residual or signal in the prediction task on which a router can learn a PFN that decides routing and generalizes across worlds;
+2. the useful layers can be treated as composable functions and the desired behavior elicited by composition, instead of needing gradient signal to learn 1,024 independent layers from few examples. Serial composition of fewer unique layers has the effect of a very deep model with unique layers.
+
+**Intuition 2 as a learning-signal argument.**
+- In a static model of depth D, layer d's parameters are trained only by tokens whose computation is still changing at depth d. Under heavy-tailed demand those are rare at large d, so deep layers get little informative gradient: data per deep parameter is scarce.
+- With m shared primitives composed over T steps, primitive p receives gradient from every token that uses it *at any depth*. The signal pools across depth: data per parameter grows by roughly the number of depths at which the primitive is used.
+- The *expressive* equivalence holds only under a compositional assumption: the deep computations needed are compositions of a small basis (m^T distinct deep computations from m primitives). Evidence that real transformers are partly like this: cross-layer sharing (ALBERT, Universal Transformer, MoEUT) keeps most quality at the same depth with far fewer parameters, with a modest loss at matched parameters; middle layers are partly redundant (layer-pruning results, e.g. Gromov et al. 2024 removing a large fraction of layers with small loss). The honest status: sharing across depth is established; the gain is in parameters and length generalization, not in-distribution quality.
+- Where it fails: when different depths genuinely need different functions (early detokenization-like work, late output formatting). Then the basis must have m > 1, which is rung 1.
+
+**Intuition 1 as a transfer condition.**
+- The router is p(a_next | state, context). For it to generalize across worlds, the signal it reads must be a function of the *computational situation* ("an unresolved pointer sits in the register", "the prediction is still spread over candidates matching key X"), not of the world's content. This is Neural Interpreters' type matching, with the type required to be world-agnostic.
+- The same condition decides whether the halting policy inherits the rarity problem. "Continue" at step k gets gradient only from tokens needing more than k steps, which are rare. If halting is a function of the state type, the same decision recurs at every depth and the signal pools; if it is a function of the step index, it does not, and it becomes a memorized depth table.
+
+**Predictions this adds to rung 0 (Entry 49):**
+- **P-pool.** On rare deep tokens, the static model's accuracy at depth k scales with the number of training examples needing depth k; the looped model's accuracy is nearly independent of that count, because one block serves all depths. Falsifier: the looped model's deep accuracy tracks example count as closely as the static model's.
+- **P-signal.** A halting head that sees only the state extrapolates to deeper chains; a head that also sees the step index does not. Falsifier: no difference, or the reverse.
+- **P-transfer.** A routing (halting) policy trained on worlds with one key/value alphabet and chain structure transfers to new alphabets with no adaptation, and transfers to new structures only if the state types are shared. Falsifier: no transfer across alphabets.
+
+**Decision.**
+- **D77.** Rung 0 gains the three predictions above and the design axis they require: halting from state only vs state plus step index; controlled counts of deep examples; worlds that vary alphabet and structure separately.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
