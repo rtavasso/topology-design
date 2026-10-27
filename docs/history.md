@@ -528,6 +528,37 @@ The derivations in `experiments/worlds/rev3/` gave three numbers:
   - how the committed arms are trained, if search from scratch fails.
 - **D58.** Lesson L20 (derive under the objective's own scoring), and L21 (derive trainability for every arm, not only the one expected to lose).
 
+## Entry 36 (26 Oct 2026): the reframe, per-token routing through a shared library (discussion)
+
+**Premise (researcher).** The task structure has been wrong. What is meant:
+- an ordinary autoregressive sequence model in which *every token's* path through the model is chosen dynamically from the preceding tokens;
+- a library of primitive layers stores information and computation for all token types;
+- context-dependent routing composes them per token, and serialization lets the model represent information in ways a static graph cannot;
+- the route depends on the context, not on a "world" in the sense used so far;
+- training is the standard next-token loss over the whole sequence, not supervision on an answer.
+
+**Argument.**
+- **What revisions 1–3 did instead.** The path was a *hypothesis*: a program over the task's own registers, whose output was read off as the prediction. That is what created the commitment-vs-averaging problem (review 3, finding 1) and the hit-or-miss credit (review 3, finding 3).
+- **In the researcher's framing, the route is a computation over the model's hidden state.** The prediction comes from the final hidden state through a softmax. The route at an output position implements *inference*: it maps the context and current token to a predictive distribution. Averaging over worlds happens in the representation, as in a PFN; what is dynamic is the computation graph. The commitment question dissolves.
+- **The sparse-credit failure came from symbolic exact primitives, not from sequence training.** With neural primitives, a wrong route still gives a graded loss, and gradients reach the primitives along the chosen route. The router's discrete choice still needs credit assignment, as in mixture-of-experts routers (gate-weighted outputs), with the known risks of collapse and load imbalance.
+- **On the information argument.** In the mod-7 stream, x and y tokens are uniform, so the informative targets are still the z tokens. What changes the learning signal is the graded, differentiable loss, not the number of targets.
+- **A tension with the earlier decision to use symbolic primitives.** Routing over hidden states needs primitives that act on hidden states. Symbolic primitives over a symbolic state bring back exactly the 0/1 credit problem, unless routing is soft.
+- **The structural question is a 2×2:** reuse of layers across depth (no/yes) × per-token selection (no/yes).
+  - neither: a static transformer;
+  - selection without reuse: per-layer mixture-of-experts;
+  - reuse without selection: universal or looped transformers;
+  - both: the researcher's library routing.
+- **Closest prior work:**
+  - MoEUT (Csordás 2024: shared layers across depth with mixture-of-experts; slightly better than parameter-matched transformers);
+  - Mixture-of-Recursions (Bae 2025: per-token recursion depth over a shared block; better perplexity at equal FLOPs);
+  - Neural Interpreters (Rahaman 2021: tokens routed through shared functions, trained end-to-end);
+  - SUT; Mixture-of-Depths; routing networks.
+
+  None, to our reading, measures per-token library routing against exact Bayes on a generator with known compositional structure.
+
+**Decisions.**
+- **D59.** Revisions 1–3 (path = program over task registers) are superseded as a test of the researcher's idea. They remain a valid but different question: amortized program induction. Revision 4 is to be redesigned around per-token routing through a shared library, trained on the full-sequence next-token loss, after the researcher settles neural vs symbolic primitives.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
