@@ -590,6 +590,39 @@ The derivations in `experiments/worlds/rev3/` gave three numbers:
   - as a training signal, measured against the version space, for an oracle-imitation arm labeled as privileged, with matched dense targets for the static arms;
   - as the training target for a learned value model whose generalization is itself an endpoint.
 
+## Entry 39 (26 Oct 2026): what Neural Interpreters and AlphaZero say about the per-token routing design
+
+**Premise.** The researcher asked what the two papers imply for the design of Entries 36–38: per-token routing through a shared library of symbolic primitives, with context-reading primitives and exact per-step progress. Both were read in full; notes are in [notes_neural_interpreters_alphazero.md](notes_neural_interpreters_alphazero.md).
+
+**Lessons from Neural Interpreters** (soft, per-token routing through shared functions, reused across depth: the researcher's quadrant):
+1. **Re-routing a frozen library recovers almost everything.** On the fuzzy-Boolean toy, R² is 0.986 when only routing is tuned, against 0.920 for the output tokens alone and 0.995 for everything. This is direct support for "the library stores computation; routing composes it", and it suggests a routing-only adaptation endpoint.
+2. **Collapse is the main failure mode, and freezing signatures at a random, diverse initialization is a cheap remedy.**
+3. **Context-reading lives inside primitives,** as attention gated by both tokens' compatibility with the function. That matches the requirement of Entry 37.
+4. **Routing is soft** (a compatibility-weighted sum), which is how its router gets gradients without a credit-assignment problem.
+5. **Out-of-distribution gains are modest.** The hard PGM splits stay near chance: 20.0% on held-out triples and 19.4% on extrapolation, against 12.5% chance. Expected effects should be calibrated accordingly.
+6. **Function–primitive correspondence was never verified,** only inferred from plots. Our exact toy can verify it.
+
+**Lessons from AlphaZero:**
+1. **Policy plus value plus search is the answer to sparse credit without an oracle.** Search turns a sparse outcome into dense, improved policy targets: the router is trained toward visit counts, the value toward outcomes.
+   - On our toy, the outcome can be verification on the *context* (whether the partial computation is consistent with what the context entails), so no privileged information is needed.
+   - The exact oracle distances then evaluate the learned value, plus a labeled privileged arm.
+2. **Symbolic primitives give a free, exact simulator,** as game rules do for AlphaZero. Lookahead over 33 branches at depth ≤ 7 is cheap. This supports the researcher's symbolic choice.
+3. **Average value errors; don't maximize them.** Subtree averaging cancels value errors, while max-propagation amplifies them.
+4. **Exploration noise scaled to the branching factor** is the standard remedy for the premature collapse review 3 found.
+5. **A learned prior and value make search selective:** 1,000× fewer positions than Stockfish, and better scaling with thinking time. This is the "see the minima on the horizon" mechanism, measurable on our toy as policy-only vs with-search performance, the "seeing vs searching" gap.
+6. **Caveat: AlphaZero's success rests on enormous self-play volume.** Our tree is tiny, but per-token search during training multiplies cost by the number of simulations.
+
+**Decisions:**
+- **D62.** Revision 4 considers two training regimes for the router:
+  - soft compatibility-weighted routing (Neural Interpreters);
+  - hard routing trained by expert iteration (AlphaZero), with a policy and value head per token, short lookahead over primitive branches using exact symbolic execution, and outcomes judged by consistency with the context.
+- **D63.** Endpoints to add:
+  - routing-only adaptation to held-out worlds;
+  - verified function–primitive correspondence;
+  - the gap between the learned policy and search;
+  - the learned value's agreement with exact distances on unseen worlds.
+- **D64.** Calibrate predictions to modest out-of-distribution effects. Name AlphaDev and AlphaTensor (AlphaZero over instruction-level programs with exact execution, searching per task) as the nearest program-search precedent. Our difference is amortization across worlds in context.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
