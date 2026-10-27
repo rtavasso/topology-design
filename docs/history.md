@@ -859,6 +859,36 @@ A transformer trains matrices to produce context-dependent next-token transforma
 **Decision.**
 - **D74.** Rung 1 tests whether learned values over states recognize setup progress (distance drops with unchanged predictions), and compares credit for setup steps under soft routing (chain rule), hard routing with value and search, hindsight relabeling, and a soft-to-hard hybrid.
 
+## Entry 48 (27 Oct 2026): the unifying formalism, amortized EM over routes (discussion)
+
+**Premise (researcher).** The idea circles three things: a PFN / Bayesian posterior over model composition; AlphaZero-style search over the branch space of layers; serialized composition for autoregressive prediction. The formalism joining them is missing, and disproving wrong parts would be as valuable as confirming right ones.
+
+**The formalism.**
+- Position t, context c = x_{≤t}, target y = x_{t+1}. State space S, initial state h_0 = embed(c). Primitives ℓ_a: S → S (they may read c). HALT, then a readout p(y | h).
+- Route r = a_1 … a_T, with p_r(y | c) = readout(ℓ_{a_T} ∘ … ∘ ℓ_{a_1}(h_0)).
+- Router π_θ(r | c) = Π_k π_θ(a_k | h_{k−1}, c).
+- **Model:** q_θ(y | c) = Σ_r π_θ(r | c) · p_r(y | c). A latent-variable autoregressive model with the route as the latent. Training loss: −log q_θ over the sequence.
+
+**The three pieces are one object.**
+1. **PFN over composition = the amortized route posterior.** On data from a prior over worlds, the optimum of the next-token loss is the posterior predictive p*(y | c). If the library can realize each world's predictive by some route, then π*(r | c) = Σ_w p(w | c) · Unif(MinRoutes(w, c)) attains it. What is learned at the structure level is the map c → posterior over *procedures*. It is non-identifiable from the output loss alone (any π with the same mixture is optimal); a route prior e^(−λ|r|), Solomonoff/MDL, makes it well defined.
+2. **AlphaZero = Monte Carlo EM, with search as the E-step.** Maximizing the marginal likelihood is EM. E-step: p(r | c, y) ∝ π_θ(r | c) · p_r(y | c) · e^(−λ|r|): a search over the branch space with terminal reward log p_r(y | c) − λ|r| and the current policy as prior. MCTS with a policy prior and a value head is an approximate E-step (Grill et al. 2020: MCTS ≈ KL-regularized policy optimization against the prior). The value V(s) is the soft cost-to-go, the log-partition over completions from s. M-step: distill the E-step distribution into π_θ(· | c), i.e. the visit-count cross-entropy. In expectation over y ~ p*(· | c), distilling the label-informed posterior p(r | c, y) into a label-blind policy gives p(r | c). Label-informed search at training time is therefore sound: it is the wake-sleep / amortized-inference fixed point, not a leak.
+3. **Serialized autoregression = test time.** *Seeing* is π_θ(r | c). *Searching* refines it under a label-free objective, the expected log score E_{y~p*}[log p_r(y | c)] = −H(p*) − KL(p* ‖ p_r). The irreducible residual is H(p*); the reducible residual is the KL; the value head estimates the reducible part.
+
+In one line: **amortized variational EM over per-token routes, with MCTS as the E-step, the router as the recognition model, the value as the partition estimate, and a step-cost prior as the regularizer.** The pieces are standard (planning as inference, Levine 2018; wake-sleep, Hinton 1995, Hewitt 2020; Grill 2020; PFNs, Müller 2022). Per-token model composition with exact references is the new application.
+
+**What could be wrong: six bets, each falsifiable, in the order to test.**
+- **B1 (identifiability / MDL).** Without a route prior the learned π spreads over equivalent routes (seen in review 3). The bet: minimal routes generalize better out of distribution than arbitrary equivalent ones. Test: step cost on vs off, measured on longer chains and new orders.
+- **B2 (learnability of procedures).** The recognition model must learn order-dependent chains of generic circuits from next-token loss. Soft routing with the chain rule is the cheapest test. If this fails, the thesis fails regardless of search.
+- **B3 (the extrapolation claim, central).** The map context → route is simpler than the map context → output, so π_θ should generalize to longer chains and new orders where a static model stops. Module-network history says learned layouts often don't. Test: chain-length and order extrapolation against static, looped and head-selection baselines at matched compute.
+- **B4 (depth vs parallelism).** Static models solve k-hop in log k layers; a router with a hop primitive should reach any k at cost k. If the router cannot learn "iterate until match", the depth argument fails.
+- **B5 (the E-step needle).** For long chains, random routes rarely hit, so hard routing needs a curriculum, hindsight or a soft warm-start. Test: whether expert iteration bootstraps from short to long chains.
+- **B6 (value learnability).** The value must track the reducible residual, including setup steps, on unseen worlds. Test: rank correlation with the exact remaining distance out of distribution. If near zero, search is blind beyond training and "seeing the minima" fails.
+
+**The narrow path.** B2 and B3 first, with soft routing and a step cost, on the rung-1 circuit worlds: cheap, gradient-based, exact references. Only if they pass do B5 and B6 (hard routing, search, value) matter. Soft vs hard buys nothing at the predictive optimum (review 3); what hard routing can buy is per-token compute, coherence and a discrete object for MDL and search, and that is measured at matched compute.
+
+**Decision.**
+- **D75.** This formalism is the frame for rung 1: the model is the latent-route mixture, the loss is the marginal likelihood with the step-cost prior, soft routing is the first E-step, and the six bets are the preregistration's hypothesis list in order.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
