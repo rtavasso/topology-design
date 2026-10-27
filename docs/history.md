@@ -500,6 +500,34 @@ The round becomes a factorial: library (learned arithmetic vs given primitives) 
 - **D54.** Revision 3 adds a per-step cost or length prior (which serves as both tie-break and compute-allocation objective), and steps used against ℓ as a metric.
 - **D55.** The representational-depth claim is recorded as untestable on the current toy, and is deferred to a sequence-input domain.
 
+## Entry 35 (26 Oct 2026): worlds design revision 3, and its independent review
+
+**Premise.** Revision 3 ([worlds/DESIGN.md](../experiments/worlds/DESIGN.md)) implemented the researcher's decisions:
+- a factorial: no-library PFN, superposed programs (SO, SE) and committed paths (CO, CE) over shared primitives;
+- one held-out objective for all arms;
+- a step cost;
+- the pattern masked in the library arms;
+- 6 cells and 386 runs.
+
+The derivations in `experiments/worlds/rev3/` gave three numbers:
+- superposition's best-case gap to Bayes: 0.02–0.05 nats at k ≈ 1–3, and 25–30% local optima at identified contexts;
+- the initial training signal under each scoring rule;
+- where the memorization weight is defined.
+
+**The independent review** (`experiments/worlds/review3/`) found:
+1. **The headline does not isolate commitment.** Under log loss, a committed arm's predictive is itself an output-space mixture over sampled paths, and a *static* mixture of 8 factorized chains closes most of the §5.1 gap. The comparison measures factorized vs correlated path distributions, a known mean-field limitation; TerpreT's FMGD is essentially SO.
+2. **My §5.1 derivation scored the KL on all 49 inputs,** context included, unlike the objective. Objective-matched, the gap is 0.01–0.04, so P3's threshold sits at the bound.
+3. **A per-context committed learner** using the design's estimator found **0 of 30** targets of length 3–5. The fallbacks failed too, and §5.2's "exact paths" were almost all coincidences on 1–3 points.
+4. **The step cost** enters the two arm types differently, so "one objective" was false.
+5. **The Monte Carlo evaluator** is biased by up to +0.56 nats where the model's probability on the true value is small, which is where P5 is tested.
+
+**Decisions:**
+- **D56.** Record the review.
+- **D57.** Findings 1 and 3 go to the researcher before revision 4:
+  - what "commitment" can mean when the predictive is a mixture either way;
+  - how the committed arms are trained, if search from scratch fails.
+- **D58.** Lesson L20 (derive under the objective's own scoring), and L21 (derive trainability for every arm, not only the one expected to lose).
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

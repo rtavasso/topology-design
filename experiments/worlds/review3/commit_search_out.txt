@@ -1,0 +1,10 @@
+ITERS=1200 K=16 LR=0.3 HB=2.20 NPTS=8
+l=2: mass on exact target 0.19 (share of targets >0.5: 0.20), consistent-on-context 0.19, constant-output 0.05, held-out loss 2.37 nats (share >0.05: 0.90), mean len 1.5
+l=3: mass on exact target 0.00 (share of targets >0.5: 0.00), consistent-on-context 0.00, constant-output 0.08, held-out loss 2.34 nats (share >0.05: 1.00), mean len 2.1
+l=4: mass on exact target 0.00 (share of targets >0.5: 0.00), consistent-on-context 0.00, constant-output 0.10, held-out loss 2.48 nats (share >0.05: 1.00), mean len 1.9
+l=5: mass on exact target 0.00 (share of targets >0.5: 0.00), consistent-on-context 0.00, constant-output 0.18, held-out loss 3.06 nats (share >0.05: 1.00), mean len 1.7
+ITERS=1200 K=16 LR=1.0 HB=2.20 NPTS=8
+l=2: mass on exact target 0.10 (share of targets >0.5: 0.10), consistent-on-context 0.10, constant-output 0.02, held-out loss 3.15 nats (share >0.05: 0.90), mean len 1.5
+l=3: mass on exact target 0.00 (share of targets >0.5: 0.00), consistent-on-context 0.00, constant-output 0.14, held-out loss 3.21 nats (share >0.05: 1.00), mean len 1.7
+l=4: mass on exact target 0.00 (share of targets >0.5: 0.00), consistent-on-context 0.00, constant-output 0.13, held-out loss 3.42 nats (share >0.05: 1.00), mean len 1.8
+l=5: mass on exact target 0.00 (share of targets >0.5: 0.00), consistent-on-context 0.00, constant-output 0.15, held-out loss 3.62 nats (share >0.05: 1.00), mean len 1.4

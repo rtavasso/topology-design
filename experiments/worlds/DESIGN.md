@@ -1,6 +1,6 @@
 # Committed paths vs superposed programs over shared primitives: design (revision 3)
 
-**Status:** design, 26 Oct 2026. Not yet a preregistration. Revision 3 answers the independent review of revision 2 (kept at the end) and the researcher's decisions in history Entries 33–34:
+**Status:** design, 26 Oct 2026. Not yet a preregistration. **Under revision: the independent review of revision 3 (end of this document) found blocking problems. Two of them, what the headline measures and whether the committed arms can learn, go to the researcher.** Revision 3 answers the independent review of revision 2 (kept at the end) and the researcher's decisions in history Entries 33–34:
 - give the static model the same primitives;
 - add a per-step cost;
 - mask the held-out pattern in every arm that uses the library;
@@ -482,3 +482,70 @@ The reviewer's scripts are in `review2/`. **Verified correct:**
 | 4 | Spurious hits and the constant-output attractor | Paths are scored on all remaining points, initialized short, with a step cost; there is a gate on the constant-output share and an ordered list of estimator alternatives. The learning gate is on ℓ = 4–5 in N400 (§4, §5.2, §12). |
 | 5 | ρ sat at chance | A fitted memorization weight, measured only where it is defined (§5.3, §8). |
 | non-blocking | Branch classes not a partition; π* not unique; P6 reference; prediction wording; seeds; feasibility; novelty | A precedence order; π* demoted to a diagnostic; Bayes(a) and matched-sample estimators for commitment; falsifiers per cell; 29 seeds for the headline; a feasibility gate with an ordered cut list; the contribution framed as a measurement against the module-network literature (§1, §7, §9–§11). |
+
+---
+
+## Independent review of revision 3 (26 Oct 2026)
+
+The reviewer's scripts and outputs are in `review3/`.
+
+**Verified correct:**
+- the function counts;
+- the §5.1–5.3 tables, reproduced exactly from the scripts;
+- the hold-out arithmetic;
+- the local-optimum finding of §5.1, robust to 8× more restarts;
+- that sampling paths from SE is well defined;
+- that the masking rule is equivalent in superposed and committed arms.
+
+**Blocking findings:**
+1. **CE vs SE measures how expressive the path distribution is, not commitment.**
+   - Under log loss, CE's predictive is itself a mixture over sampled paths in output space.
+   - A *static* mixture of 8 factorized chains, fitted like §5.1, closes most of the gap: median KL 0.001 / 0.004 / 0.016 at k = 1 / 2 / 3, against 0.010 / 0.021 / 0.042 for one chain.
+   - The §5.1 gap is the mean-field vs structured family limitation, and TerpreT's FMGD is essentially SO.
+   - Fix: an SE-mix arm with C chains matched to CE, crediting only CE − SE-mix to commitment. Otherwise relabel P3 as "factorized vs correlated path distribution". (`superpos_mix.py`, `spmix_C8.txt`)
+2. **§5.1 scored a different quantity from the objective.** `superpos.py` averaged the KL over all 49 inputs, the context inputs included; the objective scores only the remaining ones.
+   - Scored like the objective: 0.010 / 0.021 / 0.042 at k = 1 / 2 / 3 (0.008 / 0.016 / 0.035 with 24 restarts × 800 steps). The stated numbers were 0.022 / 0.039 / 0.053.
+   - The derived best case is ≈ 0.01–0.04, so P3's 0.02 threshold sits at the bound.
+   - Under an N400-like prior, the "3–300 functions" window is k ≈ 1–2, and at k = 3 it mixes with optimization failures.
+   - Fix: rerun per cell with the objective's mask and define windows by effective-function count. (`superpos2.py`, `sp_*.txt`)
+3. **No evidence the committed arms can learn.**
+   - A per-context committed learner (tabular autoregressive policy, the design's per-point estimator, K = 16, the step cost, 1,200 iterations) found **0 of 30** targets of ℓ = 3–5, and 10–20% at ℓ = 2. It collapses to short partial matchers.
+   - The fallbacks also failed:
+     - noisy-channel ε = 0.1 collapses to a deterministic wrong path;
+     - K = 64 found 0 of 30 at ℓ ≥ 3;
+     - uniform init with 16 points also failed at ℓ ≥ 3.
+   - §5.2 overstated the signal: of the "7.5% of episodes with an exact path", only 0.015% contain the true function; the rest are coincidences on 1–3 points.
+   - §5.2 was measured with a uniform policy, not the designed short init (with the short init, the constant share is 0.17 and the weight on constants 0.21).
+   - Amortization plus the 40% of training mass at ℓ ≤ 2 might act as a curriculum, but nothing shows it.
+   - Fix: run G2 before preregistering anything, and preregister what happens if it fails. P3 and P4 are expressivity *and* optimization: SE gets exact gradients, CE gets 16-sample score-function gradients. (`commit_search.py`, `commit_search_out*.txt`, `initsig_exact.py`, `initsig_len3.py`)
+4. **"One objective for every arm" is false.**
+   - The step cost sits inside the log for committed arms and outside it for superposed arms, so the optima differ by O(λ), the same order as the thresholds.
+   - No arm's optimum is the Bayes predictive once λ > 0, and SE's isn't even at λ = 0 (§5.1).
+   - Fix: multiply each non-NOP transition by e^(−λ) inside SE's belief update, and take −log of the unnormalized r0 marginal.
+5. **The Monte Carlo evaluator is biased against CE where its probability on the true value is small.**
+   - With M = 1,024 and a 10⁻³ floor, the bias is +0.56 / +0.55 / +0.22 / +0.05 nats at q(true) = 3·10⁻⁴ / 10⁻³ / 3·10⁻³ / 10⁻²: the ℓ = 6 and pattern regime of P5.
+   - For posterior-like models it is +0.001–0.015 nats (0.015 for Bayes(b) at k = 4).
+   - G1's oracles never enter the low-q regime.
+   - Fix: evaluate superposed arms with the same sampled-path estimator in every comparison with CE; use M = 8,192 or a 10⁻² floor at k ≥ 4; add a mis-specified planted model to G1. (`mc_tail.py`, `mc_bias.py`)
+
+**Non-blocking findings:**
+- **Predictions contradict each other.** The §5.1 tails imply that SE fails P1 if it confirms P4, and P4's "within 0.02 on average" contradicts its own tail clause.
+- **λ_mem is confounded in Nall.** Bayes(b) puts 0.17–0.31 posterior mass on ℓ = 6, beyond every cap. Use Bayes(b) restricted to ℓ ≤ 5 and a 3-component fit (Bayes(a), Bayes(b), uniform). P7's first clause has no falsifier. (`memo_cap.py`)
+- **P8 is unlikely to pass at λ ≤ 0.03.** The tilt per step (≈ 0.99) is weak against the entropy of equivalent paddings.
+- **Masked logits get no gradient,** so unmasking at test moves an arbitrary amount of mass in PA arms only. Report PA pool performance with the mask both on and off at test.
+- **Inconsistencies:** P2 is falsified only at N400; DiD is defined on accuracy while P5 is in nats.
+- **Planted models** can't give the pass verdicts of P6 or P7, and the random-path predictor is not AGENTS' trained random-routing control.
+- **The effective-world estimator** saturates near M at k ≤ 1.
+- **The ℓ = 1–2 unseen strata** (1 and 8 functions) are still unaddressed.
+- **Feasibility.**
+  - Evaluating CE costs about as much as training (16 prefixes × 1,024 paths × 7 steps per episode).
+  - 168 committed runs in ≈ 70 GPU-hours is not plausible.
+  - Suggested cuts: D3 (no prediction uses it); CO and SO outside N400; evaluation only at k ∈ {1, 2, 3, 4, 8}.
+- **Literature undercutting the novelty framing:**
+  - TerpreT FMGD (= SO);
+  - Neural Programmer, against hard-program learners trained from denotations (NSM/MAPO, Guu 2017);
+  - DreamCoder's unigram vs bigram recognition models;
+  - soft vs sparse mixture-of-experts;
+  - ACT/PonderNet for compute allocation.
+
+**Status:** findings 1 and 3 change what the round can claim and go to the researcher. Findings 2, 4 and 5 and the non-blocking items are fixable in revision 4.

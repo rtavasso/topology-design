@@ -1,0 +1,29 @@
+episode 0 18s
+episode 1 33s
+episode 2 50s
+episode 3 66s
+episode 4 82s
+episode 5 98s
+episode 6 114s
+episode 7 130s
+episode 8 146s
+episode 9 169s
+episode 10 194s
+episode 11 218s
+episode 12 243s
+episode 13 267s
+episode 14 291s
+episode 15 311s
+episode 16 326s
+episode 17 349s
+episode 18 374s
+episode 19 400s
+R=3 steps=400 E=20 prior=all
+k= 0 neff   3006.1 | KL all-49: med 0.001 mean 0.001 max 0.001 >0.05 0.00 | KL non-context only: med 0.001 mean 0.001 max 0.001 >0.05 0.00
+k= 1 neff    415.5 | KL all-49: med 0.021 mean 0.020 max 0.033 >0.05 0.00 | KL non-context only: med 0.010 mean 0.010 max 0.015 >0.05 0.00
+k= 2 neff     70.4 | KL all-49: med 0.047 mean 0.048 max 0.110 >0.05 0.50 | KL non-context only: med 0.021 mean 0.028 max 0.063 >0.05 0.15
+k= 3 neff     13.6 | KL all-49: med 0.052 mean 0.069 max 0.232 >0.05 0.55 | KL non-context only: med 0.042 mean 0.061 max 0.231 >0.05 0.40
+k= 4 neff      1.8 | KL all-49: med 0.030 mean 0.094 max 0.644 >0.05 0.35 | KL non-context only: med 0.027 mean 0.070 max 0.449 >0.05 0.35
+k= 6 neff      1.1 | KL all-49: med 0.005 mean 0.191 max 1.370 >0.05 0.30 | KL non-context only: med 0.005 mean 0.217 max 1.400 >0.05 0.30
+k= 8 neff      1.0 | KL all-49: med 0.002 mean 0.230 max 1.359 >0.05 0.25 | KL non-context only: med 0.001 mean 0.144 max 1.325 >0.05 0.20
+k=12 neff      1.0 | KL all-49: med 0.001 mean 0.207 max 1.347 >0.05 0.30 | KL non-context only: med 0.001 mean 0.203 max 1.316 >0.05 0.25

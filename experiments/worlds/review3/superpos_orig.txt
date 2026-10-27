@@ -1,0 +1,28 @@
+episode 0
+episode 1
+episode 2
+episode 3
+episode 4
+episode 5
+episode 6
+episode 7
+episode 8
+episode 9
+episode 10
+episode 11
+episode 12
+episode 13
+episode 14
+episode 15
+episode 16
+episode 17
+episode 18
+episode 19
+k= 0: effective #functions    3006.1   best superposed KL to Bayes predictive (nats/input): median 0.001, max 0.001, share > 0.05: 0.00
+k= 1: effective #functions     415.5   best superposed KL to Bayes predictive (nats/input): median 0.022, max 0.032, share > 0.05: 0.00
+k= 2: effective #functions      70.4   best superposed KL to Bayes predictive (nats/input): median 0.039, max 0.102, share > 0.05: 0.35
+k= 3: effective #functions      13.6   best superposed KL to Bayes predictive (nats/input): median 0.053, max 0.209, share > 0.05: 0.55
+k= 4: effective #functions       1.8   best superposed KL to Bayes predictive (nats/input): median 0.031, max 0.638, share > 0.05: 0.35
+k= 6: effective #functions       1.1   best superposed KL to Bayes predictive (nats/input): median 0.005, max 1.383, share > 0.05: 0.30
+k= 8: effective #functions       1.0   best superposed KL to Bayes predictive (nats/input): median 0.001, max 1.363, share > 0.05: 0.25
+k=12: effective #functions       1.0   best superposed KL to Bayes predictive (nats/input): median 0.001, max 1.363, share > 0.05: 0.25
