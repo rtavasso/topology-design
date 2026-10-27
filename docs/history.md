@@ -573,6 +573,23 @@ The derivations in `experiments/worlds/rev3/` gave three numbers:
 **Decision.**
 - **D60.** Entry 36's "neural vs symbolic" tension is withdrawn. The design question for revision 4 is (a) whether the inter-step state holds mixtures (soft or top-k gated routing) or single symbols (sampled routing), and (b) a primitive set that includes context-reading operations.
 
+## Entry 38 (26 Oct 2026): exact per-step progress as the router's signal (discussion)
+
+**Premise (researcher).** On the toy we know a priori the branching space toward the next token. So we can tell, for each selected primitive, whether it constrains the prediction and moves optimally along the shortest path. That gives the meta-model a clear reward at every serial step.
+
+**Argument.**
+- **What it is.** An exact optimal value function: V*(state) = −(remaining distance). The per-step progress is a potential-based shaping reward (Ng 1999), which leaves the optimal policy unchanged. Better still, the oracle can be queried at *any* state, including states off the optimal path. So the router can be trained by imitating the oracle on the states it actually visits, as in DAgger: cross-entropy on the set of optimal next primitives. This replaces sparse, sampled credit with dense, exact credit.
+- **Caveat 1: the target must be what the context makes knowable, not the true token.** An oracle that knows the true z never needs to read the context. Imitating it would teach the router never to use context-reading primitives: the privileged-expert imitation gap. Distances must be measured to the *version space*, the states that predict what the context entails. Reading the context is then part of the optimal path.
+- **Caveat 2: under ambiguity the target is a set.** Several worlds remain, each with its own shortest paths. The right per-step target is the posterior-weighted share of optimal continuations (π*), or progress toward the version space. With equivalent programs, train on the whole *set* of optimal actions, not one of them.
+- **Caveat 3: what the claim becomes.** Oracle-trained routing answers "can dynamic routing represent and execute efficient inference?" (expressivity), not "can a learner discover routing from data". For a comparison with static models, give them the matching dense target (intermediate states along optimal paths), or label the oracle arm as privileged.
+- **The transferable piece.** Real data has no oracle. A *learned* value model, trained on the exact distances of training worlds and tested on whether its estimate of "does this step move toward the answer" transfers to unseen worlds and longer programs, is a model that "sees the minima on the horizon". The toy makes that both trainable and exactly checkable.
+
+**Decision.**
+- **D61.** Revision 4 treats exact per-step progress three ways:
+  - as a diagnostic, in every arm;
+  - as a training signal, measured against the version space, for an oracle-imitation arm labeled as privileged, with matched dense targets for the static arms;
+  - as the training target for a learned value model whose generalization is itself an endpoint.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
