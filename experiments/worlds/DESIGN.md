@@ -1,390 +1,261 @@
-# Committed paths vs superposed programs over shared primitives: design (revision 3)
+# A PFN over model composition: design (revision 4)
 
-**Status:** design, 26 Oct 2026. Not yet a preregistration. **Under revision: the independent review of revision 3 (end of this document) found blocking problems. Two of them, what the headline measures and whether the committed arms can learn, go to the researcher.** Revision 3 answers the independent review of revision 2 (kept at the end) and the researcher's decisions in history Entries 33–34:
-- give the static model the same primitives;
-- add a per-step cost;
-- mask the held-out pattern in every arm that uses the library;
-- fewer cells, more seeds.
+**Status:** design, 26 Oct 2026. Not yet a preregistration. Revision 4 follows the researcher's reframing (history Entries 36–40) and the papers read in Entry 39. The previous revisions and their three reviews are kept at the end. Next steps: an independent review of this design and its experimental value, then code, a throughput test, the pilot gates, and the preregistration.
 
-It becomes `PREREGISTRATION.md` after a third independent review, a GPU throughput test of all arms and the pilot gates in §12.
+**Ledger:** I25 and I26, following F19 (the data gap is the prior).
 
-**Ledger:** I25 (a generator of worlds), I26 (exact step classification; commitment vs averaging), following F19 (the data gap is the prior).
-
-**Scope note (AGENTS hard rule 1).** The primary-comparison family in AGENTS is the Phase 0–1 family. This round deliberately compares static and dynamic graphs, at the researcher's direction. Every claim is labeled by type: expressivity, optimization or mechanism.
+**Scope note (AGENTS hard rule 1).** This round deliberately studies dynamic, recurrent composition, at the researcher's direction. Claims are labeled expressivity, optimization or mechanism.
 
 ---
 
-## 0. What changed from revision 2
+## 0. What changed, and why
 
-| revision 2 | revision 3 | why |
+| from revision 3 | to revision 4 | source |
 |---|---|---|
-| A static PFN that must learn mod-7 arithmetic, against dynamic paths over exact primitives | A factorial. The no-library PFN (N) is a reference. Superposed programs (SO, SE) and committed paths (CO, CE) use the same primitives. | Revision 2 confounded access to primitives with commitment (review item 2; Entry 33). |
-| Different objectives per arm | One objective for every arm: held-out log loss given a context prefix | Fairness |
-| Nothing favors short programs | A per-step cost | It breaks ties among equivalent programs and makes compute allocation measurable (review; Entry 34). |
-| Best-first evaluation estimator | Monte Carlo over sampled paths, each executed on all 49 inputs | Depends only on the induced distribution over functions (review item 1). |
-| Each sampled path scored on one point | Each path scored on every remaining point of the episode; the initial path length biased short | Spurious hits and the constant-output attractor (review item 4). |
-| Pattern held out from the pool only | Pattern **masked** in every library arm during training, unmasked at test | It had leaked into the dynamic arms (review item 3). |
-| ρ on accuracy | A fitted memorization weight, measured only where it is defined | ρ sat at chance (review item 5). |
-| 9 cells × 3 arms × 10 seeds | 6 cells × 5 arms × 10 seeds, plus 29 seeds for the headline pair | Feasibility and AGENTS rule 4 (review). |
+| The path framed as a *hypothesis about the world*, with commitment vs superposition as the headline | The router framed as an **amortized posterior over the model's own composition**: a PFN whose output is a composition, not a prediction | Entries 36, 40 |
+| "Committed vs superposed" as the headline | Headline: **can the composition posterior be learned from next-token sequences alone**, and how close does it get to a structure-supervised composition PFN? Soft vs committed becomes a secondary axis, with a static mixture-of-chains control. | Review 3 finding 1; Entry 40 |
+| Committed arms trained by sampled marginal likelihood, shown not to learn (0 of 30 at ℓ ≥ 3) | Committed arms trained by **expert iteration** (AlphaZero): a policy and a value head, short search over branches with exact symbolic execution, outcomes judged by consistency with the context and by the next token | Review 3 finding 3; Entry 39 |
+| No structure-supervised arm | **CP:** the router trained on compositions sampled from the prior. This is literally a PFN at the structure level, and the upper reference for learnability. | Entry 40 |
+| Different step-cost forms per arm | One form: a factor e^(−λ) per executed instruction, inside every library arm's score | Review 3 finding 4 |
+| A Monte Carlo evaluator only for committed arms | The same evaluator for every library arm, with sample counts and floors set by the derived bias table | Review 3 finding 5 |
+| Memorization weight against the uncapped Bayes(b) | Bayes(b) restricted to ℓ ≤ 5, and a 3-component fit (Bayes(a), Bayes(b), uniform) | Review 3, non-blocking |
+| New endpoints | Structure-level fidelity against the exact posterior; learned value against exact distance; search vs policy; routing-only adaptation | Entries 38–40; Neural Interpreters; AlphaZero |
 
-## 1. Question
+## 1. Thesis and questions
 
-The researcher's motivation (Entry 34): a library of primitives serialized into paths gives a combinatorial family of deep computations, |primitives|^L of them. The parameter cost is linear and the compute per token is linear. A dynamic graph also lets compute go where a world needs it.
+**Thesis (Entry 40).** A PFN amortizes the posterior predictive over *outputs*. The proposal is to amortize the posterior over *how the model composes its primitives* for each token, conditioned on the context. The model learns where it wants to go structurally, and the output is produced by running the composition.
 
-A static network can contain combinatorially many paths too, but it **sums** them in superposition; a dynamic graph **selects** one. Given the same primitives, the question is whether selection beats superposition.
+This is Solomonoff's decomposition made explicit: a prior over programs, with prediction by execution. On the training support, it has the same optimum as an output-level PFN. It differs in what must be learned (only *which* composition), and in how it can extrapolate (to compositions never seen whole, whose parts still execute exactly).
 
-**Main question.** All arms get the same primitives, the same generated worlds and the same objective. Does a meta-model that **commits** to one path per context generalize better and track Bayes more closely than one that **superposes** all paths in a fixed graph?
+**Questions:**
+1. **Learnability.** Can a composition posterior be learned from next-token sequences alone, with no compositions ever shown? How close does it come to a composition PFN trained on compositions sampled from the prior?
+2. **Soft vs committed composition.** Soft routing, as in Neural Interpreters, superposes primitives and gets exact gradients. Committed routing trained by search, as in AlphaZero, gets one path per sample and a learned value. A static mixture of soft chains separates "factorized vs correlated path distribution" from "commitment" (review 3, finding 1).
+3. **Composition level vs output level.** A composition PFN against an output-level PFN with no library. This comparison is advantaged by construction, because the library is the generator's own instruction set. It is labeled as such, and its size is the measurement.
+4. **Seeing vs searching.** How much does test-time search over branches add to the learned policy? Does the learned value agree with the exact distance on worlds never seen?
+5. **Structure-level fidelity.** How close is the router's distribution over compositions to the exact posterior over compositions, including compositions never seen whole in training?
 
-**Sub-questions:**
-1. **What do the primitives buy?** Each library arm against a PFN that has to learn the arithmetic in its weights. This is a prior by construction, so it is labeled as such. Its size is the measurement.
-2. **Memorization vs generalization.** On functions never seen in training, does each arm behave like Bayes over its training pool or like Bayes over the generator? How does that change with diversity?
-3. **Feedback.** Does seeing the partial program's registers on the context help, within each kind of composition?
-4. **Compute allocation.** Do the steps used track each world's minimal length?
-5. **Branch decisions and commitment.** On Z_7, every step can be classified exactly (§7.3). When does a committed model narrow from many worlds to one?
+**What this stage cannot test,** with the reason for each:
+- **Routing at every token, and primitives that read the context.** In pair worlds, x and y are uniform and inputs never repeat within an episode. Only the z predictions carry information, and computing z needs only the current pair. Stage B (§13) uses worlds where each token depends on earlier tokens.
+- **Whether depth helps representation.** Functions on 49 inputs have shallow shortcuts (Entry 34). Stage B.
+- **Learned primitives,** and the reuse × selection 2×2 with neural layers. A later stage.
 
-**What this round cannot test.** Whether depth helps *representation*. On Z_7 with 49 inputs, every function is a 49-entry table, and composing maps on 49 states has shallow shortcuts. Testing that claim needs unbounded, inherently serial inputs; it is deferred to a sequence-input domain (Entry 34, D55).
+## 2. Prior work, and what is new
 
-**Prior work, and what is new.**
-- **Module networks:** NMN (Andreas 2016), IEP (Johnson 2017), N2NMN (Hu 2017), Stack-NMN (Hu 2018), NS-CL (Mao 2019).
-  - With the right layout given, modular networks generalize systematically (Bahdanau 2019, SQOOP).
-  - Learning layouts from answers is where it fails: induced layouts did not converge to tree layouts, and soft parametrizations blurred (SQOOP). CLEVR-trained models, an NMN given ground-truth programs included, fail CLOSURE.
-  - Relaxed program search loses to discrete solvers (TerpreT, Gaunt 2016).
-  - DARTS relaxes architecture choice into a softmax over operations, which is what our superposed arm does over primitives.
-- **Two Bayes references along a diversity axis:** Raventós 2023.
-- **Amortized program posteriors with symbolic execution:** DreamCoder (Ellis 2021).
+| work | what it does | what it lacks relative to this design |
+|---|---|---|
+| PFNs and meta-learned in-context learning (Müller 2022; Kirsch 2022; Raventós 2023) | Amortize the posterior predictive over outputs. Raventós measures against two Bayes references along a diversity axis. | No composition. |
+| Schug et al. 2024, *When can transformers compositionally generalize in-context?* | Tasks built from shared modules. A transformer whose output feeds a hypernetwork, separating task inference from execution, generalizes to held-out module combinations; a plain transformer does not, even though the task code is linearly decodable from it. | Soft, linear module mixing per task, not serialized per-token routes. No exact Bayes or structure-level references. The closest result in spirit. |
+| Schug et al. 2025, *Attention as a hypernetwork* | Attention scores across heads act as a latent code configuring a value network. A modified attention (HYLA) improves compositional generalization on symbolic Raven matrices and fuzzy logic. | Composition stays implicit. |
+| Neural Interpreters (Rahaman et al. 2021) | Soft per-token routing through shared, code-programmed functions, reused across depth. Routing-only fine-tuning recovers R² 0.986 of 0.995. | No in-context world prior. No exact references. Correspondence between functions and primitives never verified. Out-of-distribution gains modest. |
+| Compositional Recursive Learner (Chang et al. 2019) | A controller picks modules from a library step by step, with halting and a step cost. PPO on a sparse reward, modular arithmetic. Generalizes to longer expressions. | Not meta-learned in context. Needed a curriculum. No exact references. |
+| Modular meta-learning (Alet et al. 2018) | Learns a module library across tasks and *searches* compositions for each new task (simulated annealing). Meta-learning at the composition level. | Search per task, not amortized. |
+| Module networks (Andreas 2016; Johnson 2017; Hu 2017; Bahdanau 2019) | With given layouts, systematic generalization. Learned layouts fail or need program supervision. | Not in-context. No exact references. |
+| MoEUT (Csordás 2024); Mixture-of-Recursions (Bae 2025); Dr.LLM (2025) | Shared layers with routing in language models. Dr.LLM trains per-layer skip/execute/repeat routers on labels from offline MCTS. | Efficiency-oriented. No world prior. No exact references. |
+| DreamCoder (Ellis 2021); AlphaDev and AlphaTensor | An amortized program posterior with symbolic execution; AlphaZero-style search over instruction-level programs. | AlphaDev and AlphaTensor search per task. DreamCoder's recognition model is the nearest relative of CP. |
 
-What we have not found combined: superposed and committed composition over *exact* primitives, trained on the *same* objective, measured against *exact* Bayes references under two priors, with every branch decision classified exactly. The contribution is framed as a measurement. The second literature check before the preregistration must confirm it.
+**What we have not found combined:**
+1. a PFN whose amortized object is the posterior over its *own* compositions, trained on a prior over worlds with the next-token loss;
+2. compared, at matched size, with a composition PFN trained on prior samples, with soft routing (single and mixture of chains), and with an output-level PFN;
+3. measured against *exact* posteriors at both the output level and the structure level, with an exact value for every branch decision;
+4. with the router trained by expert iteration and context verification. CRL used PPO on the final answer; Dr.LLM used offline search labels.
 
-**Not in this round:** neural primitives; discovering primitives; memory stores; multi-token outputs; refining a path across positions.
+The contribution is framed as a measurement. A final literature check precedes the preregistration.
 
-## 2. Worlds and the task
+## 3. Worlds, tokens and the task
 
-**Machine.** Values in Z_7, two registers. At the start r0 = x and r1 = y; the output is r0 at the end.
+- **Worlds:** unchanged. Functions of Z_7 × Z_7 → Z_7 with minimal programs over 32 instructions (2 registers). Counts by length: 13 / 80 / 552 / 4,179 / 32,741 / 260,279. The generator prior gives equal weight per length, then uniform within a length.
+- **Tokens:** each pair (x, y, z) becomes three tokens, so an episode of 16 pairs is a sequence of 48 tokens. The loss is the next-token loss over the whole sequence.
+- **Which positions carry information.** The next token after a z or an x is a fresh uniform input, so every arm predicts it with the shared output head (exact Bayes there is uniform). The next token after a y is z = f(x, y). That prediction is the one the composition makes: at each y position, the router builds a composition from the preceding tokens and executes it on (x, y).
 
-**Instructions:** 32, plus a 33rd token that ends the path:
-- `dest ← src1 op src2` for op ∈ {add, sub, mul}, with dest, src1, src2 ∈ {r0, r1};
-- `dest ← f(src)` for f ∈ {neg, inc}.
+  On pair worlds this is the only place composition matters, and §1 states why.
 
-The 33rd token is **HALT** in committed paths, where it ends the path, and **NOP** in superposed programs, where it is an identity step. A superposed program that puts all its weight on one token per step is exactly a committed path with its NOPs removed.
+## 4. Test sets
 
-**Execution.** Each instruction is a 49-entry transition table on register pairs.
-
-**Functions** by minimal length (enumerated; `rev3/enum6.py` reproduces the table in 30 s):
-
-| ℓ | 1 | 2 | 3 | 4 | 5 | 6 |
-|---|---|---|---|---|---|---|
-| functions | 13 | 80 | 552 | 4,179 | 32,741 | 260,279 |
-| minimal programs | 16 | 254 | 3,956 | 63,002 | 936,732 | 13,866,340 |
-
-The identity is excluded. **A world** is one function.
-
-**An episode** is 16 pairs ((xᵢ, yᵢ), zᵢ) with distinct inputs, each pair one token from a 343-entry joint table.
-
-**The generator prior.** Equal weight per length ℓ = 1…6, then uniform within a length. A cell's **training prior** is the generator prior restricted to its pool and depth cap.
-
-## 3. Test sets
+As in revision 3; certificates are reproduced by two reviewers.
 
 | test | functions | right reference |
 |---|---|---|
-| **pool** | fresh episodes of training functions | Bayes(a): the cell's training prior |
-| **unseen in range** | 10% of each length ≤ 5, removed from every pool (581 / 3,761 / 29,467 functions remain at ℓ ≤ 3 / 4 / 5) | Bayes(b): the generator prior; Bayes(a) for the memorization weight |
-| **length** | ℓ = 6, a fixed sample of 5,000 | Bayes(b) |
-| **pattern A** | functions every program of which, within 7 steps, uses mul→inc | Bayes(b), as a difference in differences |
+| pool | fresh episodes of training functions | Bayes(a) |
+| unseen in range | 10% of each length ≤ 5, held out of every pool | Bayes(b) |
+| length | ℓ = 6, a fixed sample of 5,000 | Bayes(b) |
+| pattern A | every program of length ≤ 7 uses mul→inc (9,555 certified); masked in every library arm during training | difference in differences, in nats, against the size-matched control C_A |
 
-**The pattern hold-out** (`certify_patterns.py`; reproduced independently by the reviewer):
-- A pattern A→B means an instruction of op A writes a register, and a later op B reads it while it still holds A's output.
-- For mul→inc:
-  - the pattern cell's pool keeps functions with a compliant program of length ≤ 5 (33,239 before the hold-out);
-  - the P-test has 9,555 certified functions at ℓ = 6 (and 4 at ℓ ≤ 5);
-  - a secondary P-minimal set has 4,322 functions at ℓ ≤ 5 whose minimal programs all use mul→inc, but which have a compliant program of length 6–7.
-- **Masking:** during training in the pattern cell, every library arm is forbidden from executing mul→inc.
-  - In committed paths, a freshness flag per register is tracked along the path. The instruction that would complete the pattern gets logit −∞, and the softmax renormalizes over the rest.
-  - In superposed programs, the belief is tracked over (register state × freshness flags) = 49 × 4 states per input. In each flag state, the step's instruction weights are renormalized over the allowed instructions.
-  - The two arms therefore apply the same masked, renormalized policy.
-  - At test the mask is lifted. Every atom has been used in other contexts; only the compound is new.
-- The no-library PFN cannot be masked, so for it this is a hold-out of a class of functions. Its result is reported separately and kept out of the masked comparisons.
-- **Effect measure.** The control cell C_A removes 4,326 functions at random, stratified by length (the same number as the pattern pool removes), with no mask. The effect is
+The memorization weight uses Bayes(b) restricted to ℓ ≤ 5, and a three-component fit: Bayes(a), capped Bayes(b), uniform.
 
-  DiD = [acc_C(P-test) − acc_C(compliant ℓ = 6)] − [acc_P(P-test) − acc_P(compliant ℓ = 6)],
+## 5. Arms
 
-  where "compliant ℓ = 6" means functions with a compliant program of length 6. This separates the pattern from length, since certified P-test functions are almost all ℓ = 6.
+All arms share the context encoder: causal attention over tokens, with a joint 343-entry embedding per pair or per-token embeddings. Router and decoder sizes are matched within 5%.
 
-## 4. Arms
-
-**Shared context encoder.** Causal attention over the pair tokens, so one pass encodes every prefix. Width and depth are set by the throughput test, ≈ 1–3M parameters. Parameters are matched across arms within 5%.
-
-**One objective for every arm.** Per episode, draw P split points i (default P = 2). Each arm predicts every remaining output zⱼ, j ≥ i, from the context c<i and the input (xⱼ, yⱼ). The loss is
-
-  L = mean over splits and j ≥ i of −log q(zⱼ | c<i, xⱼ, yⱼ).
-
-Its optimum for every arm is the Bayes posterior predictive under the training prior. Evaluation uses the j = i terms: the prequential code length, Σᵢ −log q(zᵢ | c<i, xᵢ, yᵢ). At evaluation, every arm's predictive gets the same floor: q ← (1 − 10⁻³) q + 10⁻³ / 7.
-
-| arm | uses the library | composition | feedback | how q is computed |
-|---|---|---|---|---|
-| **N** | no | none (a PFN) | — | exact (softmax head) |
-| **SO** | yes | superposed, static graph | open | exact |
-| **SE** | yes | superposed, static graph | soft execution trace | exact |
-| **CO** | yes | committed paths, dynamic graph | open | Monte Carlo |
-| **CE** | yes | committed paths, dynamic graph | execution trace | Monte Carlo |
-
-**N, no-library PFN.** Query tokens embed(xⱼ, yⱼ) attend to c<i; a head outputs logits over Z_7. It keeps revision 2's role as the reference for what the primitives buy.
-
-**SO, superposed program, open-loop.**
-- A step decoder, the same module as the committed arms', produces weights w_t ∈ Δ³³ for t = 1…7. Its inputs are the encoded context and a step-index embedding only.
-- For every one of the 49 inputs, a belief over the 49 register states starts at the input's own state and is updated as b ← b · Σₐ w_t(a) Tₐ.
-- The prediction for input x is the r0-marginal of the final belief.
-- Every primitive is computed at every step, so the graph is static and nothing is committed.
-- Its prediction is a mixture over paths with a step-factorized distribution Πₜ w_t(aₜ). That family cannot represent "program A or program B" without the junk cross-terms (A's first step, B's second).
-- It trains on exact cross-entropy.
-
-**SE, superposed program with feedback.** As SO, but the weights at step t also attend to **soft trace tokens**. For each context example j < i, the token is the belief-weighted embedding Σₛ b_t[xⱼ](s) · E[s, zⱼ], using the 343-entry table. The graph stays static.
-
-**CO, committed paths, open-loop.**
-- The step decoder samples a path a₁, a₂, …, HALT autoregressively (at most 7 instructions), attending to the encoded context and to its own previous steps.
-- Paths never see the query, so a sampled path is a whole function, executed on all 49 inputs at once.
-- Its prediction is q(z | x) = Σ_paths π(path | c<i) · [exec(path, x) = z].
-
-**CE, committed paths with feedback.** As CO, plus a hard trace token per context example after each step, embedded from the 343-entry table as (r0, r1, zⱼ).
-
-**Step cost** (library arms). A cost λ_step per executed instruction, NOP and HALT excluded. The default λ_step = 0.01 nats; the pilot checks 0.003 and 0.03.
-- In committed arms the cost enters inside the marginal likelihood, as a factor e^(−λ_step·len) on each path's score. The optimal path distribution then puts its mass on minimal programs.
-- In superposed arms it is added as λ_step · E[len], computed exactly.
-- It breaks ties among equivalent programs and makes "steps used" mean something.
-
-**Training the committed arms.**
-- K = 16 paths are sampled per split.
-- Each path is executed on all 49 inputs and scored on every remaining point j ≥ i.
-- The gradient is −Σⱼ Σₖ wₖⱼ ∇log π(pathₖ), with wₖⱼ = hitₖⱼ e^(−λ len_k) / Σₖ′ hitₖ′ⱼ e^(−λ len_k′). Points with no hit are skipped.
-- This is maximum marginal likelihood per point, and it is the same objective as the other arms. A path matching many points gets weight on many points.
-- **Pilot alternatives,** tried in this order if the learning gate fails (§12):
-  - noisy-channel joint scoring, Πⱼ[(1 − ε) if hit, else ε/6], with ε ∈ {0.1, 0.3};
-  - β-tempered weights;
-  - uniform exploration with importance correction;
-  - K = 64.
-
-  Program supervision is never added to the primary arms.
-
-**Initialization.** The HALT logit (committed) and the NOP logit (superposed) start with a bias that gives an expected initial path length of ≈ 3. The reason is that constant-output paths, which carry no information, grow with length (§5.2).
-
-**Evaluating the committed arms.** M = 1,024 paths are sampled per context prefix, and each is executed on all 49 inputs:
-
-  q̂(z | x) = (1/M) Σₘ [execₘ(x) = z].
-
-This estimator depends only on the distribution over *functions* the sampled paths induce. It is therefore invariant to how probability spreads over equivalent programs, the failure of revision 2's best-first enumeration. It is validated before use (§12, G1).
-
-**Control EP** (N400 only, 10 seeds): CE plus cross-entropy on a minimal program of the true function drawn uniformly. It has privileged information and is labeled as such. It measures how much of any gap is credit assignment.
-
-## 5. Derived before measuring (AGENTS rule 2)
-
-Scripts are in `experiments/worlds/rev3/`.
-
-### 5.1 How much superposition can lose (`superpos.py`)
-
-For each context, a superposed program (7 steps × 33 weights) is fitted directly to the exact Bayes predictive on all 49 inputs: 3 restarts, 400 Adam steps. The prior is equal weight per length over all functions of ℓ ≤ 5, standing in for Bayes(a) in Nall. 20 episodes per k. A committed-path mixture can match Bayes exactly at every k (a mixture of minimal programs).
-
-| k | effective number of consistent functions | best superposed KL to Bayes (nats per input), median | max | share > 0.05 |
-|---|---|---|---|---|
-| 0 | 3,006 | 0.001 | 0.001 | 0.00 |
-| 1 | 416 | 0.022 | 0.032 | 0.00 |
-| 2 | 70 | 0.039 | 0.102 | 0.35 |
-| 3 | 13.6 | 0.053 | 0.209 | 0.55 |
-| 4 | 1.8 | 0.031 | 0.638 | 0.35 |
-| 6 | 1.1 | 0.005 | 1.383 | 0.30 |
-| 8 | 1.0 | 0.001 | 1.363 | 0.25 |
-| 12 | 1.0 | 0.001 | 1.363 | 0.25 |
-
-**Two separate effects:**
-- **Expressivity:** while a handful to a hundred worlds remain (k ≈ 1–3), the factorized family stays 0.02–0.05 nats per input from Bayes even when fitted directly.
-- **Optimization:** once the world is identified (k ≥ 6), a one-hot program reaching zero KL always exists, yet in 25–30% of contexts the fit lands in a local optimum (up to 1.4 nats). That replicates TerpreT's finding in this setting.
-
-These are fits per context, not amortized learning, so they bound what the arms can do rather than predicting it. They set the effect sizes in P3 and P4.
-
-### 5.2 The training signal at initialization (`initsig.py`)
-
-With a uniform policy (most paths run to 7 steps), on targets of length 4–5, K = 16, scored on all remaining points:
-- the mean agreement of a random path with the target is 0.18;
-- 33.5% of random paths have a constant output;
-- 7.5% of episodes contain a path exactly right on every remaining point.
-
-| scoring | weighted agreement | weight on constant paths | weight on exact paths |
+| arm | composition | how it learns | information beyond next-token data |
 |---|---|---|---|
-| per-point marginal (primary) | 0.351 | 0.266 | 0.065 |
-| noisy-channel, ε = 0.1 | 0.445 | 0.342 | 0.068 |
-| noisy-channel, ε = 0.3 | 0.419 | 0.360 | 0.056 |
+| **N** | none (an output-level PFN) | next-token loss | none |
+| **CP** | committed, autoregressive router over the 32 instructions + HALT | cross-entropy on a minimal program of the true function, drawn uniformly | compositions sampled from the prior (the PFN-at-structure-level target) |
+| **CX** | committed, autoregressive router with a policy head p and a value head v | expert iteration | none |
+| **CS-1** | soft, one superposed chain of 7 steps | exact next-token loss | none |
+| **CS-8** | soft, a static mixture of 8 chains | exact next-token loss | none |
+| *CO* (pilot only, N400) | committed | DAgger toward the optimal next steps relative to what the context entails | privileged (exact distances) |
 
-Two conclusions:
-- Scoring on all remaining points roughly doubles the agreement of the paths that receive gradient.
-- Constant-output paths keep a quarter to a third of the weight. They are the collapse risk.
+**CP, the composition PFN.** Its optimum is the posterior over minimal programs given the context. That target is unique because the prior over compositions is defined: uniform over the minimal programs of each function. Predictions come from sampled compositions executed on the query.
 
-| random path length | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
-|---|---|---|---|---|---|---|---|
-| share with constant output | 0.07 | 0.13 | 0.19 | 0.23 | 0.30 | 0.33 | 0.37 |
+**CX, expert iteration.**
+- At each y position, S simulations of PUCT search (default 64) run over the 33 actions, up to depth 7. Execution is exact and symbolic.
+- Dirichlet noise is added at the root, with α scaled to the branching factor (AlphaZero uses α ≈ 10 / branching).
+- Leaves are evaluated by v. A terminal score is the fraction of context examples the composition reproduces, times e^(−λ·len).
+- Values are averaged in the search, not maximized (Entry 39).
+- Training targets:
+  - p is trained toward the root visit counts;
+  - v is trained toward the outcome: whether the composition's output equals the actual next token, which is the ordinary next-token label, combined with context consistency.
+- No composition is ever shown.
+- At test, CX is evaluated both policy-only ("seeing") and with search S ∈ {16, 64, 256} ("searching").
 
-Constant outputs come from long, information-destroying paths: dead branches. Hence the short-length initialization, the step cost, and a pilot gate on the constant-output share (§12).
+**CS-1 and CS-8, soft composition.** Each step mixes all 33 instruction tables with weights from the router, acting on a distribution over register states for each input (as Neural Interpreters mixes functions by compatibility). CS-8 runs 8 such chains and mixes them at the output.
+- CS-1 cannot represent correlations between steps.
+- CS-8 can, approximately, without committing.
 
-### 5.3 Where the memorization weight is defined (`memo.py`)
+The gap CS-1 → CS-8 is the "factorized vs correlated" effect. Only CX − CS-8 may be credited to commitment.
 
-Unseen functions of length 4–5, 300 episodes per cell. Each entry is the share of contexts where the pool's version space is non-empty, then the share also having TV(Bayes(a), Bayes(b)) > 0.1 at the next query:
+**Common to all library arms:**
+- the step cost factor e^(−λ_step) per executed instruction, inside the score (default 0.01; the pilot checks 0.003 and 0.03);
+- pattern-A masking in PA cells: freshness flags on committed paths, flag-augmented states for soft chains (equivalent; review 3).
 
-| cell | k = 1 | 2 | 3 | 4 | 5 | 6 | 8 |
-|---|---|---|---|---|---|---|---|
-| N100 | 1.00 / 0.34 | 1.00 / 0.90 | 0.90 / 0.82 | 0.45 / 0.40 | 0.19 / 0.12 | 0.09 / 0.03 | 0.02 / 0.01 |
-| N400 | 1.00 / 0.07 | 1.00 / 0.63 | 0.97 / 0.87 | 0.58 / 0.51 | 0.22 / 0.15 | 0.10 / 0.06 | 0.02 / 0.01 |
-| Nall | 1.00 / 0.03 | 1.00 / 0.07 | 1.00 / 0.29 | 1.00 / 0.62 | 0.86 / 0.70 | 0.44 / 0.35 | 0.10 / 0.06 |
+**Collapse.**
+- Root noise and visit-count sampling during CX training.
+- An entropy floor in the pilot for CS.
+- The share of constant-output compositions is monitored in all arms (§12).
 
-The memorization weight is estimable at k ≈ 2–4 in N100 and N400, and at k ≈ 3–6 in Nall. In Nall the two references differ less: the pool is nearly the generator up to length 5.
+## 6. Derived before measuring
 
-## 6. Training mixes (6 cells), grid and seeds
+Scripts are in `rev3/`, `rev4/` and `review3/`.
 
-| cell | cap | ℓ ≤ 3 | ℓ = 4 | ℓ = 5 | mask | purpose |
-|---|---|---|---|---|---|---|
-| D3 | 3 | all | — | — | — | depth: training only on short programs |
-| N100 | 5 | all | 100 | 100 | — | diversity |
-| N400 | 5 | all | 400 | 400 | — | diversity; headline |
-| Nall | 5 | all | all | all | — | diversity; headline |
-| PA | 5 | pattern-A pool | | | mul→inc | pattern |
-| C_A | 5 | Nall minus 4,326 at random, length-stratified | | | — | control for PA |
+### 6.1 The foothold: what search alone can find (`rev4/mcts_search.py`)
 
-Every cell gives equal weight per length up to its cap, then uniform within a length. Every cell trains on the same number of episodes; comparisons are made at matched episodes and at matched repetitions per function.
+PUCT with a uniform prior and no learned policy or value; random rollouts; k = 8 context examples; 12 targets per length (13 at ℓ = 1). A success is a program consistent with all 8 examples.
 
-**Grid:**
-- 5 arms × 6 cells × 10 seeds = 300 runs;
-- the headline pair CE and SE, raised to 29 seeds in N400 and Nall: +76;
-- EP in N400, 10 seeds: +10.
-- **386 runs,** plus the pilot.
+| ℓ | S = 64 | S = 256 | S = 1,024 |
+|---|---|---|---|
+| 1 | 10/12 | 12/12 | 12/12 |
+| 2 | 3/12 | 5/12 | 9/12 |
+| 3 | 1/12 | 2/12 | 2/12 |
+| 4 | 0/12 | 0/12 | 0/12 |
+| 5 | 1/12 (not the true function) | 0/12 | 0/12 |
+
+Search alone gets a foothold at ℓ ≤ 2, which carries 40% of the training mass under equal weight per length, and almost none beyond. Expert iteration must bootstrap: the learned prior and value have to extend search to ℓ = 3–5. Nothing yet shows that it does. This is gate G2.
+
+### 6.2 Soft composition (review 3 `superpos2.py` and `superpos_mix.py`, scored on non-context inputs like the objective)
+
+Best per-context fit, median KL to Bayes in nats per input:
+
+| | k = 1 | k = 2 | k = 3 |
+|---|---|---|---|
+| one chain | 0.010 | 0.021 | 0.042 |
+| static mixture of 8 chains | 0.001 | 0.004 | 0.016 |
+
+At identified contexts, single-chain fits fall into local optima in 15–30% of cases, up to ≈ 1.4 nats.
+
+### 6.3 Where the memorization weight is defined
+
+Revision 3 §5.3: k ≈ 2–4 in N100 and N400, k ≈ 3–6 in Nall. It is recomputed with the capped Bayes(b) before preregistering.
+
+### 6.4 Evaluator bias (review 3 `mc_tail.py` and `mc_bias.py`)
+
+With M = 1,024 samples and a 10⁻³ floor, the bias reaches +0.55 nats where the model's probability on the true value is ≈ 10⁻³. Hence:
+- M = 8,192 sampled compositions at k ≥ 4, with a floor of 10⁻²;
+- the same estimator for every library arm, including CS (its paths are sampled from its step weights);
+- a mis-specified planted model in G1.
 
 ## 7. Exact references
 
-### 7.1 Bayes predictive
+- **Output level:** Bayes(a) and Bayes(b), exact predictives and prequential code lengths at the z positions.
+- **Structure level.** Two compositions are equivalent when they compute the same function, so the exact posterior over composition classes is the posterior over functions given the context. Within a class, π* is uniform over minimal programs.
+- **Branch values:** the distance to the version space (primary) and to the true function (on a sample), with classes in precedence order: dead > no completion within budget > away > lateral > optimal.
 
-The version space is one matrix test over the function table (297,844 functions × 49, 14.6 MB). Bayes(a) and Bayes(b) give exact predictives and prequential code lengths for every evaluation episode.
+## 8. Endpoints
 
-### 7.2 Bayes-optimal steps
-
-With the step cost, the optimal committed policy puts its mass on minimal programs. Among those it is still not unique, so π* (uniform over minimal programs, weighted by the posterior) is a reference distribution, not *the* optimum.
-
-KL(π* ‖ π) and the off-minimal rate are diagnostics. They are not preregistered endpoints.
-
-### 7.3 Branch classes: a partition with precedence
-
-For a step from state s to s′, with t steps used and T_max = 7, the classes in order of precedence are:
-1. **dead:** s′ maps two inputs the target separates to the same registers. This is sufficient, not necessary, for unreachability.
-2. **no completion within budget:** t + 1 + d(s′) > T_max, or no completion found within the remaining budget.
-3. **away:** regret 1 + d(s′) − d(s) ≥ 2.
-4. **lateral:** regret 1.
-5. **optimal:** regret 0.
-
-Two targets:
-- **Version space (primary):** the state is distinguished only on the context inputs, so the search is cheap.
-- **Oracle:** all 49 inputs, on a smaller sample. A search from a step-1 state reaches ≈ 3.3M states.
-
-"Dead, visible in the context" (two *context* inputs merged) is what execution feedback can see.
-
-## 8. Metrics
-
-All stratified by test set, minimal length and context size k.
-
-1. **Code length** (nats per position) against Bayes(a) and Bayes(b): primary. Accuracy too.
-2. **Memorization weight.** For each run, fit λ_mem ∈ [0, 1] minimizing the mean KL(q_arm ‖ λ·Bayes(a) + (1 − λ)·Bayes(b)) over unseen-in-range positions where the pool's version space is non-empty and TV > 0.1 (§5.3). Report λ_mem and the residual KL (how well the mixture explains the arm).
-3. **Commitment and coherence.** Paths sampled from any library arm are whole functions:
-   - committed arms: from π;
-   - superposed arms: one token per step drawn from w_t.
-
-   On these, report:
-   - **valid-world rate:** the share of sampled functions consistent with the context. Bayes gives 1; the junk cross-terms of superposition lower it.
-   - **effective number of worlds:** the exponentiated entropy of the function distribution from M samples, compared with the same estimator on M samples from the Bayes(a) posterior, so both are capped at M.
-4. **Compute allocation:** steps used (committed) or expected non-NOP steps (superposed) against the true function's minimal length ℓ, by k.
-5. **Branch decisions** (committed arms): class rates (§7.3) by step, length and k; dead-visible-in-context vs dead-only-unseen.
-6. **Halting:** the path-length distribution against ℓ; accuracy with HALT masked until L = cap … 7. The second is readable only where early halting is visible.
-7. **Probes on N** with labels intrinsic to the function: minimal length, dependence on y, affinity, f at a held-out input. Linear, with label-permutation nulls.
-8. **Instrumentation:**
-   - loss by stratum;
-   - gradient, update and activation norms per layer;
-   - attention entropy;
-   - step-decoder entropy;
-   - hit rate and **share of constant-output paths** (committed);
-   - entropy of the per-step weights (superposed);
-   - attention to trace tokens.
+| # | endpoint | arms |
+|---|---|---|
+| E1 | Code length at z positions against Bayes(a) and Bayes(b), by test set, length and k | all |
+| E2 | Structure fidelity: the router's distribution over functions against the exact posterior, measured where Bayes's effective number of functions is ≤ M/20; also mass on the true function and the valid-world rate | library arms |
+| E3 | **Learnability:** CX − CP and CS-8 − CP on E1 and E2 | CX, CS, CP |
+| E4 | Seeing vs searching: CX policy-only vs S = 16 / 64 / 256 at test | CX |
+| E5 | Learned value vs exact distance to the version space: rank correlation and calibration on unseen-in-range and ℓ = 6 | CX |
+| E6 | Routing-only adaptation (Neural Interpreters): after training in PA, adapt only the router on 64 / 256 episodes of pattern-test functions with the mask lifted; N gets full fine-tuning on the same episodes | library arms, N |
+| E7 | Branch-class rates; steps used against ℓ (compute allocation) | committed arms |
+| E8 | Memorization weight (§4) | all |
 
 ## 9. Preliminary predictions
 
-Thresholds are to be fixed in the preregistration. Run-level paired bootstrap; "P > 0.9" means P(A better than B) > 0.9 across seeds.
+Thresholds are fixed at preregistration. Verdicts use a run-level paired bootstrap.
 
 | # | prediction | falsifier | type |
 |---|---|---|---|
-| P1 | Every arm comes within 0.05 nats per position of Bayes(a) on pool functions at k ≥ 8 in Nall. | An arm stays further away. Its comparisons are then reported as conditional. | optimization (sanity) |
-| P2 | Every library arm beats N (lower excess over Bayes(b)) on unseen in range and on length, in N100, N400 and Nall. | N is better than or equal to any library arm at N400 (P > 0.9). | expressivity (prior by construction) |
-| **P3** | **Headline.** Where 3–300 functions remain consistent (k ≈ 1–3), CE beats SE by ≥ 0.02 nats per position, on pool and unseen in range, in N400 and Nall. Derived best case: 0.02–0.05 (§5.1). | CE − SE > −0.01 nats per position in both cells (P > 0.9). | expressivity of the path distribution |
-| P4 | Where the world is identified (≤ 1.5 effective functions), CE and SE agree within 0.02 on average. SE has a tail of failures (excess > 0.05 in ≥ 10% of contexts), and CE's tail is smaller. Derived: superposed fits fail in 25–30% of identified contexts (§5.1). | SE's failure share is no larger than CE's. | optimization |
-| P5 | On length (ℓ = 6) and pattern DiD, CE beats SE by ≥ 0.02 nats per position at k ≥ 8. | SE beats CE. | mechanism |
-| P6 | Within each composition, feedback helps (E better than O) on ℓ ≥ 4 and on length. CE's dead-visible-in-context step rate is at most half CO's. | O ≥ E, or the dead-step ratio is > 0.5. | mechanism |
-| P7 | λ_mem falls from N100 to Nall in every arm. Library arms have lower λ_mem than N in N100 and N400. | λ_mem(N) ≤ λ_mem(library) in either cell. | mechanism |
-| P8 | In CE at k ≥ 8 on pool functions, steps used track ℓ: slope ≥ 0.8, mean excess ≤ 0.5 steps. | Slope < 0.8 or excess > 0.5. | mechanism (compute allocation) |
-| P9 | Committed arms reach a valid-world rate ≥ 0.9 at k ≥ 4. Superposed arms have a lower valid-world rate than committed ones at k = 1–3. | Superposed ≥ committed at k = 1–3. | expressivity |
+| H1 (headline) | CX comes within 0.05 nats per z position of CP at k ≥ 4, on pool and unseen-in-range, in N400 and Nall | CX − CP > 0.15 in both cells, or CX fails G2 | optimization (learnability) |
+| H2 | At k = 1–3, CS-1's structure KL (E2) is above CS-8's, and CS-8's is near CX's. At identified contexts, CS-1 has a failure tail (excess > 0.05 in ≥ 10% of contexts) that CX and CP lack. | CS-8 ≥ CS-1, or CX's tail ≥ CS-1's | expressivity (H2a), optimization (H2b) |
+| H3 | CP beats N on unseen-in-range and on length in N100 and N400. Labeled advantaged by construction; the magnitude is the result. | N ≥ CP at N400 | expressivity (prior by construction) |
+| H4 | CX with search (S = 64) beats CX policy-only, by more on ℓ = 6 and pattern A than on pool. Learned-value rank correlation with exact distance ≥ 0.7 on unseen-in-range ℓ ≤ 5, and lower on ℓ = 6. | No gain from search, or correlation < 0.5 on unseen ℓ ≤ 5 | mechanism |
+| H5 | With the router alone adapted, library arms reach a lower pattern-test code length than N fully fine-tuned, at 64 adaptation episodes | N ≤ the best library arm | mechanism |
+| H6 | The memorization weight on Bayes(a) falls from N100 to Nall in every arm, by at least 0.1 | A fall of < 0.1 in any arm | mechanism |
 
-**Planted models give both verdicts of every rule (L17):**
-- an oracle committed sampler (π*);
-- the best per-context superposed fit (§5.1);
+**Planted models give both verdicts of every rule:**
+- an oracle composition sampler (π*);
+- the best per-context soft fit (§6.2), single and mixture;
 - a pool memorizer;
 - a uniform predictor;
-- a random-path predictor (AGENTS' random-routing control).
+- a random-composition predictor;
+- a mis-specified sampler (G1).
 
-## 10. Fairness and seeds (AGENTS rule 4, L8)
+## 10. Cells, grid and seeds
 
-- **Learning rate per arm:** a pilot sweep of 3 learning rates × 2 seeds × 5 arms in N400. The stacked optimizer takes a per-run learning-rate tensor.
-- **Seeds:** a null pilot first. Then 10 paired seeds per cell and arm, and 29 for CE and SE in N400 and Nall (the headline).
-- **Matching:** results compared at matched episodes, matched training loss and matched repetitions per function. FLOPs and wall time are reported per arm.
-- **Same objective and data** for every primary arm. Only EP is privileged.
-- **The library is shared** by all four library arms, so the commitment comparison is not affected by the library being the generator's own instruction set. That fact affects only P2, which is labeled as a prior by construction.
-- **Not done, and why:**
-  - an initialization-scale sweep (no closed-form richness parameter for these arms);
-  - an operator-label permutation (all library arms share the library, so it would not separate them).
-- **Capacity:** every arm must fit its pool (P1).
+- **Cells:** N100, N400, Nall, PA (mask mul→inc), C_A (size-matched control). D3 is dropped: no prediction uses it (review 3).
+- **Grid:**
+  - 5 arms (N, CP, CX, CS-1, CS-8) × 5 cells × 10 seeds = 250 runs;
+  - CX and CP raised to 29 seeds in N400 and Nall: +76;
+  - CO pilot: 5 runs in N400.
+  - 331 runs, plus the pilot.
+- **Seeds:** a null pilot first; paired seeds; learning rate tuned per arm in the pilot (3 values × 2 seeds, N400).
 
-## 11. Throughput and the feasibility gate
+## 11. Cost and the feasibility gate
 
-- **Stacking.** All runs of one arm share a batched model, with a leading run dimension (`src/topology_design/stacked.py`). Pools are index tensors, and data, execution and masks live on the GPU.
-- **Cost per episode:**
-  - **N:** 16 context tokens and 2 × 16 query tokens.
-  - **SO/SE:** 7 steps of a single-token decoder per split. Belief propagation is (P, 49 inputs, 49 or 196 states) × 33 tables per step, which is negligible. Soft trace tokens are one matrix product per step.
-  - **CO/CE:** P × K × 7 single-token decoder steps (2 × 16 × 7 = 224), plus gather-based execution.
-- **Feasibility gate.** The throughput job is extended to all five arms. The grid of 386 runs must fit in about three weeks of Kaggle quota (≈ 90 GPU-hours). If it doesn't, cut in this order:
-  1. the episode budget, guided by where the pilot's learning curves plateau;
-  2. K;
-  3. CO and SO in the PA and C_A cells.
+- CX's cost is dominated by search: about S node evaluations per y position in training, ≈ 9× CP at S = 64.
+- Evaluation with search is run on a subset only (1,000 episodes, k ∈ {1, 2, 3, 4, 8, 12}).
+- The throughput job is extended to all arms. The grid must fit in ≈ 90 T4 GPU-hours. If it doesn't, cut in this order:
+  1. S, to 32;
+  2. CS-8, to N400 and Nall only;
+  3. the N100 cell.
 
-  Seeds are never cut below 10, and the headline's 29 are kept.
+  Never fewer than 10 seeds; the headline's 29 are kept.
 
 ## 12. Before the main runs
 
 **Planted checks (tests first):**
-- The transition tables match the symbolic semantics.
-- The superposed belief update equals the exact path mixture on small cases.
-- The masked policies of superposed and committed arms are identical on small cases.
-- The Bayes code reproduces hand cases.
-- The branch classifier agrees with brute force for budgets ≤ 3.
-- The pattern certificate (done; reproduced by the reviewer).
+- execution tables;
+- the soft-chain update equals the exact path mixture on small cases;
+- masking is equivalent across arms;
+- the Bayes code;
+- the branch classifier against brute force for budgets ≤ 3;
+- the search implementation reproduces §6.1.
 
 **Pilot gates:**
-- **G1 estimator.** The Monte Carlo estimator with M = 1,024 gives the same code length, within 0.005 nats per position, for:
-  - an oracle sampling minimal programs;
-  - the same oracle spread over equivalent padded paths.
+- **G1, evaluator.** The estimator agrees within 0.005 nats across the minimal-program oracle and its padded twin, and detects the mis-specified sampler.
+- **G2, bootstrap.** Within the pilot budget, CX's search with the learned prior (S = 64) finds context-consistent compositions for ≥ 50% of ℓ = 3 and ≥ 20% of ℓ = 4 targets in N400. Search alone manages 2 of 12 and 0 of 12 (§6.1). The constant-output share must fall below 10%.
 
-  Its gap to the exact Bayes predictive is also reported as a function of M.
-- **G2 learning.** CO and CE, on N400 functions of length 4–5, come within 0.1 nats per position of Bayes(a) at k ≥ 8 within the pilot budget. The constant-output share must fall below 10%. If either fails, the estimator alternatives of §4 are tried in order, and the change is recorded.
-- **G3 superposed fit.** SO and SE reach P1 on the pool. Failure is reported (it bears on P4), and their comparisons are then conditional.
-- **G4 null.** The spread between seeds of identical arms sets the minimum detectable effect for P3–P5.
-- **G5.** The planted models of §9 give both verdicts of every rule.
+  If G2 fails, that is itself a result (expert iteration does not bootstrap from the ℓ ≤ 2 foothold here). CX is then replaced by **CP→CX**: CP warm-started, then trained by expert iteration only. This is labeled, and H1 becomes conditional.
+- **G3, soft fit.** CS-1 and CS-8 fit the pool (E1 within 0.05 of Bayes(a) at k ≥ 8 in Nall), or their comparisons are reported as conditional.
+- **G4, nulls.** The spread between seeds of identical arms sets the minimum detectable effect.
+- **G5.** The planted models give both verdicts.
 
-**An independent pre-run review** of the design and of the code.
+**An independent pre-run review** of the code.
 
-## 13. Still open for the preregistration
+## 13. Stage B (next round, recorded so this stage stays scoped)
 
-- Model sizes, P, K and the episode budget (from the throughput test).
-- λ_step and the threshold values.
-- The atom-divergence check for mul→inc (pool vs P-test operation frequencies).
-- The sample size for branch-class diagnostics.
-- Whether a second pattern cell (inc→mul) fits the budget.
+Worlds where every token depends on earlier tokens. For example, recurrent worlds zᵢ = f(xᵢ, yᵢ, zᵢ₋₁), or running programs over a sequence. The library adds context-reading primitives, e.g. "read register from the previous token" and "find the earlier token with the same input". Every token is routed. Serial depth grows with sequence length, which is where Entry 34's depth claim can fail. Learned (neural) primitives, and the reuse × selection 2×2, come after that.
+
+## 14. Open for the preregistration
+
+- Model sizes, S, M, λ_step, the episode budget (throughput test).
+- The thresholds in H1–H6.
+- Recomputing the memorization window with the capped Bayes(b).
+- The atom-divergence check for mul→inc.
+- Whether CO runs beyond the pilot.
 
 ---
 
