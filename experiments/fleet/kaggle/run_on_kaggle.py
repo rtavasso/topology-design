@@ -123,15 +123,13 @@ elif job["job"] == "ptr":
     g = max(1, n_gpus())
     procs = []
     for i in range(k):
-        log = open(os.path.join(W, f"ptr_shard{i}.txt"), "w")
         e = {**env, "CUDA_VISIBLE_DEVICES": str(i % g)} if n_gpus() > 0 else env
         cmd = [sys.executable, "experiments/ptr/run_ptr.py", "--grid", job["grid"], "--out", W, "--shard", f"{i}/{k}",
                "--max-stack", str(job.get("max_stack", 32))]
-        procs.append((subprocess.Popen(cmd, env=e, stdout=log, stderr=subprocess.STDOUT), log))
-    rcs = []
-    for p, log in procs:
-        rcs.append(p.wait())
-        log.close()
+        # tee: the shard's lines go to its file and to this kernel's stdout, so the kernel log shows progress live
+        tee = f"exec {' '.join(cmd)} 2>&1 | tee {os.path.join(W, f'ptr_shard{i}.txt')} | sed -u 's/^/[shard{i}] /'"
+        procs.append(subprocess.Popen(tee, shell=True, env=e))
+    rcs = [p.wait() for p in procs]
     for i in range(k):
         print(open(os.path.join(W, f"ptr_shard{i}.txt")).read()[-2000:], flush=True)
     n = len([f for f in os.listdir(out) if f.endswith(".json.gz")])

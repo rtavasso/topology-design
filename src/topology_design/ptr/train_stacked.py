@@ -139,7 +139,8 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None =
                      "n_params": n_params, "curve": [], "evals": [], "device": dev})
     t0 = time.time()
     run_loss = torch.zeros(R, device=dev)
-    run_acc = [dict() for _ in range(R)]
+    acc_hits = torch.zeros(R, dc.kmax + 1, device=dev)
+    acc_cnt = torch.zeros(R, dc.kmax + 1, device=dev)
     mode = train_mode(mc)
     for s in range(tc["steps"]):
         b = sample_stack(gens, tc["batch"], tail)
@@ -165,22 +166,23 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None =
                 if clean_steps >= 1000 and loss_scale < 2.0 ** 16:
                     loss_scale, clean_steps = loss_scale * 2, 0
         run_loss += torch.nan_to_num(per_run, nan=0.0, posinf=0.0, neginf=0.0)
-        with torch.no_grad():
-            ok = (out["logits"].argmax(-1) == out["targets"])                                   # (R, B, Q)
-            kk = b["q_k"]
-            for k in torch.unique(kk).tolist():
-                msk = kk == k
-                for r in range(R):
-                    if msk[r].any():
-                        run_acc[r].setdefault(int(k), []).append(float(ok[r][msk[r]].float().mean()))
+        with torch.no_grad():   # accuracy by k accumulated on the device; read back once per 100 steps (no syncs)
+            ok = (out["logits"].argmax(-1) == out["targets"]).float().reshape(R, -1)              # (R, B*Q)
+            kk = b["q_k"].reshape(R, -1)
+            acc_hits.scatter_add_(1, kk, ok)
+            acc_cnt.scatter_add_(1, kk, torch.ones_like(ok))
         if (s + 1) % 100 == 0:
             rl = (run_loss / 100).tolist()
+            hits, cnt = acc_hits.cpu().numpy(), acc_cnt.cpu().numpy()
+            gnl = gn.tolist()
+            exl = {k: v.tolist() for k, v in extra.items()}
             for r in range(R):
-                recs[r]["curve"].append({"step": s + 1, "loss": rl[r], "grad_norm": float(gn[r]), "loss_scale": loss_scale,
-                                         "acc_by_k": {k: float(np.mean(v)) for k, v in sorted(run_acc[r].items())},
-                                         **{k: float(v[r]) for k, v in extra.items()}})
+                recs[r]["curve"].append({"step": s + 1, "loss": rl[r], "grad_norm": float(gnl[r]), "loss_scale": loss_scale,
+                                         "acc_by_k": {int(k): float(hits[r, k] / cnt[r, k]) for k in range(cnt.shape[1])
+                                                      if cnt[r, k] > 0},
+                                         **{k: float(v[r]) for k, v in exl.items()}})
             run_loss.zero_()
-            run_acc = [dict() for _ in range(R)]
+            acc_hits.zero_(); acc_cnt.zero_()
         if (s + 1) % tc["eval_every"] == 0 or s + 1 == tc["steps"]:
             final = s + 1 == tc["steps"]
             ev, traces = evaluate_stack(m, dc, mc, tc, gens_eval, tail, trace=final)
