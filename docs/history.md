@@ -982,6 +982,22 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 **Decision.**
 - **D78.** The circuit-equivalence belief is tested at three levels on the same toy family as rungs 0–1: enumeration of a symbolic basis (coverage, length, redundancy, the size-vs-length frontier); decompilation of trained unique-layer models into basis words; distillation of trained deep models into m routed primitives, with m = 1 and m = D as the ends. Level 1 reuses the Z_7 enumeration tooling.
 
+## Entry 52 (27 Oct 2026): what a token at depth t attends to when depths are ragged (discussion)
+
+**Premise (researcher).** With per-token dynamic depth, token i may halt at depth 4 while token j > i needs depth 10. What does the router for token j at depth 9 condition on, and what does token j attend to there?
+
+**Argument.** Dynamic depth turns the causal structure into a 2-D grid (position × depth). The options, and who uses them:
+1. **Depth-aligned with frozen finals** (Universal Transformer/ACT; Mixture-of-Recursions with per-depth KV caches; rung 0): at depth t, token j attends to each earlier token i's state at depth min(t, halt_i). A halted token's final state is copied forward. Train and test agree if generation caches K/V per depth.
+2. **Expected halted state** (Sparse Universal Transformer): the soft version, K/V = Σ_t p_t h_t.
+3. **Finals only** (generation-time natural order: earlier tokens are complete before a later token starts): token j at any depth attends to earlier tokens' final states. In teacher-forced training this is sequential across positions, or needs sweeps; it is the semantics the other options approximate.
+4. **Whole histories**: token j attends to all depths of earlier tokens (reading their scratchpads). Richer, costlier; not used here.
+5. **Skip semantics** (Mixture-of-Depths): a token that skips a layer is absent from that layer's attention and reappears, unchanged, at the next.
+
+**The router's conditioning.** In rung 0 the halting head reads the token's own state after each block application. That state already contains what attention gathered at that depth (data-processing argument, Entry 43), so the router conditions on context through the block, not on context directly. The first step is applied to every token (the first layer is static); selection begins from the state after it. A router with its own attention over the depth-aligned context is the more expressive variant, deferred.
+
+**Decision.**
+- **D79.** Rung 0 uses option 1 (depth-aligned, frozen finals), with context tokens single-step so their states are their depth-1 states in every arm. The semantics are stated in the design.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
