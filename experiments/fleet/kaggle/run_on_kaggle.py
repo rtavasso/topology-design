@@ -5,6 +5,9 @@
                                            run a grid with run_fleet.py, one process per visible GPU; results go to
                                            /kaggle/working/results as .json.gz (prior results uploaded with the code
                                            in code/prior/ are copied in first, so an interrupted grid resumes)
+  {"job": "ptr", "grid": "...", "gate": "...", "per_gpu": 1, "max_stack": 10}
+                                           rung 0: run_ptr.py shards; with "gate", the gate grid runs first, gate.py
+                                           applies the preregistered rule and writes the gated grid, then that runs
 
 Logs and results are written to /kaggle/working and come back with `kaggle kernels output`.
 KAGGLE_WORKING / KAGGLE_INPUT override the paths (local testing)."""
@@ -119,20 +122,37 @@ elif job["job"] == "ptr":
     if rc != 0:
         print("TESTS FAILED: grid not run", flush=True)
         sys.exit(1)
-    k = max(1, n_gpus()) * int(job.get("per_gpu", 1))
-    g = max(1, n_gpus())
-    procs = []
-    for i in range(k):
-        e = {**env, "CUDA_VISIBLE_DEVICES": str(i % g)} if n_gpus() > 0 else env
-        cmd = [sys.executable, "experiments/ptr/run_ptr.py", "--grid", job["grid"], "--out", W, "--shard", f"{i}/{k}",
-               "--max-stack", str(job.get("max_stack", 32))]
-        # tee: the shard's lines go to its file and to this kernel's stdout, so the kernel log shows progress live
-        tee = f"exec {' '.join(cmd)} 2>&1 | tee {os.path.join(W, f'ptr_shard{i}.txt')} | sed -u 's/^/[shard{i}] /'"
-        procs.append(subprocess.Popen(tee, shell=True, env=e))
-    rcs = [p.wait() for p in procs]
-    for i in range(k):
-        print(open(os.path.join(W, f"ptr_shard{i}.txt")).read()[-2000:], flush=True)
+
+    def run_shards(grid_path, tag):
+        """One run_ptr.py shard per GPU (times per_gpu), all writing to W/results; returns the shard return codes."""
+        k = max(1, n_gpus()) * int(job.get("per_gpu", 1))
+        g = max(1, n_gpus())
+        procs = []
+        for i in range(k):
+            e = {**env, "CUDA_VISIBLE_DEVICES": str(i % g)} if n_gpus() > 0 else env
+            cmd = [sys.executable, "experiments/ptr/run_ptr.py", "--grid", grid_path, "--out", W, "--shard", f"{i}/{k}",
+                   "--max-stack", str(job.get("max_stack", 10))]
+            # tee: the shard's lines go to its file and to this kernel's stdout, so the kernel log shows progress live
+            tee = f"exec {' '.join(cmd)} 2>&1 | tee {os.path.join(W, f'{tag}_shard{i}.txt')} | sed -u 's/^/[{tag}{i}] /'"
+            procs.append(subprocess.Popen(tee, shell=True, env=e))
+        rcs = [p.wait() for p in procs]
+        for i in range(k):
+            print(open(os.path.join(W, f"{tag}_shard{i}.txt")).read()[-2000:], flush=True)
+        return rcs
+
+    grid_path = job["grid"]
+    gate_rcs = None
+    if job.get("gate"):
+        # stage 1: the gate grid; stage 2: the gate rule (experiments/ptr/gate.py) sets LH-Δ's head multiplier in the
+        # confirmatory grid; stage 3: the confirmatory grid. Everything lands in W/results; the decision in W/gate.json.
+        gate_rcs = run_shards(job["gate"], "gate")
+        gated = os.path.join(os.path.dirname(grid_path), "gated_" + os.path.basename(grid_path))
+        run("gate", [sys.executable, "experiments/ptr/gate.py", "--results", out, "--grid", grid_path, "--out", gated,
+                     "--report", os.path.join(W, "gate.json")])
+        shutil.copy(gated, os.path.join(W, os.path.basename(gated)))     # the grid actually run comes back with the logs
+        grid_path = gated
+    rcs = run_shards(grid_path, "ptr")
     n = len([f for f in os.listdir(out) if f.endswith(".json.gz")])
-    print(f"\nSUMMARY ptr grid={job['grid']} shards={k} rcs={rcs} results={n}", flush=True)
+    print(f"\nSUMMARY ptr grid={grid_path} gate={job.get('gate')} gate_rcs={gate_rcs} rcs={rcs} results={n}", flush=True)
 else:
     sys.exit(f"unknown job {job}")

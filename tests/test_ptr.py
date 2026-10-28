@@ -332,3 +332,29 @@ def test_stacked_adamw_matches_torch_adamw_for_one_run():
         p1.grad = g.unsqueeze(0).clone(); p2.grad = g.clone()
         o1.step(); o2.step()
     assert torch.allclose(p1[0], p2, atol=1e-6)
+
+
+def test_gate_rule_picks_the_smallest_passing_multiplier_and_labels_failures():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gate", "experiments/ptr/gate.py")
+    gate = importlib.util.module_from_spec(spec); spec.loader.exec_module(gate)
+
+    def rec(name, arm, mult, seed, accs, steps):
+        fin = {str(k): {"acc": a, "q_steps": s} for k, (a, s) in enumerate(zip(accs, steps), start=1)}
+        return {"name": name, "arm": arm, "train": {"halt_lr_mult": mult, "seed": seed}, "data": {"kmax": 8},
+                "evals": [{"eval": {"in": fin}}]}
+    good = [1.0] * 8; tracked = [k + 1 for k in range(1, 9)]
+    flat = [3.0] * 8; bad = [1.0, 1.0, 0.5] + [0.2] * 5
+    recs = [rec("pilot3_LHd_m1_s0", "LHd", 1.0, 0, good, tracked), rec("pilot3_LHd_m1_s1", "LHd", 1.0, 1, bad, tracked),
+            rec("pilot3_LHd_m10_s0", "LHd", 10.0, 0, good, tracked), rec("pilot3_LHd_m10_s1", "LHd", 10.0, 1, good, tracked),
+            rec("pilot3_LHs24_s0", "LHs24", 1.0, 0, good, tracked), rec("pilot3_LHs24_s1", "LHs24", 1.0, 1, good, flat),
+            rec("rev3_LHd_f1_s0", "LHd", 1.0, 0, bad, flat)]                  # not a gate record: ignored
+    rep = gate.decide(recs)
+    assert rep["LHd_halt_lr_mult"] == 10.0 and rep["LHd_status"] == "passed G4b"
+    assert rep["LHs24_status"].startswith("failed")                           # accurate but steps flat in k
+    grid = [{"name": "rev3_LHd_f1_s0", "arm": "LHd", "halt_lr_mult": 1.0}, {"name": "rev3_LO_f1_s0", "arm": "LO"}]
+    g2 = gate.apply(grid, rep)
+    assert g2[0]["halt_lr_mult"] == 10.0 and "halt_lr_mult" not in g2[1] and g2[1]["gate"]["LHd"] == "passed G4b"
+    # nothing passes: the largest multiplier, labeled failed
+    rep2 = gate.decide([r for r in recs if "m10" not in r["name"]] + [rec("pilot3_LHd_m10_s0", "LHd", 10.0, 0, bad, tracked)])
+    assert rep2["LHd_halt_lr_mult"] == 10.0 and rep2["LHd_status"].startswith("failed")

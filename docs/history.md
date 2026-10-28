@@ -1108,6 +1108,7 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 - **D89.** Run pilot 3 (the gate for the two untrained arms, with the selection rule fixed in DESIGN §10) and then `grids/rev3.json` as the confirmatory grid of rung 0; the pilots stay labeled not preregistered.
 - **D90.** The doubling cell and S8-pm are deferred, with reasons (DESIGN §11); LH-Δ in the pooling cell is run now.
 - **D91.** Any learned policy head in this program reads *standardized* inputs, and its reachable set under the optimizer and step budget is checked against a planted solution before the arm runs (L24).
+- **D92.** The gate and the grid run as one unattended Kaggle session: `gate.py` applies the G4b rule between them (`launch.py --ptr-gate … --ptr-grid …`), so no one chooses the multiplier after seeing out-of-range numbers.
 
 **Expected falsifiers.** P1: ≥ 8/10 seeds of LH-Δ < 0.6 at k = 16 while LR on its own block ≥ 0.9. P2: ≥ 4/5 seeds of LH-s24 < 0.6 at k = 16. P6: LO's time to k = 3 grows ≥ 3× at factor 10⁻².
 

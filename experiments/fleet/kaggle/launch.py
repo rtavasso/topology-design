@@ -3,6 +3,11 @@
 Jobs:
   validation (default):  python experiments/fleet/kaggle/launch.py --user NAME
   a grid:                python experiments/fleet/kaggle/launch.py --user NAME --grid experiments/fastslow/grids/pilot.json
+  rung 0, staged:        python experiments/fleet/kaggle/launch.py --user NAME --ptr-gate experiments/ptr/grids/pilot3.json \
+                             --ptr-grid experiments/ptr/grids/rev3.json
+      One session runs the gate grid, applies the preregistered rule (experiments/ptr/gate.py) and runs the gated grid;
+      without --no-wait the command waits and downloads everything (run it under `caffeinate -i` so the laptop stays
+      awake), otherwise `--fetch` with the same arguments later.
       Results arrive in --out (default results/kaggle_<grid name>)/results/*.json.gz. Results already there are
       uploaded with the code, so relaunching the same command resumes an interrupted grid.
   --no-wait: push and exit (e.g. before closing the laptop); later `--fetch` with the same arguments waits and downloads.
@@ -35,7 +40,7 @@ import time
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "tests/test_priors.py", "experiments/fleet",
            "pyproject.toml"]
-PTR_INCLUDE = ["tests/test_ptr.py", "experiments/ptr/run_ptr.py"]
+PTR_INCLUDE = ["tests/test_ptr.py", "experiments/ptr/run_ptr.py", "experiments/ptr/gate.py"]
 VALIDATE_EXTRA = ["experiments/paths/results_data/compact.json.gz"]
 
 
@@ -71,6 +76,8 @@ def main():
     ap.add_argument("--bench-worlds", action="store_true",
                     help="throughput test of stacked models for the worlds round (experiments/worlds/DESIGN.md §8)")
     ap.add_argument("--ptr-grid", default=None, help="rung-0 grid JSON (experiments/ptr/grids/*.json) to run")
+    ap.add_argument("--ptr-gate", default=None, help="rung-0: a gate grid run first in the same session; gate.py then sets "
+                    "LH-Δ's head multiplier in --ptr-grid before it runs (staged, unattended)")
     ap.add_argument("--per-gpu", type=int, default=1, help="ptr: shard processes per GPU (runs are stacked per process)")
     ap.add_argument("--max-stack", type=int, default=10, help="ptr: runs per stacked model (10 at T = 10 ≈ 7 GB on a T4; a T = 24 stack must stay ≤ 5; stacks split on OOM)")
     ap.add_argument("--max-batch", type=int, default=64)
@@ -88,6 +95,8 @@ def main():
         name = "bench-worlds"
     if args.ptr_grid:
         name = "ptr-" + os.path.splitext(os.path.basename(args.ptr_grid))[0]
+        if args.ptr_gate:
+            name = "ptr-" + os.path.splitext(os.path.basename(args.ptr_gate))[0] + "-" + os.path.splitext(os.path.basename(args.ptr_grid))[0]
     args.out = args.out or os.path.join(ROOT, "results", f"kaggle_{name}")
     special = args.grid is not None or args.bench_worlds or args.ptr_grid is not None
     args.kernel = args.kernel or ("topology-fleet-validate" if not special else f"topology-fleet-{slug(name)}")
@@ -122,6 +131,12 @@ def main():
             sys.exit(f"grid not found: {args.ptr_grid}")
         job = {"job": "ptr", "grid": grid_rel, "per_gpu": args.per_gpu, "max_stack": args.max_stack}
         include = INCLUDE + PTR_INCLUDE + [grid_rel]
+        if args.ptr_gate:
+            gate_rel = os.path.relpath(os.path.abspath(args.ptr_gate), ROOT)
+            if not os.path.exists(os.path.join(ROOT, gate_rel)):
+                sys.exit(f"gate grid not found: {args.ptr_gate}")
+            job["gate"] = gate_rel
+            include.append(gate_rel)
     jp = os.path.join(tmp, "job.json")
     with open(jp, "w") as f:
         json.dump(job, f)

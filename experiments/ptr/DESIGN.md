@@ -115,15 +115,15 @@ Seeds are paired across arms (seed s draws the same episode stream in every arm)
 **Batching.** Runs of one arm that differ only in seed, learning rate and tail factor are stacked into one model with a leading run dimension (`stacked.py`), up to 10 per stack, one kernel per layer, per-run learning rates and gradient clipping, fp16 autocast with per-run loss scaling; stacked and separate training agree to float precision (`tests/test_ptr.py`). Memory (review 3, code 4): a 10-stack at T = 10 holds ≈ 7 GB of saved activations, the 5-stack at T = 24 ≈ 8 GB, the S8 10-stack ≈ 5 GB; on an out-of-memory error a stack is split in two and retried. Shards are balanced by estimated cost (`assign_shards`).
 
 ```
-# 1. the gate
-.venv/bin/python experiments/fleet/kaggle/launch.py --user riley9 --ptr-grid experiments/ptr/grids/pilot3.json --no-wait
-.venv/bin/python experiments/fleet/kaggle/launch.py --user riley9 --ptr-grid experiments/ptr/grids/pilot3.json --fetch
-PYTHONPATH=src python experiments/ptr/analyze.py results/kaggle_ptr-pilot3 --md experiments/ptr/PILOT3.md
-# 2. set LH-Δ's head multiplier from the gate (make_grids.py: rev3(halt_lr_mult=...)), regenerate, then the grid
-.venv/bin/python experiments/fleet/kaggle/launch.py --user riley9 --ptr-grid experiments/ptr/grids/rev3.json --no-wait
-.venv/bin/python experiments/fleet/kaggle/launch.py --user riley9 --ptr-grid experiments/ptr/grids/rev3.json --fetch
-PYTHONPATH=src python experiments/ptr/analyze.py results/kaggle_ptr-rev3 --md experiments/ptr/REV3.md
+# both stages in one unattended Kaggle session: the gate grid, then gate.py applies the G4b rule and writes the gated
+# grid (gated_rev3.json, returned with the logs together with gate.json), then the gated grid runs
+caffeinate -i .venv/bin/python experiments/fleet/kaggle/launch.py --user riley9 \
+    --ptr-gate experiments/ptr/grids/pilot3.json --ptr-grid experiments/ptr/grids/rev3.json
+# (with --no-wait instead: later `--fetch` with the same two grid arguments downloads into results/kaggle_ptr-pilot3-rev3)
+PYTHONPATH=src python experiments/ptr/analyze.py results/kaggle_ptr-pilot3-rev3 --md experiments/ptr/REV3.md
 ```
+
+The gate's records (`pilot3_*`) and the grid's (`rev3_*`) come back in one folder; `analyze.py` keeps them in separate rows (pilot names carry their learning rate and PonderNet constants in the row label). The rule in `experiments/ptr/gate.py` is the one in §10, applied by the kernel before the grid, with no one in the loop.
 
 **Training.** Batch 64, AdamW (0.9, 0.95), weight decay 0.01, cosine schedule with 500 warm-up steps, gradient clip 1.0; learning rates: LO/LF 1e-3, learned halting 3e-4 (the head × its multiplier), S8 1e-4 and 3e-5, S2 3e-4 (pilots).
 
@@ -184,7 +184,7 @@ All at query positions, by k, run-level.
 - **G2 trainability** (passed, pilot 1): LO reaches 1.00 at k ≤ 24 and 0.89 at k = 32 at lr 1e-3; injection is essential.
 - **G3 nulls** (pilot 1): seed spread of identical arms is ≤ 0.02 in range.
 - **G4 learning rates and PonderNet constants** (passed narrowly, pilot 2): fixed as in §3.
-- **G4b, pilot 3 (to run before the grid):** LH-Δ at head multipliers 1 and 10, LH-s24 at the shared constants, 2 seeds each, 8k steps. **Rule, fixed now:** an arm passes if both seeds reach ≥ 0.95 at every k ≤ 8 (the halted readout) and its steps track k in range (slope ≥ 0.8); for LH-Δ the multiplier is the *smaller* one that passes (the one closer to every other arm); out-of-range accuracy is not consulted. If no LH-Δ setting passes, LH-Δ enters the grid at multiplier 10 anyway, labeled "failed G4b", and P1 is "no test" for it; the same for LH-s24. The gate records are pilot results (not preregistered).
+- **G4b, pilot 3 (runs before the grid, in the same session; the rule is applied by `experiments/ptr/gate.py`, tested):** LH-Δ at head multipliers 1 and 10, LH-s24 at the shared constants, 2 seeds each, 8k steps. **Rule, fixed now:** an arm passes if both seeds reach ≥ 0.95 at every k ≤ 8 (the halted readout) and its steps track k in range (slope ≥ 0.8); for LH-Δ the multiplier is the *smaller* one that passes (the one closer to every other arm); out-of-range accuracy is not consulted. If no LH-Δ setting passes, LH-Δ enters the grid at multiplier 10 anyway, labeled "failed G4b", and P1 is "no test" for it; the same for LH-s24. The gate records are pilot results (not preregistered).
 - **G5 cost** (pilots): 0.065 s per run-step at T = 10; pilot 3 is 1.3 and the grid 14.8 T4-hours.
 - **Independent reviews of revision 3 and of the code** (done; §12).
 
