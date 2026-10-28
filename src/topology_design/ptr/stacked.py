@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .data import PtrConfig
-from .model import FrozenSymbols, ModelConfig
+from .model import FrozenSymbols, ModelConfig, PtrModel
 
 
 class SLinear(nn.Module):
@@ -89,6 +89,11 @@ class StackedPtrModel(nn.Module):
                 self.halt_norm = SLayerNorm(R, d)
                 if mc.halt_input == "index":
                     self.halt_bias = nn.Parameter(torch.zeros(R, 64) + mc.halt_bias_init)
+                elif mc.halt_input == "delta":
+                    self.halt = SLinear(R, 2, 1)
+                    with torch.no_grad():
+                        self.halt.weight.normal_(std=0.02)
+                        self.halt.bias.fill_(mc.halt_bias_init)
                 else:
                     self.halt = SLinear(R, d + (16 if mc.halt_input == "state+index" else 0), 1)
                     with torch.no_grad():
@@ -148,6 +153,9 @@ class StackedPtrModel(nn.Module):
         used = torch.zeros(R, B, N, device=dev)
         per_step_logits, lams, vals, hs, p_halt = [], [], [], [], []
         remaining = torch.ones(R, B, N, device=dev)
+        delta = mc.halting == "learned" and mc.halt_input == "delta"
+        if delta:
+            prev_h, prev_lp = e0, F.log_softmax(self.readout(e0).float(), -1)
         for t in range(1, T + 1):
             x = h + e0 if mc.injection else h
             h_new = self.block(x, mask)
@@ -158,12 +166,17 @@ class StackedPtrModel(nn.Module):
             else:
                 h = torch.where(active.unsqueeze(-1), h_new, h)
                 used += active.float()
-            hs.append(h)
+            hs.append(h[:, :, qpos])          # per-step states at the query positions only (traces, probe, LR)
             if mc.ctx_single_step:
                 active = active & is_query
             if mc.halting == "learned":
                 if mc.halt_input == "index":
                     lam = torch.sigmoid(self.halt_bias[:, min(t - 1, 63)].float()).view(R, 1, 1).expand(R, B, N)
+                elif delta:
+                    lp = F.log_softmax(self.readout(h).float(), -1)
+                    feats = PtrModel.delta_features(h, prev_h, lp, prev_lp).to(self.halt.weight.dtype)
+                    lam = torch.sigmoid(self.halt(feats).float()).squeeze(-1)
+                    prev_h, prev_lp = h, lp
                 else:
                     z = self.halt_norm(h)
                     if mc.halt_input == "state+index":
@@ -190,6 +203,9 @@ class StackedPtrModel(nn.Module):
             out["p_halt"] = torch.stack(p_halt, 0)                     # (T, R, B, N)
             out["lams"] = torch.stack(lams, 0)
             out["per_step_logits"] = torch.stack(per_step_logits, 0)   # (T, R, B, Q, n_ans)
+            with torch.no_grad():
+                out["halted_logits"], out["halt_step"] = PtrModel.halted_readout(out["p_halt"].float(),
+                                                                                 out["per_step_logits"], qpos)
         if mc.halting == "value":
             out["vals"] = torch.stack(vals, 0)
         return out

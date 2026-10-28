@@ -111,6 +111,71 @@ def test_pondernet_halting_distribution_sums_to_one_and_losses_are_finite():
         assert (ev["steps"] >= 1).all() and (ev["steps"] <= 6).all() and (ev["steps"][:, 1:DC.P + 1] == 1).all()
 
 
+def test_halted_readout_is_the_policy_prediction():
+    """halted_logits = the readout at the first step with cumulative p >= 0.5; at test this is the final readout."""
+    rng = np.random.default_rng(16)
+    ep = generate(DC, 4, rng)
+    for halt_input in ("state", "delta", "index"):
+        m = PtrModel(ModelConfig(kind="looped", halting="learned", halt_input=halt_input, T=8), DC)
+        with torch.no_grad():
+            ev = m(ep, "cpu", mode="eval")
+            assert torch.allclose(ev["halted_logits"], ev["logits"], atol=1e-5)
+            assert torch.equal(ev["halt_step"][:, ev["qpos"]], ev["steps"][:, ev["qpos"]])
+            tr = m(ep, "cpu", mode="ponder_train")          # queries run all T steps; the halted readout is earlier
+            assert tr["halted_logits"].shape == tr["logits"].shape
+            assert (tr["halt_step"][:, tr["qpos"]] <= 8).all()
+
+
+def test_delta_head_with_planted_block_halts_one_step_after_the_answer():
+    """LH-delta (change features) with the exact hop block and a hand-set head: halts at k + 1 with accuracy 1 at
+    every k, including k = 32 (the learned counterpart of the stability exit, on the planted model)."""
+    rng = np.random.default_rng(17)
+    m = plant(PtrModel(ModelConfig(kind="looped", halting="learned", halt_input="delta", injection=False, T=40), DC))
+    with torch.no_grad():
+        m.halt.weight.copy_(torch.tensor([[0.0, -2.0]]))      # read only log relative ||dh||: zero change -> halt
+        m.halt.bias.fill_(-10.0)
+        for k in (1, 3, 8, 32):
+            ep = generate(DC, 8, rng, forced_k=k, Qn=3)
+            out = m(ep, "cpu", mode="eval")
+            sel = torch.as_tensor(ep.q_k == k)
+            assert (out["logits"].argmax(-1) == out["targets"])[sel].all()
+            assert (out["steps"][:, out["qpos"]][sel] == k + 1).all()
+    # the same model trains: finite PonderNet loss and gradients through the change features
+    out = m(generate(DC, 3, rng), "cpu", mode="ponder_train")
+    loss, extra = m.loss(out, generate(DC, 3, rng), "cpu")
+    loss.backward()
+    assert torch.isfinite(loss) and m.halt.weight.grad is not None
+
+
+def test_kl_exit_rule_on_synthetic_readouts_and_its_planted_caveat():
+    from topology_design.ptr.model import kl_exit
+    T, A = 5, 4
+    r = torch.full((T, 2, A), -3.0)
+    # query 0: readout moves at loops 1-2 (0-based 0..2), then settles from loop index 2 on, on the right answer
+    r[0, 0, 1] = 3.0; r[1, 0, 2] = 3.0; r[2:, 0, 3] = 3.0
+    # query 1: keeps moving every loop; the last readout is correct
+    for t in range(T):
+        r[t, 1, t % A] = 3.0
+    tg = torch.tensor([3, (T - 1) % A])
+    res = kl_exit(r, tg, thresholds=(1e-2,))
+    ok, steps = res[1e-2]
+    assert steps.tolist() == [4.0, 5.0] and ok.tolist() == [True, True]     # settled at loop index 3 -> 4 loops run
+    # the exact planted block: while the register holds a key the readout is uniform, so the stability exit sees "no
+    # change" and halts at loop 2 for every k >= 3. LR measures a property of trained blocks (changing readouts while
+    # chasing), not of the task; the delta head's ||dh|| feature does not have this problem (test above).
+    rng = np.random.default_rng(18)
+    m = plant(PtrModel(ModelConfig(kind="looped", halting="fixed", injection=False, T=40), DC))
+    with torch.no_grad():
+        for k, expect_ok in ((1, True), (2, True), (8, False)):
+            ep = generate(DC, 8, rng, forced_k=k, Qn=3)
+            out = m(ep, "cpu", mode="eval")
+            psl = torch.stack([m.readout(h[:, out["qpos"]]) for h in out["hs"]], 0)
+            ok, steps = kl_exit(psl, out["targets"], thresholds=(1e-2,))[1e-2]
+            sel = torch.as_tensor(ep.q_k == k)
+            assert (steps[sel] == min(k + 1, 2 if k >= 3 else k + 1)).all()
+            assert ok[sel].all() == expect_ok
+
+
 def test_value_arm_and_static_arm():
     rng = np.random.default_rng(7)
     ep = generate(DC, 3, rng)
@@ -167,7 +232,8 @@ def test_torch_generator_is_a_forest_with_the_right_tail():
 
 @pytest.mark.parametrize("mc", [ModelConfig(kind="static", layers=3), ModelConfig(halting="fixed", T=5),
                                 ModelConfig(halting="oracle", T=5), ModelConfig(halting="learned", T=5),
-                                ModelConfig(halting="learned", halt_input="index", T=5)])
+                                ModelConfig(halting="learned", halt_input="index", T=5),
+                                ModelConfig(halting="learned", halt_input="delta", T=5)])
 def test_stacked_matches_single_runs(mc):
     rng = np.random.default_rng(8)
     R = 3
@@ -187,6 +253,9 @@ def test_stacked_matches_single_runs(mc):
         o = sgl(e, "cpu", steps=oracle_steps(e, DC, "cpu"), mode=mode)
         assert torch.allclose(o["logits"], out["logits"][r], atol=1e-4)
         assert torch.equal(o["steps"], out["steps"][r])
+        if "halted_logits" in o:
+            assert torch.allclose(o["halted_logits"], out["halted_logits"][r], atol=1e-4)
+            assert torch.equal(o["halt_step"], out["halt_step"][r])
         l, _ = sgl.loss(o, e, "cpu")
         assert abs(l.item() - per_run[r].item()) < 1e-4
     # a run's loss gives zero gradient to every other run
@@ -199,6 +268,18 @@ def test_stacked_matches_single_runs(mc):
     pr2_sum.backward()
     g2 = stack.block.qkv.weight.grad if mc.kind == "looped" else stack.blocks[0].qkv.weight.grad
     assert g2[1:].abs().max() == 0 and g2[0].abs().max() > 0
+
+
+def test_shard_assignment_is_complete_balanced_and_deterministic():
+    from topology_design.ptr.train_stacked import assign_shards, est_cost
+    chunks = [[{"name": f"a{i}", "kind": "looped", "T": 10, "steps": 6000}] * 10 for i in range(3)]
+    chunks += [[{"name": "s8", "kind": "static", "layers": 8, "steps": 25000}] * 8,
+               [{"name": "t24", "kind": "looped", "T": 24, "steps": 8000}] * 5]
+    per, loads = assign_shards(chunks, 2)
+    assert sorted(id(c) for sh in per for c in sh) == sorted(id(c) for c in chunks)
+    assert abs(loads[0] - loads[1]) <= max(sum(est_cost(c) for c in ch) for ch in chunks)
+    assert assign_shards(chunks, 2)[0] == per
+    assert est_cost({"kind": "looped", "T": 24, "steps": 100}) == pytest.approx(2.4 * est_cost({"kind": "looped", "steps": 100}))
 
 
 def test_stacked_adamw_matches_torch_adamw_for_one_run():

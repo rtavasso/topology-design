@@ -5,7 +5,8 @@
 
 Runs are grouped by everything except seed, lr and tail_factor; each group (up to --max-stack runs) trains as one
 stack (src/topology_design/ptr/train_stacked.py). Each run still writes its own <out>/results/<name>.json.gz, and
-runs with a file are skipped, so a grid resumes. Shards take every k-th group (after sorting), one shard per GPU.
+runs with a file are skipped, so a grid resumes. Stacks are assigned to shards by estimated cost (longest first,
+--shard-mode balanced, the default) or round-robin (--shard-mode modulo); one shard per GPU.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 import torch  # noqa: E402
 
 from topology_design.ptr.train import run  # noqa: E402
-from topology_design.ptr.train_stacked import run_stack, PER_RUN_KEYS  # noqa: E402
+from topology_design.ptr.train_stacked import run_stack, PER_RUN_KEYS, assign_shards, est_cost  # noqa: E402
 
 
 def group_key(cfg):
@@ -48,6 +49,7 @@ def main():
     ap.add_argument("--no-stack", action="store_true")
     ap.add_argument("--max-groups", type=int, default=None)
     ap.add_argument("--threads", type=int, default=None)
+    ap.add_argument("--shard-mode", choices=("balanced", "modulo"), default="balanced")
     args = ap.parse_args()
     dev = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     if args.threads:
@@ -67,8 +69,14 @@ def main():
         size = 1 if args.no_stack else args.max_stack
         for j in range(0, len(g), size):
             chunks.append(g[j:j + size])
-    mine = chunks[i::k]
-    print(f"{len(grid)} runs, {len(todo)} to do, {len(chunks)} stacks, {len(mine)} in shard {args.shard} on {dev}",
+    if args.shard_mode == "balanced":
+        per_shard, loads = assign_shards(chunks, k)
+        mine = per_shard[i]
+        est = f", est. {loads[i]/3600:.1f} h this shard (all shards: {', '.join(f'{l/3600:.1f}' for l in loads)} h)"
+    else:
+        mine = chunks[i::k]
+        est = f", est. {sum(est_cost(c) for ch in mine for c in ch)/3600:.1f} h this shard"
+    print(f"{len(grid)} runs, {len(todo)} to do, {len(chunks)} stacks, {len(mine)} in shard {args.shard} on {dev}{est}",
           flush=True)
     done = 0
     for chunk in mine:

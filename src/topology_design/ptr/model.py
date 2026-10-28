@@ -12,9 +12,10 @@ and the positions are learned.
 Halting modes for the looped model:
   fixed    every token runs T loops;
   oracle   a token runs its ground-truth number of steps (queries: k hops; pairs: 1) and is then frozen;
-  learned  PonderNet: a halting head on the state (optionally plus a step-index embedding); trained with the
-           expected loss over halting times plus a KL to a geometric prior; at test, halt at cumulative p >= 0.5
-           and freeze;
+  learned  PonderNet: a halting head on the state (optionally plus a step-index embedding), on the step index
+           alone, or on change features (halt_input="delta": log readout step-KL and log relative ||dh||, the
+           learned counterpart of the stability exit); trained with the expected loss over halting times plus a
+           KL to a geometric prior; at test, halt at cumulative p >= 0.5 and freeze;
   value    a head regresses the remaining hops (privileged supervision); at test, halt when the estimate < 0.5.
 Frozen tokens keep their state; later tokens attend to the frozen state. Compute is counted as loops per token.
 """
@@ -41,7 +42,7 @@ class ModelConfig:
     layers: int = 4               # static only
     T: int = 10                   # looped: loops in training (and the default at test); >= kmax + 2
     halting: str = "fixed"        # looped: fixed | oracle | learned | value
-    halt_input: str = "state"     # learned halting head input: state | state+index | index (index-only = constant-depth null)
+    halt_input: str = "state"     # learned halting head input: state | state+index | index (constant-depth null) | delta (change features)
     halt_bias_init: float = -2.0  # initial halting logit (lambda ~ 0.12), so the halting mass starts spread over ~8 steps
     injection: bool = True        # add the token embedding at every loop
     pair_pair_mask: bool = True   # context tokens are read-only: pairs attend to BOS and themselves only (no doubling)
@@ -128,6 +129,10 @@ class PtrModel(nn.Module):
                 self.halt_norm = nn.LayerNorm(d)
                 if mc.halt_input == "index":
                     self.halt_bias = nn.Parameter(torch.zeros(64) + mc.halt_bias_init)   # one logit per step; the last repeats beyond
+                elif mc.halt_input == "delta":
+                    self.halt = nn.Linear(2, 1)                                   # [log step-KL, log relative ||dh||]
+                    nn.init.normal_(self.halt.weight, std=0.02)
+                    nn.init.constant_(self.halt.bias, mc.halt_bias_init)
                 else:
                     self.halt = nn.Linear(d + (16 if mc.halt_input == "state+index" else 0), 1)
                     nn.init.normal_(self.halt.weight, std=0.02)
@@ -169,6 +174,24 @@ class PtrModel(nn.Module):
         z = self.out_norm(h)
         return z @ self.sym.reg_slot[self.dc.n_keys:self.dc.n_keys + self.dc.n_ans].T
 
+    @staticmethod
+    def delta_features(h, prev_h, lp, prev_lp):
+        """Change features for the delta halting head, in fp32: log KL(readout_t || readout_{t-1}) and
+        log(||h_t - h_{t-1}|| / ||h_{t-1}||). Both are zero-information about the absolute state."""
+        kl = (lp.exp() * (lp - prev_lp)).sum(-1).clamp_min(0)
+        rel = (h.float() - prev_h.float()).norm(dim=-1) / (prev_h.float().norm(dim=-1) + 1e-6)
+        return torch.stack([(kl + 1e-6).log(), (rel + 1e-6).log()], -1).clamp(-14.0, 4.0)
+
+    @staticmethod
+    def halted_readout(p_halt, per_step_logits, qpos):
+        """The readout at the halting step (first t with cumulative p >= 0.5), per query: (B, Qn, n_ans) and the
+        1-based halting step (B, N). In eval mode this equals the final logits (states freeze at halting)."""
+        cum = p_halt.cumsum(0)
+        idx = (cum >= 0.5).to(torch.int64).argmax(0)                       # first t; cum[-1] = 1 so it exists
+        iq = idx[..., qpos]
+        g = iq.unsqueeze(0).unsqueeze(-1).expand(1, *iq.shape, per_step_logits.shape[-1])
+        return per_step_logits.gather(0, g).squeeze(0), idx + 1
+
     # ---------- forward ----------
     def forward(self, ep: Episodes, dev, *, T: int | None = None, steps: torch.Tensor | None = None,
                 mode: str = "train"):
@@ -194,6 +217,9 @@ class PtrModel(nn.Module):
         per_step_logits, lams, vals, hs = [], [], [], []
         remaining = torch.ones(B, N, device=dev)      # PonderNet: probability of not having halted yet
         p_halt = []
+        delta = mc.halting == "learned" and mc.halt_input == "delta"
+        if delta:                                       # h_0 = e0 is the state before the first loop
+            prev_h, prev_lp = e0, F.log_softmax(self.readout(e0).float(), -1)
         for t in range(1, T + 1):
             x = h + e0 if mc.injection else h
             h_new = self.block(x, mask)
@@ -212,6 +238,11 @@ class PtrModel(nn.Module):
             if mc.halting == "learned":
                 if mc.halt_input == "index":
                     lam = torch.sigmoid(self.halt_bias[min(t - 1, 63)]).expand(B, N)
+                elif delta:
+                    lp = F.log_softmax(self.readout(h).float(), -1)
+                    feats = self.delta_features(h, prev_h, lp, prev_lp).to(self.halt.weight.dtype)
+                    lam = torch.sigmoid(self.halt(feats)).squeeze(-1)
+                    prev_h, prev_lp = h, lp
                 else:
                     z = self.halt_norm(h)
                     if mc.halt_input == "state+index":
@@ -241,6 +272,8 @@ class PtrModel(nn.Module):
             out["p_halt"] = torch.stack(p_halt, 0)                    # (T, B, N)
             out["lams"] = torch.stack(lams, 0)
             out["per_step_logits"] = torch.stack(per_step_logits, 0)  # (T, B, Qn, n_ans)
+            with torch.no_grad():                                      # the policy's own prediction (training accuracy)
+                out["halted_logits"], out["halt_step"] = self.halted_readout(out["p_halt"], out["per_step_logits"], qpos)
         if mc.halting == "value":
             out["vals"] = torch.stack(vals, 0)
         out["logits"] = self.readout(h[:, qpos])
@@ -273,6 +306,26 @@ class PtrModel(nn.Module):
             extra["value"] = vl.item()
             return ce + vl, extra
         return ce, extra
+
+
+# ---------- the stability exit (arm LR) ----------
+def kl_exit(per_step_logits: torch.Tensor, targets: torch.Tensor, thresholds=(1e-2, 1e-3)) -> dict:
+    """Residual-triggered halting applied after the fact to a fixed-loop model's per-step readouts
+    (T, ..., n_ans) with targets (...): halt at the first loop t >= 2 whose readout moved by less than the
+    threshold from loop t-1 (KL(r_t || r_{t-1}) < thr), else at loop T. Returns {thr: (correct (...), loops run
+    (...))}. Same rule as analyze.residual_triggers on traces, here on the full evaluation set."""
+    lp = F.log_softmax(per_step_logits.float(), -1)
+    kl = (lp[1:].exp() * (lp[1:] - lp[:-1])).sum(-1)                   # kl[t-1] = KL(r_t || r_{t-1}), t = 1..T-1 (0-based)
+    T = per_step_logits.shape[0]
+    ok_all = per_step_logits.argmax(-1) == targets.unsqueeze(0)          # (T, ...)
+    res = {}
+    for thr in thresholds:
+        below = kl < thr
+        first = below.to(torch.int64).argmax(0) + 1                     # 0-based loop index of the settled readout
+        t_halt = torch.where(below.any(0), first, torch.full_like(first, T - 1))
+        ok = ok_all.gather(0, t_halt.unsqueeze(0)).squeeze(0)
+        res[thr] = (ok, (t_halt + 1).float())
+    return res
 
 
 # ---------- ground-truth helpers ----------

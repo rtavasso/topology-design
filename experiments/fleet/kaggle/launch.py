@@ -72,7 +72,7 @@ def main():
                     help="throughput test of stacked models for the worlds round (experiments/worlds/DESIGN.md §8)")
     ap.add_argument("--ptr-grid", default=None, help="rung-0 grid JSON (experiments/ptr/grids/*.json) to run")
     ap.add_argument("--per-gpu", type=int, default=1, help="ptr: shard processes per GPU (runs are stacked per process)")
-    ap.add_argument("--max-stack", type=int, default=32, help="ptr: runs per stacked model")
+    ap.add_argument("--max-stack", type=int, default=10, help="ptr: runs per stacked model (10 fits a T4 at T = 24 with room)")
     ap.add_argument("--max-batch", type=int, default=64)
     ap.add_argument("--no-tests", action="store_true", help="grid jobs: skip the fleet tests before the grid")
     ap.add_argument("--out", default=None)

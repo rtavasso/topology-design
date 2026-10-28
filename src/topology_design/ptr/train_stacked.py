@@ -18,11 +18,33 @@ import torch.nn.functional as F
 
 from .data import PtrConfig
 from .gen_torch import TorchGen
-from .model import ModelConfig
+from .model import ModelConfig, kl_exit
 from .stacked import StackedPtrModel, StackedAdamW, clip_grad_norm_per_run, oracle_steps_t, remaining_after_t
-from .train import split_cfg, train_mode, step_probe
+from .train import split_cfg, train_mode, step_probe, KL_EXIT_THRESHOLDS
 
 PER_RUN_KEYS = ("seed", "lr", "tail_factor")
+
+
+def est_cost(cfg: dict) -> float:
+    """Rough GPU-seconds of one run on a T4 (pilots 1-2): looped arms 0.065 s per step at T = 10, scaling with T;
+    static arms 0.0065 s per layer-step. Used only to balance stacks across shards."""
+    steps = int(cfg.get("steps", 20000))
+    if cfg.get("kind") == "static":
+        return steps * 0.0065 * int(cfg.get("layers", 4))
+    return steps * 0.065 * int(cfg.get("T", 10)) / 10
+
+
+def assign_shards(chunks: list[list[dict]], k: int):
+    """Longest-first greedy assignment of stacks to k shards by estimated cost. Deterministic given the chunks, so
+    every shard process computes the same assignment. Returns (per-shard chunk lists, per-shard loads)."""
+    cost = [sum(est_cost(c) for c in ch) for ch in chunks]
+    order = sorted(range(len(chunks)), key=lambda i: (-cost[i], chunks[i][0].get("name", "")))
+    out, loads = [[] for _ in range(k)], [0.0] * k
+    for i in order:
+        j = min(range(k), key=lambda j: (loads[j], j))
+        out[j].append(chunks[i])
+        loads[j] += cost[i]
+    return out, loads
 
 
 def _group_ok(cfgs):
@@ -60,6 +82,10 @@ def evaluate_stack(m, dc, mc, tc, gens_eval, tail, trace=False, T=None):
         present = torch.zeros(R, pv.shape[1], dc.n_sym, device=pv.device)
         present.scatter_(2, pv, 1.0)
         n_term = present[:, :, dc.n_keys:].sum(2)                                                  # (R, B) distinct terminals
+        lr_stats = None
+        if mc.kind == "looped" and mc.halting == "fixed":      # arm LR: the stability exit on this fixed loop's readouts
+            psl = torch.stack([m.readout(hq) for hq in out["hs"]], 0)                             # (T, R, B, Q, A)
+            lr_stats = kl_exit(psl, tg, KL_EXIT_THRESHOLDS)
         for r in range(R):
             s = sel[r]
             rec = {"n": int(s.sum()), "acc": float(ok[r][s].float().mean()), "ce": float(ce[r][s].mean()),
@@ -69,13 +95,16 @@ def evaluate_stack(m, dc, mc, tc, gens_eval, tail, trace=False, T=None):
             if mc.kind == "looped" and mc.halting == "learned":
                 lam = out["lams"][:, r][:, :, out["qpos"]]
                 rec["lam_by_step"] = [float(lam[t][s].mean()) for t in range(lam.shape[0])]
+            if lr_stats is not None:
+                rec["kl_exit"] = {str(thr): {"acc": float(okk[r][s].float().mean()), "q_steps": float(stp[r][s].mean())}
+                                  for thr, (okk, stp) in lr_stats.items()}
             res[r]["in"][k] = rec
             if trace and mc.kind == "looped":
                 traces[r][k] = _traces(m, out, b, r, s, tc["trace_n"], dc)
                 if k >= 8:   # steps t < k are chasing steps: features for the step-index probe
                     idx = s.nonzero()[: tc["probe_n"] // 4]
                     for t in range(min(k, T, 32)):
-                        hq = out["hs"][t][r][idx[:, 0], out["qpos"][idx[:, 1]]]
+                        hq = out["hs"][t][r][idx[:, 0], idx[:, 1]]
                         pf[r].append(F.layer_norm(hq, (mc.d,)))
                         ps[r].append(torch.full((idx.shape[0],), t, device=hq.device))
     for r in range(R):
@@ -87,8 +116,7 @@ def evaluate_stack(m, dc, mc, tc, gens_eval, tail, trace=False, T=None):
 
 @torch.no_grad()
 def _traces(m, out, b, r, sel, n, dc):
-    hs = out["hs"]
-    qpos = out["qpos"]
+    hs = out["hs"]                      # per-step states at the query positions: (R, B, Qn, d) per step
     T = len(hs)
     idx = sel.nonzero()[:n]
     bb, jj = idx[:, 0], idx[:, 1]
@@ -97,11 +125,11 @@ def _traces(m, out, b, r, sel, n, dc):
     dh, kl, ent, corr, rem = [], [], [], [], []
     prev = None
     for t in range(T):
-        h = hs[t][r][bb, qpos[jj]]
+        h = hs[t][r][bb, jj]
         lg = (m.out_norm(h.unsqueeze(0).unsqueeze(0).expand(m.R, 1, -1, -1))[r, 0]
               @ m.sym.reg_slot[dc.n_keys:dc.n_keys + dc.n_ans].T)
         lp = F.log_softmax(lg, -1)
-        dh.append((h - hs[t - 1][r][bb, qpos[jj]]).norm(dim=-1) if t > 0 else h.norm(dim=-1))
+        dh.append((h - hs[t - 1][r][bb, jj]).norm(dim=-1) if t > 0 else h.norm(dim=-1))
         kl.append((lp.exp() * (lp - prev)).sum(-1) if prev is not None else torch.zeros_like(k, dtype=torch.float))
         ent.append(-(lp.exp() * lp).sum(-1))
         corr.append((lg.argmax(-1) == tg).float())
@@ -141,6 +169,7 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None =
     run_loss = torch.zeros(R, device=dev)
     acc_hits = torch.zeros(R, dc.kmax + 1, device=dev)
     acc_cnt = torch.zeros(R, dc.kmax + 1, device=dev)
+    halt_hits = torch.zeros(R, dc.kmax + 1, device=dev)     # learned halting: accuracy of the halted readout
     mode = train_mode(mc)
     for s in range(tc["steps"]):
         b = sample_stack(gens, tc["batch"], tail)
@@ -171,18 +200,26 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None =
             kk = b["q_k"].reshape(R, -1)
             acc_hits.scatter_add_(1, kk, ok)
             acc_cnt.scatter_add_(1, kk, torch.ones_like(ok))
+            if "halted_logits" in out:
+                okh = (out["halted_logits"].argmax(-1) == out["targets"]).float().reshape(R, -1)
+                halt_hits.scatter_add_(1, kk, okh)
         if (s + 1) % 100 == 0:
             rl = (run_loss / 100).tolist()
             hits, cnt = acc_hits.cpu().numpy(), acc_cnt.cpu().numpy()
+            hhits = halt_hits.cpu().numpy() if "halted_logits" in out else None
             gnl = gn.tolist()
             exl = {k: v.tolist() for k, v in extra.items()}
             for r in range(R):
-                recs[r]["curve"].append({"step": s + 1, "loss": rl[r], "grad_norm": float(gnl[r]), "loss_scale": loss_scale,
-                                         "acc_by_k": {int(k): float(hits[r, k] / cnt[r, k]) for k in range(cnt.shape[1])
-                                                      if cnt[r, k] > 0},
-                                         **{k: float(v[r]) for k, v in exl.items()}})
+                entry = {"step": s + 1, "loss": rl[r], "grad_norm": float(gnl[r]), "loss_scale": loss_scale,
+                         "acc_by_k": {int(k): float(hits[r, k] / cnt[r, k]) for k in range(cnt.shape[1]) if cnt[r, k] > 0},
+                         "n_by_k": {int(k): int(cnt[r, k]) for k in range(cnt.shape[1]) if cnt[r, k] > 0},
+                         **{k: float(v[r]) for k, v in exl.items()}}
+                if hhits is not None:   # the policy's own prediction; acc_by_k is the T-loop readout for these arms
+                    entry["acc_halt_by_k"] = {int(k): float(hhits[r, k] / cnt[r, k]) for k in range(cnt.shape[1])
+                                              if cnt[r, k] > 0}
+                recs[r]["curve"].append(entry)
             run_loss.zero_()
-            acc_hits.zero_(); acc_cnt.zero_()
+            acc_hits.zero_(); acc_cnt.zero_(); halt_hits.zero_()
         if (s + 1) % tc["eval_every"] == 0 or s + 1 == tc["steps"]:
             final = s + 1 == tc["steps"]
             ev, traces = evaluate_stack(m, dc, mc, tc, gens_eval, tail, trace=final)

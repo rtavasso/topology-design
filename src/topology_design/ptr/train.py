@@ -17,13 +17,14 @@ import torch
 import torch.nn.functional as F
 
 from .data import PtrConfig, generate
-from .model import ModelConfig, PtrModel, oracle_steps, remaining_after
+from .model import ModelConfig, PtrModel, oracle_steps, remaining_after, kl_exit
 
 DATA_KEYS = {f.name for f in fields(PtrConfig)}
 MODEL_KEYS = {f.name for f in fields(ModelConfig)}
 TRAIN_DEFAULTS = dict(steps=20000, batch=64, lr=3e-4, warmup=500, seed=0, eval_every=2500, T_eval=40,
                       eval_ks=(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16, 20, 24, 32), eval_n=250, eval_Qn=3,
                       trace_n=64, probe_n=400, wd=0.01, grad_clip=1.0)
+KL_EXIT_THRESHOLDS = (1e-2, 1e-3)     # arm LR: 1e-2 is the preregistered threshold (Entry 56); 1e-3 is reported too
 
 
 def split_cfg(cfg: dict):
@@ -48,8 +49,11 @@ def step_loss(m: PtrModel, ep, dev, mc: ModelConfig, dc: PtrConfig):
         acc_by_k = {}
         pred = out["logits"].argmax(-1).cpu().numpy()
         ok = pred == ep.q_ans - dc.n_keys
+        okh = (out["halted_logits"].argmax(-1).cpu().numpy() == ep.q_ans - dc.n_keys) if "halted_logits" in out else None
         for k in np.unique(ep.q_k):
             acc_by_k[int(k)] = float(ok[ep.q_k == k].mean())
+            if okh is not None:
+                acc_by_k[f"halt_{int(k)}"] = float(okh[ep.q_k == k].mean())
     return loss, extra, acc_by_k
 
 
@@ -82,6 +86,10 @@ def evaluate(m: PtrModel, dc: PtrConfig, mc: ModelConfig, tc: dict, dev, rng, *,
         if mc.kind == "looped" and mc.halting == "learned":
             lam = out["lams"][:, :, out["qpos"]]                               # (T, B, Qn)
             rec["lam_by_step"] = [float(lam[t][sel].mean()) for t in range(lam.shape[0])]
+        if mc.kind == "looped" and mc.halting == "fixed":      # arm LR: the stability exit on this fixed loop's readouts
+            psl = torch.stack([m.readout(h[:, out["qpos"]]) for h in out["hs"]], 0)          # (T, B, Qn, n_ans)
+            rec["kl_exit"] = {str(thr): {"acc": float(okk[sel].float().mean()), "q_steps": float(stp[sel].mean())}
+                              for thr, (okk, stp) in kl_exit(psl, tg, KL_EXIT_THRESHOLDS).items()}
         res["in"][k] = rec
         if trace and mc.kind == "looped":
             traces[k] = residual_traces(m, out, ep, dc, dev, sel, tc["trace_n"])
@@ -89,7 +97,7 @@ def evaluate(m: PtrModel, dc: PtrConfig, mc: ModelConfig, tc: dict, dev, rng, *,
                 idx = sel.nonzero()[:tc["probe_n"] // 4]
                 for t in range(min(k, T, 32)):
                     probe_feats.append(m.halt_norm(out["hs"][t][idx[:, 0], out["qpos"][idx[:, 1]]])
-                                       if mc.halting == "learned" and mc.halt_input != "index"
+                                       if mc.halting == "learned" and mc.halt_input in ("state", "state+index")
                                        else F.layer_norm(out["hs"][t][idx[:, 0], out["qpos"][idx[:, 1]]], (mc.d,)))
                     probe_steps.append(torch.full((idx.shape[0],), t, device=dev))
     if probe_feats:
@@ -165,9 +173,13 @@ def run(cfg: dict, dev: str = "cpu", log=print) -> dict:
         for k, v in acc_by_k.items():
             run_acc.setdefault(k, []).append(v)
         if (s + 1) % 100 == 0:
-            rec["curve"].append({"step": s + 1, "loss": run_loss / 100, "grad_norm": float(gn),
-                                 "acc_by_k": {k: float(np.mean(v)) for k, v in sorted(run_acc.items())},
-                                 **{k: v for k, v in extra.items()}})
+            entry = {"step": s + 1, "loss": run_loss / 100, "grad_norm": float(gn),
+                     "acc_by_k": {k: float(np.mean(v)) for k, v in sorted(run_acc.items()) if not isinstance(k, str)},
+                     **{k: v for k, v in extra.items()}}
+            halted = {int(k[5:]): float(np.mean(v)) for k, v in run_acc.items() if isinstance(k, str)}
+            if halted:
+                entry["acc_halt_by_k"] = dict(sorted(halted.items()))
+            rec["curve"].append(entry)
             run_loss, run_acc = 0.0, {}
         if (s + 1) % tc["eval_every"] == 0 or s + 1 == tc["steps"]:
             final = s + 1 == tc["steps"]

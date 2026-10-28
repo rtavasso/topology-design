@@ -1,6 +1,11 @@
-"""Grids for rung 0 (experiments/ptr/DESIGN.md §6). Writes experiments/ptr/grids/*.json, each a list of run configs.
+"""Grids for rung 0 (experiments/ptr/DESIGN.md §6). Writes experiments/ptr/grids/{pilot,pilot2,rev3}.json, each a
+list of run configs.
 
-    python experiments/ptr/make_grids.py            # writes all grids and prints counts
+    python experiments/ptr/make_grids.py            # writes the grids and prints counts and cost estimates
+
+Revision 3 (after pilots 1-2, history Entry 57 D88): the confirmatory grid is `rev3`. The pilot grids are regenerated
+byte-identically (their records are results); the revision-2 cells (main, ppool, injection, doubling, pm) stay as
+committed and are not regenerated.
 """
 
 from __future__ import annotations
@@ -11,22 +16,40 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "grids")
 
+# PonderNet constants for every learned-halting arm, fixed by pilot 2 (G4): the one region that trains
+PONDER = dict(beta=0.003, lam_p=0.1)
+ARMS_REV2 = {   # arm specs as the pilots were generated (PonderNet constants from ModelConfig defaults: 0.01 / 0.2)
+    "S2": dict(kind="static", layers=2), "S8": dict(kind="static", layers=8), "LF": dict(kind="looped", halting="fixed"),
+    "LO": dict(kind="looped", halting="oracle"), "LOni": dict(kind="looped", halting="oracle", injection=False),
+    "LHs": dict(kind="looped", halting="learned", halt_input="state"),
+    "LHx": dict(kind="looped", halting="learned", halt_input="index"),
+}
+LR_REV2 = {"S2": 1e-3, "S8": 3e-4, "LF": 1e-3, "LO": 1e-3, "LOni": 1e-3, "LHs": 1e-3, "LHx": 1e-3}
 ARMS = {
     "S2": dict(kind="static", layers=2),
     "S8": dict(kind="static", layers=8),
     "S8pm": dict(kind="static", layers=8, d=96),
     "LF": dict(kind="looped", halting="fixed"),
     "LO": dict(kind="looped", halting="oracle"),
-    "LHs": dict(kind="looped", halting="learned", halt_input="state"),
-    "LHx": dict(kind="looped", halting="learned", halt_input="index"),
+    "LHs": dict(kind="looped", halting="learned", halt_input="state", **PONDER),
+    "LHx": dict(kind="looped", halting="learned", halt_input="index", **PONDER),
+    "LHd": dict(kind="looped", halting="learned", halt_input="delta", **PONDER),        # change features (rev 3)
+    "LHs24": dict(kind="looped", halting="learned", halt_input="state", T=24, **PONDER),  # long horizon (rev 3)
     "LFni": dict(kind="looped", halting="fixed", injection=False),
-    "LHsni": dict(kind="looped", halting="learned", halt_input="state", injection=False),
+    "LHsni": dict(kind="looped", halting="learned", halt_input="state", injection=False, **PONDER),
     "LOni": dict(kind="looped", halting="oracle", injection=False),
 }
-# learning rates per arm are filled in from the pilot; these are the pilot's candidates
 LR_CANDIDATES = (3e-4, 1e-3, 3e-3)
-DEFAULT_LR = {"S2": 1e-3, "S8": 3e-4, "S8pm": 1e-3, "LF": 1e-3, "LO": 1e-3, "LHs": 1e-3, "LHx": 1e-3,
-              "LFni": 1e-3, "LHsni": 1e-3, "LOni": 1e-3}
+# learning rates per arm from the pilots: looped LO/LF 1e-3 (pilot 1); learned halting 3e-4 (pilot 2: 1e-3 collapses);
+# S8 1e-4 (pilot 2: 3e-4 learns less); S2 3e-4
+DEFAULT_LR = {"S2": 3e-4, "S8": 1e-4, "S8pm": 1e-3, "LF": 1e-3, "LO": 1e-3, "LHs": 3e-4, "LHx": 3e-4, "LHd": 3e-4,
+              "LHs24": 3e-4, "LFni": 1e-3, "LHsni": 3e-4, "LOni": 1e-3}
+# step budgets per arm (rev 3): looped arms converge in range by 4k (LO) / 6k (LHs); static S8 is budgeted long
+# because it learns hops sequentially (k = 3 at ~10k steps in pilot 2); measured by steps to criterion
+STEPS = {"LO": 6000, "LF": 6000, "LHx": 6000, "LHs": 8000, "LHd": 8000, "LHs24": 8000, "S8": 25000, "S2": 8000}
+# T4 seconds per run-step (pilots): looped 0.065 at T = 10 (scales with T), static 0.0065 per layer
+SEC = {"S2": 0.013, "S8": 0.052, "S8pm": 0.02, "LF": 0.065, "LO": 0.065, "LHs": 0.065, "LHx": 0.065, "LHd": 0.067,
+       "LHs24": 0.156, "LFni": 0.065, "LHsni": 0.065, "LOni": 0.065}
 
 
 def run(name, arm, seed, **extra):
@@ -34,20 +57,49 @@ def run(name, arm, seed, **extra):
     return cfg
 
 
+def run2(name, arm, seed, **extra):
+    """A revision-2 config (the pilots), byte-identical to the grids the pilots ran from."""
+    return {"name": name, "arm": arm, "seed": seed, "lr": LR_REV2[arm], **ARMS_REV2[arm], **extra}
+
+
+def rev3():
+    """The confirmatory grid (DESIGN.md revision 3 §6). k_deep = 3 everywhere (inert at tail factor 1) so the
+    pooling runs stack with the main-cell runs of the same arm."""
+    g = []
+    common = dict(k_deep=3)
+    ev = lambda arm: dict(eval_every=5000 if ARMS[arm]["kind"] == "static" else 2000)
+    # main cell (tail factor 1)
+    for arm, n in (("LO", 10), ("LF", 10), ("LHs", 10), ("LHd", 10), ("LHs24", 5), ("LHx", 5), ("S8", 5), ("S2", 5)):
+        for seed in range(n):
+            g.append(run(f"rev3_{arm}_f1_s{seed}", arm, seed, steps=STEPS[arm], **ev(arm), **common))
+    # pooling by time-to-criterion at k = 3: the k >= 3 tail subsampled by the factor
+    for f in (1e-1, 1e-2):
+        for arm, n in (("LO", 5), ("LHs", 5)):
+            for seed in range(n):
+                g.append(run(f"rev3_{arm}_f{f:g}_s{seed}", arm, seed, steps=STEPS[arm], tail_factor=f, **ev(arm), **common))
+    for seed in range(3):
+        g.append(run(f"rev3_S8_f0.1_s{seed}", "S8", seed, steps=STEPS["S8"], tail_factor=1e-1, **ev("S8"), **common))
+    return g
+
+
+def cost_hours(grid):
+    return sum(SEC[c["arm"]] * c.get("steps", 20000) for c in grid) / 3600
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     grids = {}
-    # pilot: learning rates (3 x 2 seeds per arm) and PonderNet constants for LHs, short budget
+    # pilot 1: learning rates (3 x 2 seeds per arm) and PonderNet constants for LHs, short budget
     g = []
     for arm in ("S2", "S8", "LF", "LO", "LOni", "LHs", "LHx"):
         for lr in LR_CANDIDATES:
             for seed in (0, 1):
-                g.append(run(f"pilot_{arm}_lr{lr:g}_s{seed}", arm, seed, lr=lr, steps=6000, eval_every=2000))
+                g.append(run2(f"pilot_{arm}_lr{lr:g}_s{seed}", arm, seed, lr=lr, steps=6000, eval_every=2000))
     for beta in (0.003, 0.01, 0.03):
         for lam_p in (0.1, 0.2, 0.4):
             for seed in (0, 1):
-                g.append(run(f"pilot_LHs_b{beta:g}_l{lam_p:g}_s{seed}", "LHs", seed, beta=beta, lam_p=lam_p,
-                             steps=6000, eval_every=2000))
+                g.append(run2(f"pilot_LHs_b{beta:g}_l{lam_p:g}_s{seed}", "LHs", seed, beta=beta, lam_p=lam_p,
+                              steps=6000, eval_every=2000))
     grids["pilot"] = g
     # pilot 2 (after pilot 1): learned halting with the spread initial halting mass; longer, gentler static runs
     g = []
@@ -55,39 +107,30 @@ def main():
         for beta in (0.003, 0.01):
             for lam_p in (0.1, 0.2):
                 for seed in (0, 1):
-                    g.append(run(f"pilot2_LHs_lr{lr:g}_b{beta:g}_l{lam_p:g}_s{seed}", "LHs", seed, lr=lr, beta=beta,
-                                 lam_p=lam_p, steps=8000, eval_every=2000))
+                    g.append(run2(f"pilot2_LHs_lr{lr:g}_b{beta:g}_l{lam_p:g}_s{seed}", "LHs", seed, lr=lr, beta=beta,
+                                  lam_p=lam_p, steps=8000, eval_every=2000))
     for lr in (1e-4, 3e-4):
         for seed in (0, 1):
-            g.append(run(f"pilot2_S8_lr{lr:g}_s{seed}", "S8", seed, lr=lr, steps=15000, eval_every=5000))
+            g.append(run2(f"pilot2_S8_lr{lr:g}_s{seed}", "S8", seed, lr=lr, steps=15000, eval_every=5000))
     for seed in (0, 1):
-        g.append(run(f"pilot2_S2_lr3e-4_s{seed}", "S2", seed, lr=3e-4, steps=15000, eval_every=5000))
+        g.append(run2(f"pilot2_S2_lr3e-4_s{seed}", "S2", seed, lr=3e-4, steps=15000, eval_every=5000))
     grids["pilot2"] = g
-    # main cell
-    g = []
-    for arm, n in (("S8", 29), ("LO", 29), ("LHs", 29), ("S2", 10), ("LF", 10), ("LHx", 10)):
-        for seed in range(n):
-            g.append(run(f"main_{arm}_s{seed}", arm, seed))
-    grids["main"] = g
-    # P-pool: deep tail subsampled
-    g = []
-    for f in (1e-1, 1e-2, 1e-3, 1e-4):
-        for arm in ("S8", "LO", "LHs"):
-            for seed in range(10):
-                g.append(run(f"ppool_f{f:g}_{arm}_s{seed}", arm, seed, tail_factor=f))
-    grids["ppool"] = g
-    # injection ablation
-    grids["injection"] = [run(f"inj_{arm}_s{seed}", arm, seed) for arm in ("LFni", "LHsni") for seed in range(10)]
-    # doubling-allowed regime
-    grids["doubling"] = [run(f"dbl_{arm}_s{seed}", arm, seed, pair_pair_mask=False, ctx_single_step=False)
-                         for arm in ("S8", "LF", "LO", "LHs") for seed in range(10)]
-    # parameter-matched static
-    grids["pm"] = [run(f"pm_S8pm_s{seed}", "S8pm", seed) for seed in range(10)]
+    # revision 3: the confirmatory grid
+    grids["rev3"] = rev3()
+    # the revision-2 cells (main, ppool, injection, doubling, pm) are not regenerated: their files stay as committed,
+    # for provenance; they were superseded by rev3 before running (DESIGN.md §0b)
     for name, g in grids.items():
+        names = [c["name"] for c in g]
+        assert len(names) == len(set(names)), f"duplicate run names in {name}"
         with open(os.path.join(OUT, f"{name}.json"), "w") as f:
             json.dump(g, f, indent=0)
-        print(f"{name}: {len(g)} runs")
-    print("total (without pilot):", sum(len(g) for n, g in grids.items() if n != "pilot"))
+        print(f"{name}: {len(g)} runs, ≈ {cost_hours(g):.1f} T4-hours")
+    by_arm = {}
+    for c in grids["rev3"]:
+        by_arm.setdefault(c["arm"], [0, 0.0])
+        by_arm[c["arm"]][0] += 1
+        by_arm[c["arm"]][1] += SEC[c["arm"]] * c["steps"] / 3600
+    print("rev3 by arm: " + ", ".join(f"{a} {n}×{STEPS[a]} ({h:.1f} h)" for a, (n, h) in by_arm.items()))
 
 
 if __name__ == "__main__":
