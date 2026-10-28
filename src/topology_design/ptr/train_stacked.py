@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import time
+from dataclasses import replace
 
 import numpy as np
 import torch
@@ -20,7 +21,7 @@ from .data import PtrConfig
 from .gen_torch import TorchGen
 from .model import ModelConfig, kl_exit
 from .stacked import StackedPtrModel, StackedAdamW, clip_grad_norm_per_run, oracle_steps_t, remaining_after_t
-from .train import split_cfg, train_mode, step_probe, KL_EXIT_THRESHOLDS
+from .train import split_cfg, train_mode, step_probe, KL_EXIT_THRESHOLDS, is_halt_param
 
 PER_RUN_KEYS = ("seed", "lr", "tail_factor")
 
@@ -60,10 +61,14 @@ def sample_stack(gens, B, tail, **kw):
 
 
 @torch.no_grad()
-def evaluate_stack(m, dc, mc, tc, gens_eval, tail, trace=False, T=None):
+def evaluate_stack(m, dc, mc, tc, gens_eval, tail, trace=False, T=None, own_block=None):
+    """own_block (default: = trace): for looped arms with their own halting, also run the block as a fixed loop of T
+    steps and apply the stability exit to it (rec["kl_exit_own"]) and record the fixed-loop accuracy
+    (rec["fixed_acc"]), so LR can be compared on each arm's own block (review 3, B.i)."""
     m.eval()
     R = m.R
     T = tc["T_eval"] if T is None else T
+    own_block = trace if own_block is None else own_block
     res = [{"in": {}} for _ in range(R)]
     traces = [{} for _ in range(R)]
     pf, ps = [[] for _ in range(R)], [[] for _ in range(R)]
@@ -82,10 +87,20 @@ def evaluate_stack(m, dc, mc, tc, gens_eval, tail, trace=False, T=None):
         present = torch.zeros(R, pv.shape[1], dc.n_sym, device=pv.device)
         present.scatter_(2, pv, 1.0)
         n_term = present[:, :, dc.n_keys:].sum(2)                                                  # (R, B) distinct terminals
-        lr_stats = None
+        lr_stats, own_stats, fixed_ok = None, None, None
         if mc.kind == "looped" and mc.halting == "fixed":      # arm LR: the stability exit on this fixed loop's readouts
             psl = torch.stack([m.readout(hq) for hq in out["hs"]], 0)                             # (T, R, B, Q, A)
             lr_stats = kl_exit(psl, tg, KL_EXIT_THRESHOLDS)
+        elif mc.kind == "looped" and own_block:                 # the same block run as a fixed loop: LR on its own block
+            m.mc = replace(mc, halting="fixed")
+            try:
+                out_f = m(b, T=T, mode="eval")
+            finally:
+                m.mc = mc
+            psl = torch.stack([m.readout(hq) for hq in out_f["hs"]], 0)
+            own_stats = kl_exit(psl, tg, KL_EXIT_THRESHOLDS)
+            fixed_ok = out_f["logits"].argmax(-1) == tg
+            del out_f
         for r in range(R):
             s = sel[r]
             rec = {"n": int(s.sum()), "acc": float(ok[r][s].float().mean()), "ce": float(ce[r][s].mean()),
@@ -98,6 +113,10 @@ def evaluate_stack(m, dc, mc, tc, gens_eval, tail, trace=False, T=None):
             if lr_stats is not None:
                 rec["kl_exit"] = {str(thr): {"acc": float(okk[r][s].float().mean()), "q_steps": float(stp[r][s].mean())}
                                   for thr, (okk, stp) in lr_stats.items()}
+            if own_stats is not None:
+                rec["kl_exit_own"] = {str(thr): {"acc": float(okk[r][s].float().mean()), "q_steps": float(stp[r][s].mean())}
+                                      for thr, (okk, stp) in own_stats.items()}
+                rec["fixed_acc"] = float(fixed_ok[r][s].float().mean())
             res[r]["in"][k] = rec
             if trace and mc.kind == "looped":
                 traces[r][k] = _traces(m, out, b, r, s, tc["trace_n"], dc)
@@ -122,7 +141,7 @@ def _traces(m, out, b, r, sel, n, dc):
     bb, jj = idx[:, 0], idx[:, 1]
     k = b["q_k"][r][bb, jj]
     tg = out["targets"][r][bb, jj]
-    dh, kl, ent, corr, rem = [], [], [], [], []
+    dh, hn, kl, ent, corr, rem = [], [], [], [], [], []
     prev = None
     for t in range(T):
         h = hs[t][r][bb, jj]
@@ -130,14 +149,15 @@ def _traces(m, out, b, r, sel, n, dc):
               @ m.sym.reg_slot[dc.n_keys:dc.n_keys + dc.n_ans].T)
         lp = F.log_softmax(lg, -1)
         dh.append((h - hs[t - 1][r][bb, jj]).norm(dim=-1) if t > 0 else h.norm(dim=-1))
+        hn.append(h.norm(dim=-1))
         kl.append((lp.exp() * (lp - prev)).sum(-1) if prev is not None else torch.zeros_like(k, dtype=torch.float))
         ent.append(-(lp.exp() * lp).sum(-1))
         corr.append((lg.argmax(-1) == tg).float())
         rem.append((k - (t + 1)).clamp_min(0).float())
         prev = lp
-    pack = lambda L: torch.stack(L, 0).cpu().numpy().round(4).tolist()
-    return {"dh": pack(dh), "kl": pack(kl), "entropy": pack(ent), "correct": pack(corr), "remaining": pack(rem),
-            "k": k.cpu().tolist()}
+    pack = lambda L: torch.stack(L, 0).cpu().numpy().round(6).tolist()
+    return {"dh": pack(dh), "hn": pack(hn), "kl": pack(kl), "entropy": pack(ent), "correct": pack(corr),
+            "remaining": pack(rem), "k": k.cpu().tolist()}
 
 
 def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None = None) -> list[dict]:
@@ -150,7 +170,9 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None =
     torch.manual_seed(1000003 * seeds[0] + sum(seeds))
     m = StackedPtrModel(R, mc, dc).to(dev)
     n_params = sum(p.numel() for p in m.parameters() if p.requires_grad) // R
-    opt = StackedAdamW(m.parameters(), lrs, betas=(0.9, 0.95), weight_decay=tc["wd"])
+    names, params = zip(*m.named_parameters())
+    opt = StackedAdamW(params, lrs, betas=(0.9, 0.95), weight_decay=tc["wd"],
+                       lr_mult=[tc["halt_lr_mult"] if is_halt_param(n) else 1.0 for n in names])
     sched = lambda s: min(1.0, (s + 1) / tc["warmup"]) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / tc["steps"])))
     gens = [TorchGen(dc, dev, seed=s * 7919 + 11) for s in seeds]
     gens_eval = [TorchGen(dc, dev, seed=s * 7919 + 12345) for s in seeds]
@@ -237,4 +259,19 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print, amp: bool | None =
                 + f"  [{time.time()-t0:.0f}s]")
     for r in range(R):
         recs[r]["time"] = time.time() - t0
+        recs[r]["halt_params"] = halt_params(m, mc, r)
     return recs
+
+
+@torch.no_grad()
+def halt_params(m, mc, r):
+    """The halting head's parameters at the end of training (review 3: record them)."""
+    if mc.kind != "looped" or mc.halting != "learned":
+        return None
+    if mc.halt_input == "index":
+        return {"b": m.halt_bias[r].float().cpu().tolist()}
+    w = m.halt.weight[r, :, 0].float()
+    b = float(m.halt.bias[r, 0, 0])
+    if mc.halt_input == "delta":
+        return {"w": w.cpu().tolist(), "b": b}
+    return {"w_norm": float(w.norm()), "b": b}

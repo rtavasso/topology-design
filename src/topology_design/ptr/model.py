@@ -13,9 +13,10 @@ Halting modes for the looped model:
   fixed    every token runs T loops;
   oracle   a token runs its ground-truth number of steps (queries: k hops; pairs: 1) and is then frozen;
   learned  PonderNet: a halting head on the state (optionally plus a step-index embedding), on the step index
-           alone, or on change features (halt_input="delta": log readout step-KL and log relative ||dh||, the
-           learned counterpart of the stability exit); trained with the expected loss over halting times plus a
-           KL to a geometric prior; at test, halt at cumulative p >= 0.5 and freeze;
+           alone (the last trained logit repeats beyond the training horizon), or on standardized change features
+           (halt_input="delta": log readout step-KL and log relative ||dh||, the learned counterpart of the
+           stability exit); trained with the expected loss over halting times plus a KL to a geometric prior; at
+           test, halt at cumulative p >= 0.5 and freeze;
   value    a head regresses the remaining hops (privileged supervision); at test, halt when the estimate < 0.5.
 Frozen tokens keep their state; later tokens attend to the frozen state. Compute is counted as loops per token.
 """
@@ -174,13 +175,24 @@ class PtrModel(nn.Module):
         z = self.out_norm(h)
         return z @ self.sym.reg_slot[self.dc.n_keys:self.dc.n_keys + self.dc.n_ans].T
 
-    @staticmethod
-    def delta_features(h, prev_h, lp, prev_lp):
-        """Change features for the delta halting head, in fp32: log KL(readout_t || readout_{t-1}) and
-        log(||h_t - h_{t-1}|| / ||h_{t-1}||). Both are zero-information about the absolute state."""
+    # Standardization of the change features (the analogue of the LayerNorm the state head reads through): centre
+    # and scale from the pilot-1 fixed-loop traces (DESIGN.md §4), so that a chasing step reads ≈ +3 and a settled
+    # step ≈ -3 on the KL feature, and a working head (w ≈ -1, b ≈ -2) is within one unit of the init. Without this
+    # the raw log features (-14 .. 4) put every working policy outside what AdamW can reach in the step budget
+    # (review 3, B.i).
+    DELTA_CENTRE = (-3.3, -3.0)       # log(KL + 1e-6): chasing median -1.07, settled -5.6; log(rel ||dh||): log(0.05)
+    DELTA_SCALE = (0.75, 1.0)
+    DELTA_CLAMP = 6.0
+
+    @classmethod
+    def delta_features(cls, h, prev_h, lp, prev_lp):
+        """Change features for the delta halting head, in fp32: standardized log KL(readout_t || readout_{t-1}) and
+        standardized log(||h_t - h_{t-1}|| / ||h_{t-1}||). Both carry no information about the absolute state."""
         kl = (lp.exp() * (lp - prev_lp)).sum(-1).clamp_min(0)
         rel = (h.float() - prev_h.float()).norm(dim=-1) / (prev_h.float().norm(dim=-1) + 1e-6)
-        return torch.stack([(kl + 1e-6).log(), (rel + 1e-6).log()], -1).clamp(-14.0, 4.0)
+        z1 = ((kl + 1e-6).log() - cls.DELTA_CENTRE[0]) / cls.DELTA_SCALE[0]
+        z2 = ((rel + 1e-6).log() - cls.DELTA_CENTRE[1]) / cls.DELTA_SCALE[1]
+        return torch.stack([z1, z2], -1).clamp(-cls.DELTA_CLAMP, cls.DELTA_CLAMP)
 
     @staticmethod
     def halted_readout(p_halt, per_step_logits, qpos):
@@ -237,7 +249,9 @@ class PtrModel(nn.Module):
                 active = active & is_query
             if mc.halting == "learned":
                 if mc.halt_input == "index":
-                    lam = torch.sigmoid(self.halt_bias[min(t - 1, 63)]).expand(B, N)
+                    # one logit per loop; beyond the training horizon the last *trained* logit repeats (index T-1 is
+                    # overridden by lambda_T = 1 and never trains)
+                    lam = torch.sigmoid(self.halt_bias[min(t - 1, max(mc.T - 2, 0), 63)]).expand(B, N)
                 elif delta:
                     lp = F.log_softmax(self.readout(h).float(), -1)
                     feats = self.delta_features(h, prev_h, lp, prev_lp).to(self.halt.weight.dtype)

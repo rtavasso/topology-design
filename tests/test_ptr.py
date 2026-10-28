@@ -132,8 +132,10 @@ def test_delta_head_with_planted_block_halts_one_step_after_the_answer():
     rng = np.random.default_rng(17)
     m = plant(PtrModel(ModelConfig(kind="looped", halting="learned", halt_input="delta", injection=False, T=40), DC))
     with torch.no_grad():
-        m.halt.weight.copy_(torch.tensor([[0.0, -2.0]]))      # read only log relative ||dh||: zero change -> halt
-        m.halt.bias.fill_(-10.0)
+        # read only the standardized log relative ||dh||: zero change -> halt. With standardized features this head is
+        # one unit of weight away from the init (w = 0, b = -2), i.e. inside what AdamW can reach in the step budget
+        m.halt.weight.copy_(torch.tensor([[0.0, -1.0]]))
+        m.halt.bias.fill_(-2.0)
         for k in (1, 3, 8, 32):
             ep = generate(DC, 8, rng, forced_k=k, Qn=3)
             out = m(ep, "cpu", mode="eval")
@@ -245,6 +247,9 @@ def test_stacked_matches_single_runs(mc):
     mode = "ponder_train" if mc.halting == "learned" else "train"
     with torch.no_grad():
         for r, sgl in enumerate(singles):
+            if mc.halting == "learned" and mc.halt_input == "delta":     # nontrivial head so the features matter
+                sgl.halt.weight.copy_(torch.tensor([[1.0, 1.0]]) * (r + 1) * (-1) ** r)
+                sgl.halt.bias.fill_(-1.0)
             _copy_into(stack, sgl, r)
     out = stack(b, steps=oracle_steps_t(b, DC), mode=mode)
     loss, per_run, _ = stack.loss(out)
@@ -268,6 +273,40 @@ def test_stacked_matches_single_runs(mc):
     pr2_sum.backward()
     g2 = stack.block.qkv.weight.grad if mc.kind == "looped" else stack.blocks[0].qkv.weight.grad
     assert g2[1:].abs().max() == 0 and g2[0].abs().max() > 0
+
+
+def test_index_halter_repeats_its_last_trained_logit_beyond_the_horizon():
+    """LH-x: logit T-1 is overridden by lambda_T = 1 and never trains, so beyond T the logit of loop T-1 repeats."""
+    rng = np.random.default_rng(19)
+    ep = generate(DC, 2, rng)
+    m = PtrModel(ModelConfig(kind="looped", halting="learned", halt_input="index", T=6), DC)
+    with torch.no_grad():
+        m.halt_bias[:] = torch.arange(64.0) * 0.1 - 3.0
+        out = m(ep, "cpu", T=12, mode="eval")
+    lam = out["lams"][:, 0, out["qpos"][0]]
+    assert torch.allclose(lam[:5], torch.sigmoid(m.halt_bias[:5]))
+    assert torch.allclose(lam[5:11], torch.sigmoid(m.halt_bias[4]).expand(6)) and lam[11] == 1.0
+    st = StackedPtrModel(2, ModelConfig(kind="looped", halting="learned", halt_input="index", T=6), DC)
+    with torch.no_grad():
+        st.halt_bias[:] = torch.arange(64.0) * 0.1 - 3.0
+        b = {k: torch.as_tensor(getattr(ep, k)).unsqueeze(0).expand(2, *getattr(ep, k).shape).clone()
+             for k in ("pair_key", "pair_val", "q_start", "q_ans", "q_k")}
+        o2 = st(b, T=12, mode="eval")
+    assert torch.allclose(o2["lams"][:, 0, 0, out["qpos"][0]].to(lam.dtype), lam)   # the stack computes λ in fp32
+
+
+def test_stacked_adamw_lr_multiplier_matches_param_groups():
+    torch.manual_seed(1)
+    p1 = torch.nn.Parameter(torch.randn(1, 3, 2)); q1 = torch.nn.Parameter(torch.randn(1, 2))
+    p2 = torch.nn.Parameter(p1.detach().clone()[0]); q2 = torch.nn.Parameter(q1.detach().clone()[0])
+    o1 = StackedAdamW([p1, q1], torch.tensor([1e-2]), weight_decay=0.01, lr_mult=[1.0, 10.0])
+    o2 = torch.optim.AdamW([{"params": [p2], "lr": 1e-2}, {"params": [q2], "lr": 1e-1}], weight_decay=0.01,
+                           betas=(0.9, 0.95), eps=1e-8)
+    for _ in range(4):
+        g, h = torch.randn(3, 2), torch.randn(2)
+        p1.grad, q1.grad, p2.grad, q2.grad = g.unsqueeze(0).clone(), h.unsqueeze(0).clone(), g.clone(), h.clone()
+        o1.step(); o2.step()
+    assert torch.allclose(p1[0], p2, atol=1e-6) and torch.allclose(q1[0], q2, atol=1e-6)
 
 
 def test_shard_assignment_is_complete_balanced_and_deterministic():

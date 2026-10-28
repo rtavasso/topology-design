@@ -39,13 +39,40 @@ def save(rec, path):
     os.replace(path + ".tmp", path)
 
 
+def run_chunk(chunk, dev, path_of, amp=None):
+    """Train one stack and save its records. On failure a stack of more than one run is split in two and each half
+    retried (an out-of-memory error is the usual cause; the fp32 fallback needs *more* memory, so it is used only
+    for a single run)."""
+    names = [c["name"] for c in chunk]
+    logf = lambda s: print(f"[{names[0]}+{len(chunk)-1}] {s}", flush=True)
+    try:
+        recs = run_stack(chunk, dev, log=logf, amp=amp)
+    except Exception:
+        traceback.print_exc()
+        if dev.startswith("cuda"):
+            torch.cuda.empty_cache()
+        if len(chunk) > 1:
+            h = len(chunk) // 2
+            print(f"=== splitting the stack of {len(chunk)} into {h} + {len(chunk) - h} and retrying", flush=True)
+            run_chunk(chunk[:h], dev, path_of, amp)
+            run_chunk(chunk[h:], dev, path_of, amp)
+            return
+        if amp is not False:
+            print("=== retrying this run in fp32 (no autocast)", flush=True)
+            run_chunk(chunk, dev, path_of, amp=False)
+            return
+        raise
+    for c, rec in zip(chunk, recs):
+        save(rec, path_of(c))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--grid", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--shard", default="0/1")
     ap.add_argument("--device", default="auto")
-    ap.add_argument("--max-stack", type=int, default=32)
+    ap.add_argument("--max-stack", type=int, default=10)   # 10 runs at T = 10 ≈ 7 GB of activations on a T4; T = 24 needs ≤ 5
     ap.add_argument("--no-stack", action="store_true")
     ap.add_argument("--max-groups", type=int, default=None)
     ap.add_argument("--threads", type=int, default=None)
@@ -93,19 +120,11 @@ def main():
                 rec["name"], rec["arm"] = c["name"], c["arm"]
                 save(rec, path_of(c))
             else:
-                logf = lambda s: print(f"[{names[0]}+{len(chunk)-1}] {s}", flush=True)
-                try:
-                    recs = run_stack(chunk, dev, log=logf)
-                except Exception:
-                    traceback.print_exc()
-                    print("=== retrying this stack in fp32 (no autocast)", flush=True)
-                    recs = run_stack(chunk, dev, log=logf, amp=False)
-                for c, rec in zip(chunk, recs):
-                    save(rec, path_of(c))
+                run_chunk(chunk, dev, path_of)
             print(f"=== done in {time.time()-t0:.0f}s", flush=True)
         except Exception:
             traceback.print_exc()
-            print(f"=== FAILED stack {names[0]}", flush=True)
+            print(f"=== FAILED stack {names[0]} (no file written; a later session retries it)", flush=True)
         done += 1
     print(f"shard {args.shard}: {done} stacks this session")
 

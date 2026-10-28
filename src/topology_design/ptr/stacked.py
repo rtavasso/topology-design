@@ -171,7 +171,7 @@ class StackedPtrModel(nn.Module):
                 active = active & is_query
             if mc.halting == "learned":
                 if mc.halt_input == "index":
-                    lam = torch.sigmoid(self.halt_bias[:, min(t - 1, 63)].float()).view(R, 1, 1).expand(R, B, N)
+                    lam = torch.sigmoid(self.halt_bias[:, min(t - 1, max(mc.T - 2, 0), 63)].float()).view(R, 1, 1).expand(R, B, N)
                 elif delta:
                     lp = F.log_softmax(self.readout(h).float(), -1)
                     feats = PtrModel.delta_features(h, prev_h, lp, prev_lp).to(self.halt.weight.dtype)
@@ -261,8 +261,13 @@ def remaining_after_t(b: dict, dc: PtrConfig, T: int) -> torch.Tensor:
 class StackedAdamW:
     """AdamW over parameters with a leading run dimension, with a per-run learning rate (R,)."""
 
-    def __init__(self, params, lr: torch.Tensor, betas=(0.9, 0.95), eps=1e-8, weight_decay=0.01):
-        self.params = [p for p in params if p.requires_grad]
+    def __init__(self, params, lr: torch.Tensor, betas=(0.9, 0.95), eps=1e-8, weight_decay=0.01, lr_mult=None):
+        """lr_mult: optional per-parameter multipliers (same order as params), e.g. a larger rate for a halting head."""
+        params = list(params)
+        keep = [p.requires_grad for p in params]
+        self.params = [p for p, k in zip(params, keep) if k]
+        self.mult = [1.0] * len(self.params) if lr_mult is None else [m for m, k in zip(lr_mult, keep) if k]
+        assert len(self.mult) == len(self.params)
         self.lr = lr.clone()
         self.b1, self.b2, self.eps, self.wd = betas[0], betas[1], eps, weight_decay
         self.m = [torch.zeros_like(p) for p in self.params]
@@ -274,7 +279,7 @@ class StackedAdamW:
         """active: (R,) bool; runs marked False (gradient overflow) skip this step entirely, moments included."""
         self.t += 1
         bc1, bc2 = 1 - self.b1 ** self.t, 1 - self.b2 ** self.t
-        for p, m, v in zip(self.params, self.m, self.v):
+        for p, m, v, mult in zip(self.params, self.m, self.v, self.mult):
             if p.grad is None:
                 continue
             g = p.grad
@@ -287,7 +292,7 @@ class StackedAdamW:
                 a = None
                 m.mul_(self.b1).add_(g, alpha=1 - self.b1)
                 v.mul_(self.b2).addcmul_(g, g, value=1 - self.b2)
-            lr = (self.lr * scale).view(-1, *([1] * (p.dim() - 1)))
+            lr = (self.lr * (scale * mult)).view(-1, *([1] * (p.dim() - 1)))
             if a is not None:
                 lr = lr * a
             upd = (m / bc1) / ((v / bc2).sqrt() + self.eps)

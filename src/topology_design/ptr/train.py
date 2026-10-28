@@ -23,8 +23,14 @@ DATA_KEYS = {f.name for f in fields(PtrConfig)}
 MODEL_KEYS = {f.name for f in fields(ModelConfig)}
 TRAIN_DEFAULTS = dict(steps=20000, batch=64, lr=3e-4, warmup=500, seed=0, eval_every=2500, T_eval=40,
                       eval_ks=(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 16, 20, 24, 32), eval_n=250, eval_Qn=3,
-                      trace_n=64, probe_n=400, wd=0.01, grad_clip=1.0)
-KL_EXIT_THRESHOLDS = (1e-2, 1e-3)     # arm LR: 1e-2 is the preregistered threshold (Entry 56); 1e-3 is reported too
+                      trace_n=64, probe_n=400, wd=0.01, grad_clip=1.0, halt_lr_mult=1.0)
+# arm LR: 1e-2 is the preregistered threshold (Entry 56); the others give the threshold frontier (review 3, B.iii)
+KL_EXIT_THRESHOLDS = (1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 1e-4)
+
+
+def is_halt_param(name: str) -> bool:
+    """Parameters of the halting head (get lr * halt_lr_mult): the linear head and the index-only logits."""
+    return name.startswith("halt.") or name == "halt_bias"
 
 
 def split_cfg(cfg: dict):
@@ -153,7 +159,10 @@ def run(cfg: dict, dev: str = "cpu", log=print) -> dict:
     rng = np.random.default_rng(tc["seed"] + 1000 * int(dc.alpha * 10) + 7)
     m = PtrModel(mc, dc).to(dev)
     n_params = sum(p.numel() for p in m.parameters() if p.requires_grad)
-    opt = torch.optim.AdamW(m.parameters(), lr=tc["lr"], weight_decay=tc["wd"], betas=(0.9, 0.95))
+    head = [p for n, p in m.named_parameters() if is_halt_param(n)]
+    body = [p for n, p in m.named_parameters() if not is_halt_param(n)]
+    groups = [{"params": body, "base_lr": tc["lr"]}] + ([{"params": head, "base_lr": tc["lr"] * tc["halt_lr_mult"]}] if head else [])
+    opt = torch.optim.AdamW(groups, lr=tc["lr"], weight_decay=tc["wd"], betas=(0.9, 0.95))
     sched = lambda s: min(1.0, (s + 1) / tc["warmup"]) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / tc["steps"])))
     rec = {"cfg": cfg, "data": dc.dict(), "model": mc.dict(), "train": {k: (list(v) if isinstance(v, tuple) else v)
                                                                        for k, v in tc.items()},
@@ -162,7 +171,7 @@ def run(cfg: dict, dev: str = "cpu", log=print) -> dict:
     run_loss, run_acc = 0.0, {}
     for s in range(tc["steps"]):
         for g in opt.param_groups:
-            g["lr"] = tc["lr"] * sched(s)
+            g["lr"] = g["base_lr"] * sched(s)
         ep = generate(dc, tc["batch"], rng)
         loss, extra, acc_by_k = step_loss(m, ep, dev, mc, dc)
         opt.zero_grad(set_to_none=True)
