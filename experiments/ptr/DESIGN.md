@@ -62,7 +62,7 @@ Block = pre-norm causal attention + MLP + a linear map on the stream (identity a
 | **LO** | shared | oracle: exactly k loops (uses ground truth) | privileged upper bound; block extrapolation alone |
 | **LH-s** | shared | PonderNet, head reads the state | **the thesis arm** |
 | **LH-x** | shared | PonderNet, head reads the step index only | constant-depth null (what a policy that cannot see the state does) |
-| **LR** | LF's checkpoint | residual-triggered at test (step-KL or ‖Δh‖ threshold) | Q3 diagnostic, no extra training |
+| **LR** | LF's checkpoint | residual-triggered at test: halt at the first step with readout step-KL < 10⁻² | **primary arm** (promoted after pilot 1, Entry 56): the zero-parameter stopping rule the learned policy must beat, in accuracy and in compute |
 | **LF-ni, LH-s-ni** | as LF, LH-s | | injection off (one cell) |
 
 Context tokens (BOS, pairs, answers) run **exactly one step** in every looped arm, in training and at test, so their states are fixed and the semantics are coherent. Only queries loop.
@@ -128,7 +128,7 @@ All at query positions, by k.
 | # | prediction | falsifier | type |
 |---|---|---|---|
 | H1 | **Sanity.** S2 at the no-hop baseline for k ≥ 3; S8 ≥ 0.95 for k ≤ 8 and at baseline for k ≥ 9; LO ≥ 0.99 for k ≤ 8. | Any violation: the static reach is wrong (expressivity) or the block is not trainable as a hop (G2). | expressivity / optimization |
-| **H2** | **Headline: halting extrapolates.** LH-s ≥ 0.9 at k = 16 and ≥ 0.8 at k = 32, trained on k ≤ 8; LH-s within 0.1 of LO at every k ≤ 32 (the halting-extrapolation gap). | LH-s < 0.6 at k = 16 while LO ≥ 0.9 (the block extrapolates, the policy does not); or LO itself < 0.6 at k = 16 (block extrapolation fails, as in Kohli 2026, and the gap cannot be measured). | mechanism (optimization of the policy) |
+| **H2** | **Headline: halting extrapolates.** LH-s ≥ 0.9 at k = 16 and ≥ 0.8 at k = 32, trained on k ≤ 8; LH-s within 0.1 of LO at every k ≤ 32 (the halting-extrapolation gap). **H2b (after pilot 1):** LH-s matches LR's accuracy within 0.02 at every k and uses fewer steps (≤ k + 0.5 against LR's ≈ k + 1.5). | LH-s < 0.6 at k = 16 while LO ≥ 0.9 (the block extrapolates, the policy does not); or LO itself < 0.6 at k = 16. **H2b:** LH-s no more accurate than LR and no cheaper: then the free stability exit suffices on this task. | mechanism (optimization of the policy) |
 | H4 | **Calibration.** LH-s steps on queries: slope ≥ 0.9 against k, excess ≤ 1.5 for k ≤ 32. LH-x's steps are constant. | Steps constant in k (collapse to LH-x), or excess > 3. | mechanism (compute allocation) |
 | **H5** | **P-pool.** S8's accuracy at k = 8 leaves ceiling by factor 10⁻² (≈ 2k examples) and falls with log count (slope > 0, P > 0.9); LO's and LH-s's stay at ceiling down to 10⁻³ (≈ 200). | LO/LH-s leave ceiling at the same count as S8, or S8 stays at ceiling at 10⁻⁴. | mechanism (signal pooling) |
 | H7 | **Residual triggers.** On LF, a step-KL threshold reaches ≥ 0.9 of LO's accuracy at ≤ 1.5× LO's compute at k ≤ 16. | Needs ≥ 3× compute or loses > 0.1. | mechanism (diagnostic) |

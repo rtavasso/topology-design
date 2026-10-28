@@ -1056,6 +1056,22 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 - **D84.** Pilot 2 (22 runs): LH-s with the corrected init over lr × β × λ_p at 8,000 steps; S8 at lr 1e-4 and 3e-4, and S2, at 15,000 steps. The main grid waits for G4 (LH-s within 0.02 of LO in range) and for the static arms' budget.
 - **D85.** Lesson L23.
 
+## Entry 56 (27 Oct 2026): exploratory, residual-triggered halting on the pilot-1 fixed loop
+
+**Not preregistered.** Computed after the fact from the per-step traces that pilot 1's fixed-loop runs saved (2 runs × 64 queries per k).
+
+**Result.** Halting the fixed loop (trained at 10 loops, evaluated at up to 40) at the first step where the readout's step-KL falls below 0.01 gives accuracy 1.00 / 1.00 / 1.00 / 0.99 / 0.99 / 0.97 at k = 1 / 4 / 8 / 16 / 24 / 32, at 2.6 / 5.1 / 9.3 / 17.9 / 26.1 / 34.3 steps. Running 40 loops regardless gives 0.07 / 0.02 / 0.02 / 0.25 / 0.87 / 0.96 (overthinking). Thresholds 10⁻² to 10⁻⁴ all work; 10⁻¹ stops too early on long chains. The rule beats stopping at exactly k on these traces because the readout settles one step after the hop.
+
+**Reading.** On this task, prediction stability is a world-agnostic completion signal that generalizes four times beyond the training depth with no learned halting at all (Geiping 2025's zero-shot KL exit, reproduced on exact demand). It confirms Entry 46's intuition for the *completion* case: the reducible residual here is 0/1 with a crisp absorbing state. It says nothing yet about predicting demand, or about tasks whose residual is graded.
+
+**Consequences for the design.**
+- The bar for learned halting is no longer the oracle alone: LH-s must be compared with the free rule (LR), in accuracy *and* in compute (LR spends ≈ k + 1.5 steps; a learned policy could stop at k).
+- LR is promoted from diagnostic to a primary arm (LF + KL exit), and H2 is restated as LH-s vs LR vs LO.
+- If learned halting does not beat the free rule, that is the rung-0 result: on crisp-completion tasks, a stability exit suffices, and the case for a *learned* depth policy moves to tasks where completion is not a fixed point (graded residuals, Stage B / rung 1).
+
+**Decision.**
+- **D86.** Record as exploratory; promote LR to a primary arm; restate H2; thresholds for H7 are set from these numbers only in the sense of being falsifiable in the main grid, not confirmed by them.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
