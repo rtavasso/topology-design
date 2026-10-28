@@ -76,7 +76,7 @@ class StackedPtrModel(nn.Module):
         super().__init__()
         self.R, self.mc, self.dc = R, mc, dc
         d = mc.d
-        self.sym = FrozenSymbols(dc.n_sym, d, mc.emb_seed)
+        self.sym = FrozenSymbols(dc.n_sym, d, mc.emb_seed, slots=mc.slots)
         self.bos = nn.Parameter(torch.randn(R, d) * 0.02)
         self.marker = nn.Parameter(torch.randn(R, d) * 0.02)
         self.ans_tok = nn.Parameter(torch.randn(R, d) * 0.02)
@@ -111,6 +111,8 @@ class StackedPtrModel(nn.Module):
         R, B, P = self.R, b["pair_key"].shape[1], self.dc.P
         Qn = b["q_start"].shape[2]
         pairs = self.sym.key_slot[b["pair_key"]] + self.sym.val_slot[b["pair_val"]]           # (R, B, P, d)
+        if self.mc.slots == 5 and "pair_prev" in b:
+            pairs = pairs + self.sym.prev_slot[b["pair_prev"]]
         queries = self.marker[:, None, None, :] + self.sym.reg_slot[b["q_start"]]
         answers = self.ans_tok[:, None, None, :] + self.sym.reg_slot[b["q_ans"]]
         qa = torch.stack([queries, answers], 3).reshape(R, B, 2 * Qn, -1)

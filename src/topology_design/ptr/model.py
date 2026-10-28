@@ -48,6 +48,7 @@ class ModelConfig:
     injection: bool = True        # add the token embedding at every loop
     pair_pair_mask: bool = True   # context tokens are read-only: pairs attend to BOS and themselves only (no doubling)
     ctx_single_step: bool = True  # looped: non-query tokens run exactly one step (coherent train/test semantics)
+    slots: int = 4                # frozen symbol subspaces: 4 (rung 0) or 5 (rung 1: + prev slot in the pair token)
     lam_p: float = 0.2            # PonderNet geometric prior
     beta: float = 0.01            # PonderNet KL weight
     emb_seed: int = 1234
@@ -61,8 +62,12 @@ class FrozenSymbols(nn.Module):
     With d >= 4 * n_sym all four are disjoint (looped arms); with 3 * n_sym <= d < 4 * n_sym the scratch basis is
     omitted; below that the bases are random unit vectors (static arms at small d), which trained models handle."""
 
-    def __init__(self, n_sym: int, d: int, seed: int):
+    SLOTS4 = ("key_slot", "val_slot", "reg_slot", "scratch")
+    SLOTS5 = ("key_slot", "val_slot", "prev_slot", "reg_slot", "scratch")
+
+    def __init__(self, n_sym: int, d: int, seed: int, slots: int = 4):
         super().__init__()
+        names = self.SLOTS5 if slots == 5 else self.SLOTS4
         g = torch.Generator().manual_seed(seed)
         # every basis vector is orthogonal to the all-ones direction, so LayerNorm's mean subtraction is a no-op on
         # any combination of symbols (needed for the planted block to be exact)
@@ -71,16 +76,18 @@ class FrozenSymbols(nn.Module):
         M = M - ones @ (ones.T @ M)
         Q, _ = torch.linalg.qr(torch.cat([ones, M[:, :-1]], 1))      # column 0 is the ones direction; drop it
         Q = Q[:, 1:]                                                    # (d, d-1), all orthogonal to ones
-        if d - 1 >= 3 * n_sym:
-            cols = [Q[:, i * n_sym:(i + 1) * n_sym].T.contiguous() for i in range(min(4, (d - 1) // n_sym))]
+        n_slots = len(names)
+        if d - 1 >= (n_slots - 1) * n_sym:
+            cols = [Q[:, i * n_sym:(i + 1) * n_sym].T.contiguous() for i in range(min(n_slots, (d - 1) // n_sym))]
             used = n_sym * len(cols)
-            while len(cols) < 4:
+            while len(cols) < n_slots:
                 cols.append(cols[-1])
         else:
-            cols = [F.normalize(Q[:, torch.randint(0, d - 1, (n_sym,), generator=g)].T, dim=-1) for _ in range(4)]
+            cols = [F.normalize(Q[:, torch.randint(0, d - 1, (n_sym,), generator=g)].T, dim=-1) for _ in range(n_slots)]
             used = 0
-        self.exact = d - 1 >= 4 * n_sym
-        for name, c in zip(("key_slot", "val_slot", "reg_slot", "scratch"), cols):
+        self.exact = d - 1 >= n_slots * n_sym
+        self.names = names
+        for name, c in zip(names, cols):
             self.register_buffer(name, c)
         self.register_buffer("free", Q[:, used:].T.contiguous())      # leftover directions (markers, BOS)
 
@@ -117,7 +124,7 @@ class PtrModel(nn.Module):
         super().__init__()
         self.mc, self.dc = mc, dc
         d = mc.d
-        self.sym = FrozenSymbols(dc.n_sym, d, mc.emb_seed)
+        self.sym = FrozenSymbols(dc.n_sym, d, mc.emb_seed, slots=mc.slots)
         self.bos = nn.Parameter(torch.randn(d) * 0.02)          # attention sink at position 0
         self.marker = nn.Parameter(torch.randn(d) * 0.02)       # query marker
         self.ans_tok = nn.Parameter(torch.randn(d) * 0.02)      # added to answer tokens (they are inputs only)
@@ -154,6 +161,8 @@ class PtrModel(nn.Module):
         qs = torch.as_tensor(ep.q_start, device=dev)
         qa = torch.as_tensor(ep.q_ans, device=dev)
         pairs = self.sym.key_slot[pk] + self.sym.val_slot[pv]                       # (B, P, d)
+        if self.mc.slots == 5 and getattr(ep, "pair_prev", None) is not None:        # rung 1: the previous pair's key
+            pairs = pairs + self.sym.prev_slot[torch.as_tensor(ep.pair_prev, device=dev)]
         queries = self.marker + self.sym.reg_slot[qs]                                # register starts at the start key
         answers = self.ans_tok + self.sym.reg_slot[qa]
         qa_tokens = torch.stack([queries, answers], 2).reshape(B, 2 * Qn, -1)       # q1 a1 q2 a2 ...
