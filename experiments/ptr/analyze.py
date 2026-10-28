@@ -63,6 +63,9 @@ def table(recs, out):
     groups = defaultdict(list)
     for r in recs:
         groups[group_key(r)].append(r)
+        if "eval_T_train" in r:   # the fixed loop evaluated at its training depth, as a separate row
+            twin = dict(r); twin["evals"] = [{"eval": r["eval_T_train"]}]
+            groups[group_key(r).replace("LF", f"LF@T{r['model']['T']}", 1)].append(twin)
     ks = sorted({int(k) for r in recs for k in final(r)})
     out("## Accuracy by k (run mean ± s.e.; n runs)\n")
     out("| arm | n | " + " | ".join(f"k={k}" for k in ks) + " |")

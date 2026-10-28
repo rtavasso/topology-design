@@ -88,9 +88,12 @@ class StackedPtrModel(nn.Module):
             if mc.halting == "learned":
                 self.halt_norm = SLayerNorm(R, d)
                 if mc.halt_input == "index":
-                    self.halt_bias = nn.Parameter(torch.zeros(R, 64) - 2.0)
+                    self.halt_bias = nn.Parameter(torch.zeros(R, 64) + mc.halt_bias_init)
                 else:
                     self.halt = SLinear(R, d + (16 if mc.halt_input == "state+index" else 0), 1)
+                    with torch.no_grad():
+                        self.halt.weight.normal_(std=0.02)
+                        self.halt.bias.fill_(mc.halt_bias_init)
                     if mc.halt_input == "state+index":
                         self.step_emb = nn.Parameter(torch.randn(R, 64, 16) * 0.1)
             if mc.halting == "value":

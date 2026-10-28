@@ -42,6 +42,7 @@ class ModelConfig:
     T: int = 10                   # looped: loops in training (and the default at test); >= kmax + 2
     halting: str = "fixed"        # looped: fixed | oracle | learned | value
     halt_input: str = "state"     # learned halting head input: state | state+index | index (index-only = constant-depth null)
+    halt_bias_init: float = -2.0  # initial halting logit (lambda ~ 0.12), so the halting mass starts spread over ~8 steps
     injection: bool = True        # add the token embedding at every loop
     pair_pair_mask: bool = True   # context tokens are read-only: pairs attend to BOS and themselves only (no doubling)
     ctx_single_step: bool = True  # looped: non-query tokens run exactly one step (coherent train/test semantics)
@@ -126,9 +127,11 @@ class PtrModel(nn.Module):
             if mc.halting == "learned":
                 self.halt_norm = nn.LayerNorm(d)
                 if mc.halt_input == "index":
-                    self.halt_bias = nn.Parameter(torch.zeros(64) - 2.0)   # one logit per step; the last repeats beyond
+                    self.halt_bias = nn.Parameter(torch.zeros(64) + mc.halt_bias_init)   # one logit per step; the last repeats beyond
                 else:
                     self.halt = nn.Linear(d + (16 if mc.halt_input == "state+index" else 0), 1)
+                    nn.init.normal_(self.halt.weight, std=0.02)
+                    nn.init.constant_(self.halt.bias, mc.halt_bias_init)
                     if mc.halt_input == "state+index":
                         self.step_emb = nn.Parameter(torch.randn(64, 16) * 0.1)
             if mc.halting == "value":

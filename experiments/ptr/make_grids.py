@@ -49,6 +49,20 @@ def main():
                 g.append(run(f"pilot_LHs_b{beta:g}_l{lam_p:g}_s{seed}", "LHs", seed, beta=beta, lam_p=lam_p,
                              steps=6000, eval_every=2000))
     grids["pilot"] = g
+    # pilot 2 (after pilot 1): learned halting with the spread initial halting mass; longer, gentler static runs
+    g = []
+    for lr in (3e-4, 1e-3):
+        for beta in (0.003, 0.01):
+            for lam_p in (0.1, 0.2):
+                for seed in (0, 1):
+                    g.append(run(f"pilot2_LHs_lr{lr:g}_b{beta:g}_l{lam_p:g}_s{seed}", "LHs", seed, lr=lr, beta=beta,
+                                 lam_p=lam_p, steps=8000, eval_every=2000))
+    for lr in (1e-4, 3e-4):
+        for seed in (0, 1):
+            g.append(run(f"pilot2_S8_lr{lr:g}_s{seed}", "S8", seed, lr=lr, steps=15000, eval_every=5000))
+    for seed in (0, 1):
+        g.append(run(f"pilot2_S2_lr3e-4_s{seed}", "S2", seed, lr=3e-4, steps=15000, eval_every=5000))
+    grids["pilot2"] = g
     # main cell
     g = []
     for arm, n in (("S8", 29), ("LO", 29), ("LHs", 29), ("S2", 10), ("LF", 10), ("LHx", 10)):
