@@ -1072,6 +1072,24 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 **Decision.**
 - **D86.** Record as exploratory; promote LR to a primary arm; restate H2; thresholds for H7 are set from these numbers only in the sense of being falsifiable in the main grid, not confirmed by them.
 
+## Entry 57 (27 Oct 2026): rung-0 pilot 2
+
+**Runs.** 22 ([ptr/PILOT2.md](../experiments/ptr/PILOT2.md); records in `experiments/ptr/results_data/`).
+
+**Results.**
+1. **G4 passes, narrowly.** With the spread halting init, LH-s at lr 3e-4 and a weak prior (β = 0.003) matches the oracle in range: 1.00 for k ≤ 10, steps ≈ k + 1. At lr 1e-3, or with β = 0.01 and λ_p = 0.2, it collapses to immediate halting again. PonderNet-style halting has a narrow basin here.
+2. **H2 is falsified for the state-reading policy, with the mechanism identified.** Beyond ≈ 1.5× the training horizon the policy halts regardless of the register (chance by k = 16, steps capped near 15). Its λ stays 0 through the training horizon and then ramps while the register still holds a key: the state's composition drifts beyond the trained depths (the step index is linearly decodable from the state, 0.35 vs 0.03 chance), and an absolute reading of the state drifts with it. The same block halted by the readout's *change* (LR) reaches 0.97 at k = 32. The block extrapolates; the policy, as parameterized, does not; a change-based rule does.
+3. **Unique-layer depth learns hops sequentially.** S8 at lr 1e-4 learns k = 1 / 2 / 3 at 0.5k / 2–4k / 9–11k steps and not k = 4 by 15k; the shared block learned all eight by 4k. Each layer rediscovers the hop, after the layer below. The pooling claim of Entry 50 appears as learning *time*, not only as data.
+
+**What this changes.**
+- The interesting comparison is no longer "learned halting vs oracle" but **what the halting policy reads**: absolute state (fails beyond the horizon) vs change (extrapolates). A learned change-based head (the learned counterpart of LR), and a state head trained with a horizon well beyond k_max (T = 24), test the mechanism directly.
+- The static comparison should be measured as **time to learn each depth** (steps to criterion), and the pooling test as time-to-criterion at a depth both arm types reach (k = 3) against the count of such examples, rather than accuracy at a fixed budget.
+- Effects are large; 10 seeds suffice everywhere. 29 for the headline is not needed.
+
+**Decisions.**
+- **D87.** Record pilots 1–2 as results of rung 0 (not preregistered; the preregistration follows for the confirmatory grid).
+- **D88.** Revision 3 of the rung-0 design: fixed LH-s constants (lr 3e-4, β 0.003, λ_p 0.1); two new arms, LH-Δ (halting head on change features: readout step-KL and relative ‖Δh‖) and LH-s24 (state head, T = 24); static arms at lr 1e-4 with a long budget, measured by steps to criterion; the pooling test as steps-to-criterion at k = 3 vs example count (k_deep = 3), arms S8, LO, LH-s; 10 seeds; the main grid lean.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
