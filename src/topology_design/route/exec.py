@@ -42,7 +42,7 @@ def maps(pair_key, pair_val, pair_prev, cfg: RouteConfig) -> dict:
 def readout(cfg: RouteConfig, eps: float, dev) -> torch.Tensor:
     """(S, n_ans): p(y | register = s). Answers: 1 - eps on themselves; everything else uniform."""
     S, A = cfg.n_sym, cfg.n_ans
-    R = torch.full((S, A), 1.0 / A, device=dev)
+    R = torch.full((S, A), 1.0 / A, device=dev, dtype=torch.float32)
     for a in range(A):
         R[cfg.n_keys + a] = eps / (A - 1)
         R[cfg.n_keys + a, a] = 1 - eps
@@ -57,6 +57,7 @@ def marginal(pi: torch.Tensor, hop: torch.Tensor, prev: torch.Tensor, q_start: t
     B, Q = q_start.shape
     S = hop.shape[1]
     dev = hop.device
+    pi = pi.to(R.dtype)
     b = F.one_hot(q_start, S).to(R.dtype)                                   # (B, Q, S)
     q = torch.zeros(B, Q, R.shape[1], device=dev, dtype=R.dtype)
     esteps = torch.zeros(B, Q, device=dev, dtype=R.dtype)

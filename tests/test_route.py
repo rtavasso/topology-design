@@ -50,10 +50,10 @@ def test_executor_oracle_rule_and_remaining_distance():
     sym = torch.arange(S).unsqueeze(0).expand(B, S)
     is_key = sym < DC.n_keys; is_ans = (sym >= DC.n_keys) & (sym < DC.n_keys + DC.n_ans)
     arrow = is_key & (tb["hop"] == DC.DEAD)
-    pi = torch.stack([(is_key & ~arrow).float(), arrow.float(), (~is_key).float()], -1)
+    pi = torch.stack([(is_key & ~arrow).float(), arrow.float(), (~is_key).float()], -1).float()
     R = readout(DC, 0.02, "cpu")
     q, es, prof, alive = marginal(pi, tb["hop"], tb["prev"], tb["q_start"], 40, R)
-    assert torch.allclose(q.gather(-1, (tb["q_ans"] - DC.n_keys).unsqueeze(-1)).squeeze(-1), torch.full((B, 3), 0.98), atol=1e-5)
+    assert torch.allclose(q.gather(-1, (tb["q_ans"] - DC.n_keys).unsqueeze(-1)).squeeze(-1), torch.full((B, 3), 0.98, dtype=q.dtype), atol=1e-5)
     assert torch.allclose(es, tb["q_k"].float()) and float(alive.max()) == 0
     s, steps, acts, states = committed(pi, tb["hop"], tb["prev"], tb["q_start"], 40, R)
     assert oracle_route_ok(acts, steps, tb["q_word"], tb["q_k"]).all() and (s == tb["q_ans"]).all()
@@ -72,7 +72,7 @@ def test_marginal_equals_brute_force_enumeration():
     ep = generate(DC, 3, rng, Qn=2)
     tb = tables(ep, DC, "cpu")
     torch.manual_seed(0)
-    pi = torch.softmax(torch.randn(3, DC.n_sym, 3) * 1.5, -1)
+    pi = torch.softmax(torch.randn(3, DC.n_sym, 3) * 1.5, -1).float()
     R = readout(DC, 0.02, "cpu")
     T = 5
     q, es, _, _ = marginal(pi, tb["hop"], tb["prev"], tb["q_start"], T, R)
@@ -86,9 +86,9 @@ def test_marginal_equals_brute_force_enumeration():
                         p *= float(pi[b, s, a]); s = int(tb["hop"][b, s] if a == HOP else tb["prev"][b, s])
                     ph = float(pi[b, s, HALT]) if L < T else 1.0
                     tot += p * ph * R[s]; est += p * ph * L
-            assert torch.allclose(tot, q[b, j], atol=1e-6) and abs(est - float(es[b, j])) < 1e-5
+            assert torch.allclose(tot.to(q.dtype), q[b, j], atol=1e-6) and abs(est - float(es[b, j])) < 1e-5
     # the step-indexed form agrees with its own enumeration
-    pit = torch.softmax(torch.randn(T, 3, 1, 3), -1)
+    pit = torch.softmax(torch.randn(T, 3, 1, 3), -1).float()
     q2, _, _, _ = marginal(pit, tb["hop"], tb["prev"], tb["q_start"], T, R)
     b, j = 1, 0
     tot = torch.zeros(DC.n_ans)
@@ -99,7 +99,7 @@ def test_marginal_equals_brute_force_enumeration():
                 p *= float(pit[t, b, 0, a]); s = int(tb["hop"][b, s] if a == HOP else tb["prev"][b, s])
             ph = float(pit[L, b, 0, HALT]) if L < T else 1.0
             tot += p * ph * R[s]
-    assert torch.allclose(tot, q2[b, j], atol=1e-6)
+    assert torch.allclose(tot.to(q2.dtype), q2[b, j], atol=1e-6)
 
 
 def test_planted_router_reproduces_the_oracle_route_everywhere():
@@ -129,18 +129,18 @@ def test_planted_failures_fail_where_stated():
     tb = tables(ep, DC, "cpu")
     B, S = 16, DC.n_sym
     # the best fixed program (all-H, DESIGN.md §5) as a step-indexed policy: fails every word with a P
-    pit = torch.zeros(40, B, 1, 3); pit[..., HOP] = 1.0
+    pit = torch.zeros(40, B, 1, 3, dtype=torch.float32); pit[..., HOP] = 1.0
     s, steps, acts, _ = committed(pit, tb["hop"], tb["prev"], tb["q_start"], 40, R)
     assert not (s[:, 0] == tb["q_ans"][:, 0]).any()                      # the forced query has a PP run
     # a router that never halts: forced halt at T; wrong on every query under the rule-following policy with HALT off
     sym = torch.arange(S).unsqueeze(0).expand(B, S)
     is_key = sym < DC.n_keys; arrow = is_key & (tb["hop"] == DC.DEAD)
-    pi = torch.stack([(~arrow).float(), arrow.float(), torch.zeros(B, S)], -1)
+    pi = torch.stack([(~arrow).float(), arrow.float(), torch.zeros(B, S)], -1).float()
     q, es, _, alive = marginal(pi, tb["hop"], tb["prev"], tb["q_start"], 40, R)
     assert torch.allclose(es, torch.full_like(es, 40.0)) and float(alive.min()) > 0.99   # all mass halts by force at T
     # (answers absorb, so the answer is still right at T: the failure is cost, which the step term measures)
     # a myopic router that halts whenever the readout would not change (i.e. on P-states): fails every word with a P
-    pi_my = torch.stack([(~arrow & is_key).float(), torch.zeros(B, S), (arrow | ~is_key).float()], -1)
+    pi_my = torch.stack([(~arrow & is_key).float(), torch.zeros(B, S), (arrow | ~is_key).float()], -1).float()
     s2, _, _, _ = committed(pi_my, tb["hop"], tb["prev"], tb["q_start"], 40, R)
     assert not (s2[:, 0] == tb["q_ans"][:, 0]).any()
 
@@ -173,7 +173,7 @@ def test_routed_runs_are_independent_and_teacher_loss_is_zero_on_the_planted_rou
         assert float(tl.max()) < 0.1
         uni = torch.full_like(pi1, 1 / 3)
         tlu = teacher_loss(uni, fb1["q_start"], fb1["q_word"], fb1["q_k"], mp1["hop"], mp1["prev"], 12)
-        assert torch.allclose(tlu, (fb1["q_k"].float() + 1) * np.log(3), atol=1e-4)
+        assert torch.allclose(tlu, ((fb1["q_k"].float() + 1) * np.log(3)).to(tlu.dtype), atol=1e-4)
 
 
 def test_neural_baseline_runs_on_route_tokens():

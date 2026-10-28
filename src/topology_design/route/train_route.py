@@ -55,7 +55,7 @@ def teacher_loss(pi, q_start, q_word, q_k, hop, prev, T):
     """-sum_t log pi(a_t* | s_t*) along the oracle route, HALT at the end; per query."""
     Bq, Q = q_start.shape
     s = q_start.clone()
-    ll = torch.zeros(Bq, Q, device=s.device)
+    ll = torch.zeros(Bq, Q, device=s.device, dtype=torch.float32)
     ar = torch.arange(Bq, device=s.device).unsqueeze(1)
     for t in range(T):
         a = torch.where(t < q_k, q_word[:, :, t] if t < q_word.shape[-1] else torch.full_like(q_k, -1), torch.full_like(q_k, HALT))
