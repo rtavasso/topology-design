@@ -16,6 +16,8 @@ import torch.nn.functional as F
 from .data import PtrConfig
 from .model import FrozenSymbols, ModelConfig, PtrModel
 
+FLAG_DIR = 3          # row of FrozenSymbols.free carrying the rung-1 flag (0-2 are the planted bos/marker/ans_tok)
+
 
 class SLinear(nn.Module):
     def __init__(self, R, din, dout, bias=True):
@@ -113,6 +115,8 @@ class StackedPtrModel(nn.Module):
         pairs = self.sym.key_slot[b["pair_key"]] + self.sym.val_slot[b["pair_val"]]           # (R, B, P, d)
         if self.mc.slots == 5 and "pair_prev" in b:
             pairs = pairs + self.sym.prev_slot[b["pair_prev"]]
+        if "pair_flag" in b:                                      # rung 1: the P-trigger flag on a frozen free direction
+            pairs = pairs + b["pair_flag"].to(pairs.dtype).unsqueeze(-1) * self.sym.free[FLAG_DIR]
         queries = self.marker[:, None, None, :] + self.sym.reg_slot[b["q_start"]]
         answers = self.ans_tok[:, None, None, :] + self.sym.reg_slot[b["q_ans"]]
         qa = torch.stack([queries, answers], 3).reshape(R, B, 2 * Qn, -1)

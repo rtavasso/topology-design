@@ -1,9 +1,9 @@
-"""Grids for rung 1 (experiments/route/DESIGN.md §8). Writes experiments/route/grids/{pilot,main}.json.
+"""Grids for rung 1 (experiments/route/DESIGN.md §8, revision 2). Writes experiments/route/grids/{pilot,main}.json.
 
     python experiments/route/make_grids.py
 
-A config's `model` field picks the trainer: "router" (train_route.run_stack: RM, RM-λ0, RM-idx, RM-T) or "neural"
-(train_neural.run_stack: S8, S2, LF). Runs stack by everything except seed and lr.
+A config's `model` field picks the trainer: "router" (train_route.run_stack: RM, RMs, RMd0, RMT, RMidx) or "neural"
+(train_neural.run_stack: S8, S2, LF, LFd0). Runs stack by everything except seed and lr.
 """
 
 from __future__ import annotations
@@ -15,19 +15,22 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "grids")
 
 ARMS = {
-    "RM": dict(model="router", kind="state", lam=0.02),
-    "RMl0": dict(model="router", kind="state", lam=0.0),
-    "RMidx": dict(model="router", kind="index", lam=0.02),
-    "RMT": dict(model="router", kind="state", lam=0.02, teacher=True),
-    "S8": dict(model="neural", kind="static", layers=8),
-    "S2": dict(model="neural", kind="static", layers=2),
-    "LF": dict(model="neural", kind="looped", halting="fixed", T=10),
+    "RM": dict(model="router", kind="state", state_input="full", deferral=1, lam=0.02),
+    "RMs": dict(model="router", kind="state", state_input="symbol", deferral=1, lam=0.02),      # F4 null
+    "RMd0": dict(model="router", kind="state", state_input="full", deferral=0, lam=0.02),       # local-trigger control
+    "RMT": dict(model="router", kind="state", state_input="full", deferral=1, lam=0.02, teacher=True),
+    "RMidx": dict(model="router", kind="index", deferral=1, lam=0.02),
+    "S8": dict(model="neural", kind="static", layers=8, deferral=1),
+    "S2": dict(model="neural", kind="static", layers=2, deferral=1),
+    "LF": dict(model="neural", kind="looped", halting="fixed", T=10, deferral=1),
+    "LFd0": dict(model="neural", kind="looped", halting="fixed", T=10, deferral=0),
 }
-DEFAULT_LR = {"RM": 1e-3, "RMl0": 1e-3, "RMidx": 1e-2, "RMT": 1e-3, "S8": 1e-4, "S2": 3e-4, "LF": 1e-3}
-STEPS = {"RM": 6000, "RMl0": 6000, "RMidx": 6000, "RMT": 6000, "S8": 25000, "S2": 8000, "LF": 6000}
-EVAL_EVERY = {"S8": 5000}
-# T4 seconds per run-step (routed arms measured in the pilot; neural arms from rung 0 at d = 344: x1.1)
-SEC = {"RM": 0.02, "RMl0": 0.02, "RMidx": 0.01, "RMT": 0.02, "S8": 0.058, "S2": 0.015, "LF": 0.072}
+DEFAULT_LR = {"RM": 1e-3, "RMs": 1e-3, "RMd0": 1e-3, "RMT": 1e-3, "RMidx": 1e-2, "S8": 1e-4, "S2": 3e-4, "LF": 1e-3, "LFd0": 1e-3}
+STEPS = {"RM": 6000, "RMs": 6000, "RMd0": 6000, "RMT": 6000, "RMidx": 6000, "S8": 12000, "S2": 8000, "LF": 6000, "LFd0": 6000}
+EVAL_EVERY = {"S8": 4000}
+# T4 seconds per run-step: routed arms = the revision-1 pilot's 0.02 s x 6 product states per symbol (to be replaced by
+# the revision-2 pilot's measurement); neural arms from rung 0 at d = 344
+SEC = {"RM": 0.08, "RMs": 0.08, "RMd0": 0.08, "RMT": 0.08, "RMidx": 0.02, "S8": 0.058, "S2": 0.015, "LF": 0.072, "LFd0": 0.072}
 
 
 def run(name, arm, seed, **extra):
@@ -43,18 +46,20 @@ def pilot():
     for lam in (0.005, 0.1):
         for seed in (0, 1):
             g.append(run(f"pilot_RM_lam{lam:g}_s{seed}", "RM", seed, lam=lam, steps=4000))
+    for seed in (0, 1):
+        g.append(run(f"pilot_RMs_lr0.001_s{seed}", "RMs", seed, steps=4000))
+        g.append(run(f"pilot_RMT_lr0.001_s{seed}", "RMT", seed, steps=4000))
     for lr in (3e-4, 1e-3):
         for seed in (0, 1):
             g.append(run(f"pilot_LF_lr{lr:g}_s{seed}", "LF", seed, lr=lr, steps=6000))
     for lr in (3e-5, 1e-4):
-        for seed in (0, 1):
-            g.append(run(f"pilot_S8_lr{lr:g}_s{seed}", "S8", seed, lr=lr, steps=15000, eval_every=5000))
+        g.append(run(f"pilot_S8_lr{lr:g}_s0", "S8", 0, lr=lr, steps=8000, eval_every=4000))
     return g
 
 
 def main_grid():
     g = []
-    for arm, n in (("RM", 10), ("RMl0", 5), ("RMidx", 5), ("RMT", 5), ("S8", 5), ("LF", 10), ("S2", 3)):
+    for arm, n in (("RM", 10), ("RMs", 5), ("RMd0", 5), ("RMT", 5), ("RMidx", 5), ("LF", 10), ("LFd0", 5), ("S8", 3), ("S2", 3)):
         for seed in range(n):
             g.append(run(f"main_{arm}_s{seed}", arm, seed))
     return g

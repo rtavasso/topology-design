@@ -6,6 +6,8 @@
 "lr": 0.0003,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.02,
 "steps": 4000,
 "eval_every": 2000
@@ -17,6 +19,8 @@
 "lr": 0.0003,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.02,
 "steps": 4000,
 "eval_every": 2000
@@ -28,6 +32,8 @@
 "lr": 0.001,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.02,
 "steps": 4000,
 "eval_every": 2000
@@ -39,6 +45,8 @@
 "lr": 0.001,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.02,
 "steps": 4000,
 "eval_every": 2000
@@ -50,6 +58,8 @@
 "lr": 0.003,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.02,
 "steps": 4000,
 "eval_every": 2000
@@ -61,6 +71,8 @@
 "lr": 0.003,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.02,
 "steps": 4000,
 "eval_every": 2000
@@ -72,6 +84,8 @@
 "lr": 0.001,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.005,
 "steps": 4000,
 "eval_every": 2000
@@ -83,6 +97,8 @@
 "lr": 0.001,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.005,
 "steps": 4000,
 "eval_every": 2000
@@ -94,6 +110,8 @@
 "lr": 0.001,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.1,
 "steps": 4000,
 "eval_every": 2000
@@ -105,7 +123,63 @@
 "lr": 0.001,
 "model": "router",
 "kind": "state",
+"state_input": "full",
+"deferral": 1,
 "lam": 0.1,
+"steps": 4000,
+"eval_every": 2000
+},
+{
+"name": "pilot_RMs_lr0.001_s0",
+"arm": "RMs",
+"seed": 0,
+"lr": 0.001,
+"model": "router",
+"kind": "state",
+"state_input": "symbol",
+"deferral": 1,
+"lam": 0.02,
+"steps": 4000,
+"eval_every": 2000
+},
+{
+"name": "pilot_RMT_lr0.001_s0",
+"arm": "RMT",
+"seed": 0,
+"lr": 0.001,
+"model": "router",
+"kind": "state",
+"state_input": "full",
+"deferral": 1,
+"lam": 0.02,
+"teacher": true,
+"steps": 4000,
+"eval_every": 2000
+},
+{
+"name": "pilot_RMs_lr0.001_s1",
+"arm": "RMs",
+"seed": 1,
+"lr": 0.001,
+"model": "router",
+"kind": "state",
+"state_input": "symbol",
+"deferral": 1,
+"lam": 0.02,
+"steps": 4000,
+"eval_every": 2000
+},
+{
+"name": "pilot_RMT_lr0.001_s1",
+"arm": "RMT",
+"seed": 1,
+"lr": 0.001,
+"model": "router",
+"kind": "state",
+"state_input": "full",
+"deferral": 1,
+"lam": 0.02,
+"teacher": true,
 "steps": 4000,
 "eval_every": 2000
 },
@@ -118,6 +192,7 @@
 "kind": "looped",
 "halting": "fixed",
 "T": 10,
+"deferral": 1,
 "steps": 6000,
 "eval_every": 2000
 },
@@ -130,6 +205,7 @@
 "kind": "looped",
 "halting": "fixed",
 "T": 10,
+"deferral": 1,
 "steps": 6000,
 "eval_every": 2000
 },
@@ -142,6 +218,7 @@
 "kind": "looped",
 "halting": "fixed",
 "T": 10,
+"deferral": 1,
 "steps": 6000,
 "eval_every": 2000
 },
@@ -154,6 +231,7 @@
 "kind": "looped",
 "halting": "fixed",
 "T": 10,
+"deferral": 1,
 "steps": 6000,
 "eval_every": 2000
 },
@@ -165,19 +243,9 @@
 "model": "neural",
 "kind": "static",
 "layers": 8,
-"steps": 15000,
-"eval_every": 5000
-},
-{
-"name": "pilot_S8_lr3e-05_s1",
-"arm": "S8",
-"seed": 1,
-"lr": 3e-05,
-"model": "neural",
-"kind": "static",
-"layers": 8,
-"steps": 15000,
-"eval_every": 5000
+"deferral": 1,
+"steps": 8000,
+"eval_every": 4000
 },
 {
 "name": "pilot_S8_lr0.0001_s0",
@@ -187,18 +255,8 @@
 "model": "neural",
 "kind": "static",
 "layers": 8,
-"steps": 15000,
-"eval_every": 5000
-},
-{
-"name": "pilot_S8_lr0.0001_s1",
-"arm": "S8",
-"seed": 1,
-"lr": 0.0001,
-"model": "neural",
-"kind": "static",
-"layers": 8,
-"steps": 15000,
-"eval_every": 5000
+"deferral": 1,
+"steps": 8000,
+"eval_every": 4000
 }
 ]

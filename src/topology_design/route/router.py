@@ -1,12 +1,14 @@
-"""The Markov router of rung 1 (experiments/route/DESIGN.md §4), run-stacked (leading run dimension R).
+"""The Markov router of rung 1 (experiments/route/DESIGN.md §4, revision 2), run-stacked (leading run dimension R).
 
-pi_theta(a | s, c): the state token (frozen register embedding of symbol s + a learned marker) cross-attends over the
-context's pair tokens (frozen key/value/prev slot embeddings + learned positions, each passed through a small learned
-per-token MLP), then LayerNorm -> MLP -> 3 logits [HOP, PREV, HALT]. The router sees no step index and no history.
-Because pi depends only on (s, c), it is evaluated once per episode for all n_sym symbols: logits (R, B, S, 3).
+pi_theta(a | state, c): the state token (the frozen register embedding of the symbol plus, when state_input = "full",
+frozen directions carrying the pending count and the set-here bit; the symbol alone when "symbol") cross-attends over
+the context's pair tokens (frozen key/value/prev slot embeddings, a frozen flag direction, learned positions, a
+learned per-token MLP; no attention between pairs), then LayerNorm -> MLP -> LayerNorm -> 4 logits [HOP, PREV, SET,
+HALT]. The router sees no step index and no history. Since pi depends only on (state, c) it is evaluated once per
+episode for all NS product states: logits (R, B, NS, 4).
 
-Variants: halt_input="index" gives a step-indexed, state-blind policy (a learned fixed program): logits (T, R, 1, 3).
-plant(router) sets the weights to the exact rule (DESIGN.md §6), one unit from the init.
+kind = "index": a learned table pi(a | t), state-blind (a learned fixed program): logits (T, R, 1, 4).
+plant(router) sets the exact rule for the configured deferral (DESIGN.md §6).
 """
 
 from __future__ import annotations
@@ -21,33 +23,37 @@ import torch.nn.functional as F
 from ..ptr.model import FrozenSymbols
 from ..ptr.stacked import SLinear, SLayerNorm
 from .data import RouteConfig
+from .exec import PER_SYM, NH, HOP, PREV, SET, HALT
 
 
 @dataclass
 class RouterConfig:
-    kind: str = "state"           # "state" (Markov in the symbolic state) | "index" (step-indexed, state-blind)
-    d: int = 344                  # 5 * 66 + 8 -> rounded up to a multiple of 8: five disjoint symbol subspaces
+    kind: str = "state"           # "state" (Markov in the product state) | "index" (step-indexed, state-blind)
+    state_input: str = "full"     # "full" (symbol, pending, set-here) | "symbol" (the symbol only: the F4 null)
+    d: int = 344                  # 5 * 65 + 19: five disjoint symbol subspaces + free directions (flag, count, set)
     heads: int = 2
     mlp: int = 2
-    T: int = 12                   # training horizon (forced halt)
-    lam: float = 0.02             # step cost per circuit application
+    T: int = 14                   # training horizon (forced halt): k_max + the SET steps + slack
+    lam: float = 0.02             # step cost per action other than HALT
     eps: float = 0.02             # readout error of a halted answer
     emb_seed: int = 1234
-    logit_scale: float = 1.0      # init scale of the head weights (N(0, 0.02^2) x scale)
 
     def dict(self):
         return asdict(self)
 
 
 class StackedRouter(nn.Module):
+    FLAG, CNT, SETH = 3, 4, 5     # rows of the frozen free directions used for the flag, the count and set-here
+
     def __init__(self, R: int, rc: RouterConfig, dc: RouteConfig):
         super().__init__()
         self.R, self.rc, self.dc = R, rc, dc
         d = rc.d
         self.sym = FrozenSymbols(dc.n_sym, d, rc.emb_seed, slots=5)
-        assert self.sym.exact, "d must hold five disjoint symbol subspaces"
+        assert self.sym.exact and self.sym.free.shape[0] >= 6, "d must hold five symbol subspaces and six free directions"
+        self.NS = dc.n_sym * PER_SYM
         if rc.kind == "index":
-            self.table = nn.Parameter(torch.zeros(R, 64, 3))
+            self.table = nn.Parameter(torch.zeros(R, 64, 4))
             return
         self.marker = nn.Parameter(torch.randn(R, d) * 0.02)
         self.pos = nn.Parameter(torch.randn(R, dc.P + 1, d) * 0.02)
@@ -57,70 +63,71 @@ class StackedRouter(nn.Module):
         self.norm = SLayerNorm(R, d)
         self.f1, self.f2 = SLinear(R, d, rc.mlp * d), SLinear(R, rc.mlp * d, d)
         self.head_norm = SLayerNorm(R, d)
-        self.head = SLinear(R, d, 3)
+        self.head = SLinear(R, d, 4)
         with torch.no_grad():
-            self.head.weight.normal_(std=0.02 * rc.logit_scale)
+            self.head.weight.normal_(std=0.02)
             self.head.bias.zero_()
 
-    def context(self, b: dict):
-        """(R, B, P + 1, d): BOS sink then the pair tokens, after the per-token MLP (no attention between pairs:
-        the context is read-only, as in rung 0)."""
-        R, B, P = self.R, b["pair_key"].shape[1], self.dc.P
-        x = self.sym.key_slot[b["pair_key"]] + self.sym.val_slot[b["pair_val"]] + self.sym.prev_slot[b["pair_prev"]]
-        bos = torch.zeros(R, B, 1, x.shape[-1], device=x.device, dtype=x.dtype)
-        x = torch.cat([bos, x], 2) + self.pos[:, None, :P + 1]
-        x = x + self.ctx_f2(F.gelu(self.ctx_f1(self.ctx_norm(x))))
+    def state_tokens(self):
+        """(NS, d): frozen embeddings of every product state (symbol register + count and set-here markers)."""
+        ids = torch.arange(self.NS, device=self.sym.reg_slot.device)
+        s, c, h = ids // PER_SYM, (ids % PER_SYM) // NH, ids % NH
+        x = self.sym.reg_slot[s]
+        if self.rc.state_input == "full":
+            x = x + c.float().unsqueeze(-1) * self.sym.free[self.CNT] + h.float().unsqueeze(-1) * self.sym.free[self.SETH]
         return x
 
+    def context(self, b: dict):
+        """(R, B, P + 1, d): BOS sink then the pair tokens after the per-token MLP (no attention between pairs)."""
+        R, B, P = self.R, b["pair_key"].shape[1], self.dc.P
+        x = (self.sym.key_slot[b["pair_key"]] + self.sym.val_slot[b["pair_val"]] + self.sym.prev_slot[b["pair_prev"]]
+             + b["pair_flag"].to(self.sym.free.dtype).unsqueeze(-1) * self.sym.free[self.FLAG])
+        bos = torch.zeros(R, B, 1, x.shape[-1], device=x.device, dtype=x.dtype)
+        x = torch.cat([bos, x], 2) + self.pos[:, None, :P + 1]
+        return x + self.ctx_f2(F.gelu(self.ctx_f1(self.ctx_norm(x))))
+
+    def _trunk(self, b: dict):
+        ctx = self.context(b)
+        R, B, N, d = ctx.shape
+        st = self.state_tokens().unsqueeze(0).expand(R, self.NS, d) + self.marker[:, None, :]
+        h = self.rc.heads; hd = d // h
+        q = self.q(st).view(R, 1, self.NS, h, hd).expand(R, B, self.NS, h, hd).reshape(R * B, self.NS, h, hd).transpose(1, 2)
+        k = self.k(ctx).view(R * B, N, h, hd).transpose(1, 2)
+        v = self.v(ctx).view(R * B, N, h, hd).transpose(1, 2)
+        a = F.scaled_dot_product_attention(q, k, v).transpose(1, 2).reshape(R, B, self.NS, d)
+        x = st.unsqueeze(1) + self.o(a)
+        x = x + self.f2(F.gelu(self.f1(self.norm(x))))
+        return self.head_norm(x)                                                               # (R, B, NS, d)
+
     def logits(self, b: dict, T: int | None = None):
-        """State-conditioned: (R, B, S, 3) for every symbol. Index-conditioned: (T, R, 1, 3) (broadcast over B)."""
-        R = self.R
+        """State-conditioned: (R, B, NS, 4) for every product state. Index-conditioned: (T, R, 1, 4)."""
         if self.rc.kind == "index":
             T = self.rc.T if T is None else T
             idx = torch.clamp(torch.arange(T, device=self.table.device), max=self.rc.T - 1)   # repeat the last trained logit
-            return self.table[:, idx].permute(1, 0, 2).unsqueeze(2)                           # (T, R, 1, 3)
-        ctx = self.context(b)                                                                  # (R, B, N, d)
-        B, N, d = ctx.shape[1], ctx.shape[2], ctx.shape[3]
-        S = self.dc.n_sym
-        st = self.sym.reg_slot.unsqueeze(0).expand(R, S, d) + self.marker[:, None, :]           # (R, S, d)
-        h = self.rc.heads; hd = d // h
-        q = self.q(st).view(R, 1, S, h, hd).expand(R, B, S, h, hd).reshape(R * B, S, h, hd).transpose(1, 2)
-        k = self.k(ctx).view(R * B, N, h, hd).transpose(1, 2)
-        v = self.v(ctx).view(R * B, N, h, hd).transpose(1, 2)
-        a = F.scaled_dot_product_attention(q, k, v)                                            # (R*B, h, S, hd)
-        a = a.transpose(1, 2).reshape(R, B, S, d)
-        x = st.unsqueeze(1) + self.o(a)
-        x = x + self.f2(F.gelu(self.f1(self.norm(x))))
-        return self.head(self.head_norm(x)).float()                                            # (R, B, S, 3)
+            return self.table[:, idx].permute(1, 0, 2).unsqueeze(2)
+        return self.head(self._trunk(b)).float()
 
     def features(self, b: dict):
-        """The head's input (R, B, S, d) after the LayerNorm, for the remaining-distance probe."""
-        ctx = self.context(b)
-        R, B, N, d = ctx.shape
-        S = self.dc.n_sym
-        st = self.sym.reg_slot.unsqueeze(0).expand(R, S, d) + self.marker[:, None, :]
-        h = self.rc.heads; hd = d // h
-        q = self.q(st).view(R, 1, S, h, hd).expand(R, B, S, h, hd).reshape(R * B, S, h, hd).transpose(1, 2)
-        k = self.k(ctx).view(R * B, N, h, hd).transpose(1, 2)
-        v = self.v(ctx).view(R * B, N, h, hd).transpose(1, 2)
-        a = F.scaled_dot_product_attention(q, k, v).transpose(1, 2).reshape(R, B, S, d)
-        x = st.unsqueeze(1) + self.o(a)
-        x = x + self.f2(F.gelu(self.f1(self.norm(x))))
-        return self.head_norm(x)
+        """The head's input (R, B, NS, d) after the LayerNorm."""
+        return self._trunk(b)
 
 
 @torch.no_grad()
 def plant(m: StackedRouter, beta: float = 30.0, kappa: float = 15.0, gain: float = 3.0, hop_bias: float = 4.0) -> StackedRouter:
-    """The exact rule (DESIGN.md §6). Head 0 matches the state's register against the pair keys (score beta on the
-    match; a BOS sink at kappa for symbols with no pair) and reads the pair's value slot back into the stream. The
-    linear head then tests the read value: PREV fires on the ARROW direction, HALT on the answer directions of the
-    register itself (a state holding an answer has no matching pair, so the sink wins and the read value is zero),
-    and HOP wins by a constant bias when neither fires (a key or an answer in the value slot: hop to it). The per-token MLPs
-    are zeroed. Head weights have norm `gain` and the HOP bias `hop_bias`: a few units from the init (L24)."""
+    """The exact rule (DESIGN.md §6), linear in the LayerNormed head input. Head 0 matches the state's register
+    against the pair keys (score beta on the match, a BOS sink at kappa for symbols without a pair) and reads the
+    matched pair's flag coordinate back into the stream along the flag direction. The head then tests
+      HALT: the register's answer (or dead) directions;
+      SET:  flag - set_here            (positive only at a flagged pair not yet set here);
+      PREV: pending - set_here (deferral 1) or pending (deferral 0), minus half the flag (so SET wins where both fire);
+      HOP:  a constant bias, when nothing else fires.
+    All frozen directions are orthogonal to the ones direction, so the LayerNorm only rescales them (by sqrt(d)/|x|).
+    Head weights have norm ~ gain .. 2 gain and the HOP bias hop_bias, a few units from the init (L24); the committed
+    route is exact at the defaults, the marginal is sharp at gain 6 / bias 8."""
     R, d, dc = m.R, m.rc.d, m.dc
     hd = d // m.rc.heads
     n = dc.n_sym
-    assert n <= hd
+    assert n <= hd and m.rc.kind == "state" and m.rc.state_input == "full"
     for lin in (m.ctx_f1, m.ctx_f2, m.f1, m.f2, m.o, m.q, m.k, m.v):
         lin.weight.zero_(); lin.bias.zero_()
     m.pos.zero_(); m.marker.zero_()
@@ -128,15 +135,16 @@ def plant(m: StackedRouter, beta: float = 30.0, kappa: float = 15.0, gain: float
     Q = torch.zeros(d, d); K = torch.zeros(d, d); V = torch.zeros(d, d); O = torch.zeros(d, d)
     Q[:, :n] = m.sym.reg_slot.T * scale                           # state register -> one-hot coordinates of head 0
     K[:, :n] = m.sym.key_slot.T                                   # pair key -> the same coordinates
-    V[:, :n] = m.sym.val_slot.T                                   # pair value -> coordinates, read back by o
-    O[:n, :] = m.sym.val_slot                                     # coordinates -> the value-slot subspace
+    flag, cnt, seth = m.sym.free[m.FLAG], m.sym.free[m.CNT], m.sym.free[m.SETH]
+    V[:, 0] = flag                                                # coordinate 0 of head 0 = the pair's flag bit
+    O[0, :] = flag                                                # back into the stream along the flag direction
     for lin, W in ((m.q, Q), (m.k, K), (m.v, V), (m.o, O)):
         lin.weight.copy_(W.unsqueeze(0).expand(R, d, d))
     # the BOS sink: K^T pos[0] = (kappa / beta) * ones(n) gives every state a score kappa with BOS
     m.pos[:, 0] = (m.sym.key_slot.T @ torch.full((n,), kappa / beta)).unsqueeze(0).expand(R, d)
-    ans_reg = m.sym.reg_slot[dc.n_keys:dc.n_keys + dc.n_ans].sum(0); ans_reg = ans_reg / ans_reg.norm()
-    arrow = m.sym.val_slot[dc.ARROW]
-    W = torch.stack([torch.zeros(d), arrow * gain, ans_reg * gain], 1)                 # (d, 3): HOP, PREV, HALT
-    m.head.weight.copy_(W.unsqueeze(0).expand(R, d, 3))
-    m.head.bias.zero_(); m.head.bias[:, :, 0] = hop_bias
+    halt_dir = m.sym.reg_slot[dc.n_keys:].sum(0); halt_dir = halt_dir / halt_dir.norm()
+    prev_dir = cnt - (seth if dc.deferral == 1 else 0.0 * seth)
+    W = torch.stack([torch.zeros(d), prev_dir * gain - flag * gain * 0.5, (flag - seth) * gain * 2, halt_dir * gain * 2], 1)
+    m.head.weight.copy_(W.unsqueeze(0).expand(R, d, 4))
+    m.head.bias.zero_(); m.head.bias[:, :, HOP] = hop_bias
     return m

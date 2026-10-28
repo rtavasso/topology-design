@@ -27,13 +27,13 @@ import torch  # noqa: E402
 from topology_design.route import train_route, train_neural  # noqa: E402
 
 PER_RUN_KEYS = ("seed", "lr")
-SEC = {"router": 0.02, "static": 0.0075, "looped": 0.0072}      # per run-step (static: per layer; looped: per loop)
+SEC = {"router": 0.08, "index": 0.02, "static": 0.0075, "looped": 0.0072}   # per run-step (static: per layer; looped: per loop)
 
 
 def est_cost(cfg):
     steps = int(cfg.get("steps", 6000))
     if cfg.get("model") == "router":
-        return steps * SEC["router"]
+        return steps * SEC["index" if cfg.get("kind") == "index" else "router"]
     if cfg.get("kind") == "static":
         return steps * SEC["static"] * int(cfg.get("layers", 4))
     return steps * SEC["looped"] * int(cfg.get("T", 10))
@@ -72,7 +72,14 @@ def run_chunk(chunk, dev, path_of):
         if len(chunk) > 1:
             h = len(chunk) // 2
             print(f"=== splitting the stack of {len(chunk)} into {h} + {len(chunk) - h} and retrying", flush=True)
-            run_chunk(chunk[:h], dev, path_of); run_chunk(chunk[h:], dev, path_of)
+            errs = []
+            for part in (chunk[:h], chunk[h:]):                 # both halves are tried even if the first fails
+                try:
+                    run_chunk(part, dev, path_of)
+                except Exception as e:
+                    traceback.print_exc(); errs.append(e)
+            if errs:
+                raise errs[0]
             return
         raise
     for c, rec in zip(chunk, recs):

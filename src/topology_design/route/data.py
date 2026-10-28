@@ -1,13 +1,18 @@
-"""Episodes for rung 1 (experiments/route/DESIGN.md §2): chains over keys whose steps are one of two generic circuits,
-HOP (follow the pair's value) or PREV (go to the key of the pair immediately before, written as the value ←).
+"""Episodes for rung 1 (experiments/route/DESIGN.md §2, revision 2): chains over keys whose steps are one of two
+generic circuits, HOP (follow the pair's value) or PREV (go to the key of the pair immediately before). A P-step is
+announced by a FLAG on a pair `deferral` states earlier: deferral 0 flags the pair the P-step leaves from (a local
+trigger); deferral 1 flags the pair one state before that ("the step out of the next state is PREV"), so the route
+must carry a pending bit across a hop (a non-local trigger; the thesis setting).
 
-Symbol ids: keys 0..n_keys-1, answers n_keys..n_keys+n_ans-1, ARROW = n_keys+n_ans (the ← marker, a value only),
-DEAD = ARROW + 1 (⊥, the executor's dead state; also the "no previous pair" marker in the prev slot).
+Symbol ids: keys 0..n_keys-1, answers n_keys..n_keys+n_ans-1, DEAD = n_keys + n_ans (⊥; also the "no previous pair"
+marker in the prev slot).
 
-A chain is s_0 -> s_1 -> ... -> s_k with s_k an answer and a word w in {H, P}^k ending in H:
-  H: pair(s_{i-1}).value = s_i;      P: pair(s_{i-1}).value = ARROW and pair(s_i) sits right before pair(s_{i-1}).
-Every pair token carries (key, value, prev) with prev = the key of the pair before it in context order (DEAD for the
-first). Everything is numpy; tensors are built by the model code.
+A chain is s_0 -> s_1 -> ... -> s_k with s_k an answer and a word w in {H, P}^k, w_1 = H and w_k = H:
+  H at step i: pair(s_{i-1}).value = s_i;
+  P at step i: pair(s_i) sits right before pair(s_{i-1}) in context order; pair(s_{i-1}).value is a DECOY (a random
+               key of another chain, so HOP from s_{i-1} wanders rather than dies); the flag sits on
+               pair(s_{i-1-deferral}).
+Every pair token carries (key, value, prev, flag). Everything is numpy; tensors are built by the model code.
 """
 
 from __future__ import annotations
@@ -16,7 +21,7 @@ from dataclasses import dataclass, field, asdict
 
 import numpy as np
 
-H, P = 0, 1          # action codes in words (HALT is 2 in the router's action space)
+H, P = 0, 1          # step codes in words
 
 
 @dataclass
@@ -27,9 +32,10 @@ class RouteConfig:
     Qn: int = 6
     alpha: float = 1.5          # Zipf exponent of queried chain lengths
     kmax: int = 8
-    p_P: float = 0.25           # probability that a non-final step is P (training family: no two consecutive P's)
+    p_P: float = 0.3            # probability that an admissible step (2 .. k-1) is P
     max_prun: int = 1           # longest P-run allowed in training words
-    tail_factor: float = 1.0    # pooling manipulation as in rung 0 (unused here; kept for config compatibility)
+    deferral: int = 1           # where the flag sits: 0 = on the P-step's own pair, 1 = one state earlier
+    tail_factor: float = 1.0
     k_deep: int = 6
     seed: int = 0
 
@@ -37,16 +43,12 @@ class RouteConfig:
         return asdict(self)
 
     @property
-    def ARROW(self):
+    def DEAD(self):
         return self.n_keys + self.n_ans
 
     @property
-    def DEAD(self):
-        return self.n_keys + self.n_ans + 1
-
-    @property
     def n_sym(self):
-        return self.n_keys + self.n_ans + 2
+        return self.n_keys + self.n_ans + 1
 
 
 def zipf_pmf(alpha, kmax, tail_factor=1.0, k_deep=6):
@@ -59,8 +61,9 @@ def zipf_pmf(alpha, kmax, tail_factor=1.0, k_deep=6):
 @dataclass
 class Episodes:
     pair_key: np.ndarray    # (B, P)
-    pair_val: np.ndarray    # (B, P): key, answer or ARROW
+    pair_val: np.ndarray    # (B, P): a key or an answer (a decoy key at P-steps)
     pair_prev: np.ndarray   # (B, P): key of the previous pair in context order, DEAD for the first
+    pair_flag: np.ndarray   # (B, P): 1 where a P-step is announced
     q_start: np.ndarray     # (B, Qn)
     q_ans: np.ndarray       # (B, Qn)
     q_k: np.ndarray         # (B, Qn)
@@ -74,23 +77,21 @@ class Episodes:
 
 # ---------- words ----------
 def sample_word(rng, k, p_P, max_prun):
-    """A word of length k ending in H, with P-runs of at most max_prun; P chosen with probability p_P where allowed."""
+    """A word of length k with w_1 = H and w_k = H, P-runs of at most max_prun, P with probability p_P where allowed."""
     w = np.zeros(k, dtype=np.int64)
     run = 0
-    for i in range(k - 1):
+    for i in range(1, k - 1):
         if run < max_prun and rng.random() < p_P:
             w[i] = P; run += 1
         else:
             w[i] = H; run = 0
-    w[k - 1] = H
     return w
 
 
 def word_class(w):
-    """Descriptors used by the evaluation strata: longest P-run, number of P's, deepest P (1-based step), length."""
     w = np.asarray(w)
     k = len(w)
-    runs, best, cur = [], 0, 0
+    best, cur = 0, 0
     for a in w:
         cur = cur + 1 if a == P else 0
         best = max(best, cur)
@@ -99,33 +100,36 @@ def word_class(w):
     return {"k": k, "max_prun": best, "nP": nP, "deepest_P": deepest}
 
 
-def forced_word(rng, k, kind, p_P=0.25):
-    """Words for the evaluation strata. kind: 'train' (training statistics), 'pp' (contains a PP run; PPP allowed),
-    'alt' (alternation H P H P ... ending in H), 'deepP' (a P at step >= 6, training statistics otherwise),
-    'none' (all H)."""
+def forced_word(rng, k, kind, p_P=0.3):
+    """Evaluation strata. 'train': training statistics; 'none': all H; 'pp': contains a PP run (PPP allowed);
+    'alt': H P H P ... with w_1 = w_k = H; 'deepP': a P at step >= 6."""
     if kind == "train":
         return sample_word(rng, k, p_P, 1)
     if kind == "none":
         return np.zeros(k, dtype=np.int64)
     if kind == "alt":
-        w = np.array([P if (k - 1 - i) % 2 == 1 else H for i in range(k)], dtype=np.int64)   # ends in H
+        assert k >= 3
+        w = np.zeros(k, dtype=np.int64)
+        for i in range(1, k - 1):
+            w[i] = P if (i % 2 == 1) else H
         return w
     if kind == "pp":
-        assert k >= 3
-        w = sample_word(rng, k, p_P, 3)
-        # ensure at least one PP: plant a run of length 2 or 3 at a random admissible place
-        run = 2 if (k < 5 or rng.random() < 0.6) else 3
-        start = int(rng.integers(0, k - run))        # steps start .. start+run-1 are P; the last step stays H
+        assert k >= 4
+        w = sample_word(rng, k, p_P, 1)
+        run = 2 if (k < 6 or rng.random() < 0.6) else 3
+        start = int(rng.integers(1, k - run))        # steps start .. start+run-1 (0-based) are P; w_0 and w_{k-1} stay H
         w[start:start + run] = P
-        w[k - 1] = H
+        w[start - 1] = H                             # the run is exactly `run` long: H on both sides
+        if start + run < k:
+            w[start + run] = H
+        w[0] = H; w[k - 1] = H
         return w
     if kind == "deepP":
         assert k >= 7
         w = sample_word(rng, k, p_P, 1)
-        pos = int(rng.integers(5, k - 1))             # 0-based step index >= 5 means step >= 6
+        pos = int(rng.integers(5, k - 1))
         w[pos] = P
-        if pos > 0:
-            w[pos - 1] = H
+        w[pos - 1] = H
         if pos + 1 < k - 1:
             w[pos + 1] = H
         return w
@@ -149,81 +153,93 @@ def generate(cfg: RouteConfig, B: int, rng: np.random.Generator, forced_k=None, 
     Qn = cfg.Qn if Qn is None else Qn
     kmax_eval = max(cfg.kmax, forced_k or 0) if kmax_eval is None else kmax_eval
     Pn = cfg.P
-    pair_key = np.zeros((B, Pn), np.int64); pair_val = np.zeros((B, Pn), np.int64); pair_prev = np.zeros((B, Pn), np.int64)
+    pair_key = np.zeros((B, Pn), np.int64); pair_val = np.zeros((B, Pn), np.int64)
+    pair_prev = np.zeros((B, Pn), np.int64); pair_flag = np.zeros((B, Pn), np.int64)
     q_start = np.zeros((B, Qn), np.int64); q_ans = np.zeros((B, Qn), np.int64); q_k = np.zeros((B, Qn), np.int64)
     q_word = np.full((B, Qn, kmax_eval), -1, np.int64)
+    pmf = zipf_pmf(cfg.alpha, cfg.kmax, cfg.tail_factor, cfg.k_deep)
     for b in range(B):
         keys = rng.permutation(cfg.n_keys)
         ks = _chain_lengths(rng, Qn, cfg, forced_k)
-        chains = []          # list of (key list, word, answer)
+        chains = []
         used = 0
         for j, k in enumerate(ks):
             w = forced_word(rng, k, forced_kind, cfg.p_P) if (j == 0 and forced_kind) else sample_word(rng, k, cfg.p_P, cfg.max_prun)
             chains.append((keys[used:used + k], w, cfg.n_keys + int(rng.integers(cfg.n_ans))))
             used += k
-        # distractor chains over the remaining keys, from the training family
-        pmf = zipf_pmf(cfg.alpha, cfg.kmax, cfg.tail_factor, cfg.k_deep)
         while used < cfg.n_keys:
             k = min(int(rng.choice(np.arange(1, cfg.kmax + 1), p=pmf)), cfg.n_keys - used)
             chains.append((keys[used:used + k], sample_word(rng, k, cfg.p_P, cfg.max_prun), cfg.n_keys + int(rng.integers(cfg.n_ans))))
             used += k
-        # pairs and the adjacency blocks: a P-step from s_{i-1} to s_i puts pair(s_i) right before pair(s_{i-1})
-        blocks = []
-        val = {}
+        val, flag = {}, {}
         for ck, w, ans in chains:
             k = len(ck)
-            for i in range(k):
+            for i in range(k):                                # step i+1 leaves s_i
                 nxt = ck[i + 1] if i + 1 < k else ans
-                val[ck[i]] = nxt if w[i] == H else cfg.ARROW
-            # split the chain into blocks at H-steps; within a block (a P-run) the order is reversed
-            block = [ck[0]]
-            for i in range(k - 1):
-                if w[i] == P:
-                    block.append(ck[i + 1])
+                if w[i] == H:
+                    val[ck[i]] = nxt
                 else:
-                    blocks.append(block[::-1]); block = [ck[i + 1]]
-            blocks.append(block[::-1])
+                    other = [kk for kk in keys if kk not in ck]   # a decoy: HOP wanders into another chain
+                    val[ck[i]] = int(rng.choice(other)) if other else int(ck[0])
+                    flag[ck[max(i - cfg.deferral, 0)]] = 1
+        blocks = []
+        for ck, w, ans in chains:
+            k = len(ck)
+            # a P at step i (leaving s_{i-1}) puts pair(s_i) right before pair(s_{i-1}): a P-run is one reversed block
+            blocks_c, block = [], [ck[0]]
+            for i in range(1, k):                             # state s_i, reached by step i (w[i-1])
+                if w[i - 1] == P:
+                    block.append(ck[i])
+                else:
+                    blocks_c.append(block[::-1]); block = [ck[i]]
+            blocks_c.append(block[::-1])
+            blocks.extend(blocks_c)
         order = rng.permutation(len(blocks))
         seq = [kk for o in order for kk in blocks[o]]
         assert len(seq) == Pn
         pair_key[b] = seq
         pair_val[b] = [val[kk] for kk in seq]
         pair_prev[b] = [cfg.DEAD] + seq[:-1]
+        pair_flag[b] = [flag.get(kk, 0) for kk in seq]
         for j, (ck, w, ans) in enumerate(chains[:Qn]):
             q_start[b, j], q_ans[b, j], q_k[b, j] = ck[0], ans, len(ck)
             q_word[b, j, :len(w)] = w
-    return Episodes(pair_key, pair_val, pair_prev, q_start, q_ans, q_k, q_word, meta={"forced_kind": forced_kind})
+    return Episodes(pair_key, pair_val, pair_prev, pair_flag, q_start, q_ans, q_k, q_word, meta={"forced_kind": forced_kind})
 
 
-# ---------- exact reference executor (numpy, one state) ----------
-def step(ep: Episodes, b: int, s: int, a: int, cfg: RouteConfig) -> int:
-    """exec_a(s) for a in {H, P} on episode b."""
-    if s >= cfg.n_keys:
-        return s if s < cfg.n_keys + cfg.n_ans else cfg.DEAD         # answers absorb; ARROW/DEAD are dead
-    pos = int(np.where(ep.pair_key[b] == s)[0][0])
-    if a == H:
-        v = int(ep.pair_val[b, pos])
-        return v if v != cfg.ARROW else cfg.DEAD
-    return int(ep.pair_prev[b, pos])
-
-
-def follow(ep: Episodes, b: int, j: int, cfg: RouteConfig):
-    """States along query j's oracle route: s_0 .. s_k."""
-    s = int(ep.q_start[b, j]); states = [s]
-    for a in ep.q_word[b, j, :ep.q_k[b, j]]:
-        s = step(ep, b, s, int(a), cfg); states.append(s)
-    return states
+# ---------- the exact reference executor (numpy, one query) ----------
+def oracle_actions(ep: Episodes, b: int, j: int, cfg: RouteConfig):
+    """The oracle route of query j as (states, actions) over the product state (symbol, pending, set_here), following
+    the written rule: HALT on an answer; SET at a flagged pair not yet set here; PREV when a pending flag applies to
+    this exit (deferral 1: pending minus the one set here; deferral 0: pending); else HOP."""
+    from .exec import HOP, PREV, SET, HALT   # action codes
+    pos = {int(k): i for i, k in enumerate(ep.pair_key[b])}
+    s, c, h = int(ep.q_start[b, j]), 0, 0
+    states, acts = [(s, c, h)], []
+    for _ in range(200):
+        if s >= cfg.n_keys:
+            acts.append(HALT); break
+        p = pos[s]
+        fl = int(ep.pair_flag[b, p])
+        if fl and h == 0:
+            a = SET; c, h = min(c + 1, 2), 1
+        elif (c - (h if cfg.deferral == 1 else 0)) >= 1:
+            a = PREV; s, c, h = int(ep.pair_prev[b, p]), c - 1, 0
+        else:
+            a = HOP; s, c, h = int(ep.pair_val[b, p]), c, 0
+        acts.append(a); states.append((s, c, h))
+    return states, acts
 
 
 def check_episode(ep: Episodes, cfg: RouteConfig):
-    """Every key once; every query's oracle route reaches its answer; the word is readable from the data."""
+    """Every key once; every query's oracle route reaches its answer with the word's P-steps as PREV actions."""
+    from .exec import PREV, HALT
     for b in range(ep.B):
         assert sorted(ep.pair_key[b].tolist()) == list(range(cfg.n_keys))
         for j in range(ep.q_start.shape[1]):
-            st = follow(ep, b, j, cfg)
-            assert st[-1] == ep.q_ans[b, j], (b, j, st)
-            assert all(cfg.n_keys > x for x in st[:-1])
-            # the word is written in the data: value == ARROW exactly at the P-steps
-            for i, a in enumerate(ep.q_word[b, j, :ep.q_k[b, j]]):
-                pos = int(np.where(ep.pair_key[b] == st[i])[0][0])
-                assert (ep.pair_val[b, pos] == cfg.ARROW) == (a == P)
+            states, acts = oracle_actions(ep, b, j, cfg)
+            assert acts[-1] == HALT and states[-1][0] == ep.q_ans[b, j], (b, j, states, acts)
+            w = ep.q_word[b, j, :ep.q_k[b, j]]
+            assert sum(a == PREV for a in acts) == int((w == P).sum())
+            moves = [a for a in acts if a in (0, 1)]
+            assert [int(m == PREV) for m in moves] == w.tolist()

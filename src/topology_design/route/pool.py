@@ -10,7 +10,7 @@ import torch
 
 from .data import RouteConfig, Episodes, generate
 
-KEYS = ("pair_key", "pair_val", "pair_prev", "q_start", "q_ans", "q_k", "q_word")
+KEYS = ("pair_key", "pair_val", "pair_prev", "pair_flag", "q_start", "q_ans", "q_k", "q_word")
 
 
 def to_dict(ep: Episodes, dev) -> dict:
@@ -53,10 +53,14 @@ def stack_batches(batches: list[dict]) -> dict:
 
 
 # evaluation strata (DESIGN.md §2): name -> (k, kind)
+# in-range (training words), all-H controls, length, and the new orders: PP runs (pending count 2, unseen in
+# training), alternation (training words, a frequency stratum), a deep P (training words, rare), long new orders
 STRATA = ([(f"in{k}", (k, "train")) for k in range(1, 9)]
+          + [(f"none{k}", (k, "none")) for k in (3, 4, 8)]
           + [(f"len{k}", (k, "train")) for k in (10, 12, 16, 20, 24, 32)]
           + [(f"pp{k}", (k, "pp")) for k in (4, 6, 8)] + [(f"alt{k}", (k, "alt")) for k in (4, 6, 8)]
           + [("deepP8", (8, "deepP"))] + [(f"pp{k}", (k, "pp")) for k in (16, 32)] + [(f"alt{k}", (k, "alt")) for k in (16, 32)])
+NEW_ORDER = ("pp4", "pp6", "pp8", "pp16", "pp32")          # the only strata whose words are outside the training support
 
 
 def strata_episodes(cfg: RouteConfig, n: int, seed: int, Qn: int = 3) -> dict:

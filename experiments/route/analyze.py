@@ -1,12 +1,13 @@
-"""Analysis of rung-1 results (experiments/route/DESIGN.md §§9–10).
+"""Analysis of rung-1 results (experiments/route/DESIGN.md §§9–10, revision 2).
 
     PYTHONPATH=src python experiments/route/analyze.py results/kaggle_route-main [--md out.md]
 
-Per arm (routed and neural; LF's stability exit LR and its training-depth evaluation as their own rows): route /
-answer / marginal accuracy and steps by stratum (run mean ± s.e.); the preregistered paired comparisons (P1–P8) as
-run-level seed bootstraps with per-seed counts; the residual study (p(HALT) and entropy by remaining distance, the
-probe R²); pooling for selection (accuracy on P-at-depth-d words along training); steps to criterion by k;
-extrapolation over training. Verdicts here are descriptive; §10 fixes the thresholds.
+Per arm (routed and neural; LF's stability exit LR, its training-depth evaluation and its oracle-depth reading as
+their own rows): route / answer / marginal accuracy and steps by stratum (run mean ± s.e.), split by words with and
+without a P; the preregistered comparisons (P1–P9) as run-level seed bootstraps with per-seed counts; the residual
+study (p(HALT) by remaining distance); the first deviation from the oracle route; pooling for selection (held-out
+accuracy on P-at-depth-d words); steps to criterion by k and the SET / PREV flip times on the held-out criterion
+set; extrapolation over training. Verdicts here are descriptive; §10 fixes the thresholds.
 """
 
 from __future__ import annotations
@@ -20,10 +21,11 @@ from collections import defaultdict
 
 import numpy as np
 
-STRATA_ORDER = ([f"in{k}" for k in range(1, 9)] + [f"len{k}" for k in (10, 12, 16, 20, 24, 32)]
+STRATA_ORDER = ([f"in{k}" for k in range(1, 9)] + ["none3", "none4", "none8"] + [f"len{k}" for k in (10, 12, 16, 20, 24, 32)]
                 + ["pp4", "pp6", "pp8", "alt4", "alt6", "alt8", "deepP8", "pp16", "pp32", "alt16", "alt32"])
 LR_PRIMARY = "0.01"
 CRIT = 0.95
+ZIPF = (lambda k: np.arange(1, k + 1) ** -1.5 / (np.arange(1, k + 1) ** -1.5).sum())(8)
 
 
 def load(folders):
@@ -56,6 +58,7 @@ def mean_se(x):
 
 
 def derived_rows(r):
+    """LF: its training-depth evaluation, the stability exit (LR) and the oracle-depth reading as separate rows."""
     rows = []
     fin = final(r)
     if "eval_T_train" in r:
@@ -69,6 +72,11 @@ def derived_rows(r):
                           "q_steps": v["kl_exit"][LR_PRIMARY]["q_steps"]}
         twin = dict(r); twin["evals"] = [{"eval": ins}]
         rows.append((group_key(r).replace("LF", "LR", 1), twin))
+    if any("acc_at_k" in v for v in fin.values() if isinstance(v, dict)):
+        for fld, tag in (("acc_at_k", "LF@k"), ("acc_at_k1", "LF@k+1"), ("acc_any", "LF@any")):
+            ins = {k: {"acc": v[fld], "q_steps": float("nan")} for k, v in fin.items() if isinstance(v, dict) and fld in v}
+            twin = dict(r); twin["evals"] = [{"eval": ins}]
+            rows.append((group_key(r).replace("LF", tag, 1), twin))
     return rows
 
 
@@ -81,15 +89,15 @@ def build_groups(recs):
     return groups
 
 
-def table(groups, out, field, title, fmt="{:.2f}"):
+def table(groups, out, field, title, fmt="{:.2f}", strata=STRATA_ORDER):
     out(f"\n## {title} by stratum (run mean ± s.e.; n runs)\n")
-    out("| arm | n | " + " | ".join(STRATA_ORDER) + " |")
-    out("|---|---|" + "---|" * len(STRATA_ORDER))
+    out("| arm | n | " + " | ".join(strata) + " |")
+    out("|---|---|" + "---|" * len(strata))
     for g, rs in sorted(groups.items()):
         cells = []
-        for st in STRATA_ORDER:
+        for st in strata:
             m, se = mean_se([final(r).get(st, {}).get(field) for r in rs])
-            cells.append((fmt.format(m) + (f"±{se:.2f}" if field != "q_steps" else "")) if not np.isnan(m) else "–")
+            cells.append((fmt.format(m) + (f"±{se:.2f}" if "steps" not in field else "")) if not np.isnan(m) else "–")
         if all(c == "–" for c in cells):
             continue
         out(f"| {g} | {len(rs)} | " + " | ".join(cells) + " |")
@@ -121,7 +129,14 @@ def at(st, field):
     return lambda r: final(r).get(st, {}).get(field)
 
 
-def counts(groups, out, field, strata, lo=0.6, hi=0.9):
+def zipf_in_range(field):
+    def f(r):
+        v = [final(r).get(f"in{k}", {}).get(field) for k in range(1, 9)]
+        return None if any(x is None for x in v) else float(np.dot(ZIPF, v))
+    return f
+
+
+def counts(groups, out, field, strata, lo=0.5, hi=0.95):
     out(f"\n### Per-seed counts of {field} (≥ {hi} / {lo}–{hi} / < {lo})\n")
     for g, rs in sorted(groups.items()):
         cells = []
@@ -135,60 +150,110 @@ def counts(groups, out, field, strata, lo=0.6, hi=0.9):
 
 
 def preregistered(groups, out):
-    out("\n## Preregistered comparisons (DESIGN.md §10; run-level bootstrap over paired seeds)\n")
+    out("\n## Preregistered comparisons (DESIGN.md §10; run-level bootstrap over paired seeds; A − B)\n")
     def line(label, a, b, fa, fb=None):
         x, y = paired(groups, a, b, fa, fb)
         if not x:
             out(f"- {label}: – (arms not both present)"); return
         (pg, pl), d = p_gt(x, y)
         out(f"- {label}: n = {len(x)}, mean(A − B) = {d:+.3f}, P(A > B) = {pg:.3f}, P(A < B) = {pl:.3f}")
-    for st in ("in8", "pp8", "alt8", "len16", "len32", "pp16", "alt32"):
-        line(f"P1/P3 route_acc@{st}: RM − RMT", "RM", "RMT", at(st, "route_acc"))
-        line(f"P2/P3/P5 acc@{st}: RM − LR", "RM", "LR", at(st, "acc"))
+    def solo(label, a, fa):
+        v = [fa(r) for r in groups.get(a, [])]; v = [x for x in v if x is not None]
+        if v:
+            out(f"- {label}: n = {len(v)}, mean {np.mean(v):.3f}, min {min(v):.3f}, max {max(v):.3f}")
+    out("\n### P1 (the deferred rule is learned from the marginal; RM-T the speed reference)")
+    for st in ("in4", "in8"):
+        solo(f"P1 RM route_acc_P@{st}", "RM", at(st, "route_acc_P"))
+        line(f"P1 route_acc_P@{st}: RM − RMT", "RM", "RMT", at(st, "route_acc_P"))
+    solo("P1 RM Zipf in-range route_acc", "RM", zipf_in_range("route_acc"))
+    out("\n### P2 (length: by construction once P1 holds)")
+    for st in ("len16", "len32"):
+        line(f"P2 route_acc@{st} − in8 (RM)", "RM", "RM", at(st, "route_acc"), at("in8", "route_acc"))
+        line(f"P2 route_acc@{st} − in8 (RMd0)", "RMd0", "RMd0", at(st, "route_acc"), at("in8", "route_acc"))
+    out("\n### P3 (new orders: PP runs reach pending count 2, unseen in training, under deferral 1)")
+    for st in ("pp4", "pp6", "pp8", "pp16", "pp32"):
+        solo(f"P3 RM route_acc@{st}", "RM", at(st, "route_acc"))
+        line(f"P3 route_acc@{st} − route_acc_P@in8 (RM)", "RM", "RM", at(st, "route_acc"), at("in8", "route_acc_P"))
+    line("P3 route_acc@pp8: RM − RMd0 (deferral-0 control, PP local there)", "RM", "RMd0", at("pp8", "route_acc"))
+    for st in ("alt8", "deepP8"):
+        line(f"frequency strata route_acc@{st} − route_acc_P@in8 (RM)", "RM", "RM", at(st, "route_acc"), at("in8", "route_acc_P"))
+    out("\n### P5 (the looped block on the same tokens; LF-d0 the local-trigger control)")
+    for arm in ("LF", "LFd0", "LR", "LF@k", "LF@k+1", "LF@any", "S8"):
+        for st in ("in4", "in8"):
+            solo(f"P5 {arm} acc_P@{st}", arm, at(st, "acc_P")); solo(f"P5 {arm} acc_noP@{st}", arm, at(st, "acc_noP"))
+        solo(f"P5 {arm} acc@none8", arm, at("none8", "acc"))
+    for st in ("in4", "in8"):
+        line(f"P5 acc_P@{st}: LFd0 − LF", "LFd0", "LF", at(st, "acc_P"))
+        line(f"P5 acc_P@{st}: LF@any − LF", "LF@any", "LF", at(st, "acc_P"))
+        line(f"P5 acc_P@{st}: RM − LF", "RM", "LF", at(st, "acc_P"))
+    for st in ("len16", "pp8"):
+        line(f"P5 acc@{st}: RM − LR", "RM", "LR", at(st, "acc"))
         line(f"P5 acc@{st}: LR − S8", "LR", "S8", at(st, "acc"))
-    for st in ("in4", "in8", "len16"):
-        line(f"P6 steps@{st}: RMl0 − RM", "RMl0", "RM", at(st, "q_steps"))
-        line(f"P6 acc@{st}: RMl0 − RM", "RMl0", "RM", at(st, "acc"))
-    for st in ("in8", "pp8"):
-        line(f"P7 acc@{st}: RMidx − RM", "RMidx", "RM", at(st, "acc"))
-    counts(groups, out, "route_acc", ("in8", "pp8", "alt8", "deepP8", "len16", "len32", "pp16", "alt32"))
-    counts(groups, out, "acc", ("in8", "pp8", "alt8", "len16", "len32", "pp16", "alt32"))
+    out("\n### P7 (the distinguishing quantity: the state-blind reference 0.84 in both readings)")
+    for arm in ("RMidx", "RM", "RMs", "RMd0", "RMT"):
+        solo(f"P7 {arm} Zipf in-range acc (committed)", arm, zipf_in_range("acc"))
+        solo(f"P7 {arm} Zipf in-range marg_acc", arm, zipf_in_range("marg_acc"))
+    line("P7 Zipf in-range acc: RM − RMidx", "RM", "RMidx", zipf_in_range("acc"))
+    line("P7 acc_P@in8: RM − RMidx", "RM", "RMidx", at("in8", "acc_P"))
+    out("\n### P9 (F4 null: the symbol-only router; committed route accuracy on P-words is 0 by construction)")
+    for st in ("in4", "in8", "pp8"):
+        solo(f"P9 RMs route_acc_P@{st}", "RMs", at(st, "route_acc_P" if st.startswith("in") else "route_acc"))
+        solo(f"P9 RMs acc_P@{st}", "RMs", at(st, "acc_P" if st.startswith("in") else "acc"))
+        solo(f"P9 RMs marg_acc_P@{st}", "RMs", at(st, "marg_acc_P" if st.startswith("in") else "marg_acc"))
+        solo(f"P9 RMs e_steps_P − oracle_steps_P@{st}", "RMs",
+             lambda r, st=st: (lambda v: None if v.get("e_steps_P" if st.startswith("in") else "e_steps") is None else
+                               v.get("e_steps_P" if st.startswith("in") else "e_steps") - v.get("oracle_steps_P" if st.startswith("in") else "oracle_steps"))(final(r).get(st, {})))
+    line("P9 route_acc_noP@in8: RMs − RM", "RMs", "RM", at("in8", "route_acc_noP"))
+    counts(groups, out, "route_acc", ("in4", "in8", "pp4", "pp8", "len16", "len32", "pp32", "alt32"))
+    counts(groups, out, "route_acc_P", ("in4", "in8"))
+    counts(groups, out, "acc_P", ("in4", "in8"))
 
 
 def residual(groups, out):
-    out("\n## Residual study (DESIGN.md P8): p(HALT) and entropy along the committed route by remaining distance; probe R²\n")
-    out("| arm | stratum | p_halt d=0 | d=1 | d≥2 | dead | entropy d=0 | d≥2 | probe R² |")
-    out("|---|---|---|---|---|---|---|---|---|")
+    out("\n## Residual study (P8): p(HALT) and entropy along the committed route by remaining distance\n")
+    out("| arm | stratum | p_halt d=0 | d=1 | d≥2 | dead | entropy d=0 | d≥2 |")
+    out("|---|---|---|---|---|---|---|---|")
     for g, rs in sorted(groups.items()):
         if not rs[0].get("router"):
             continue
-        for st in ("in8", "len16", "len32", "pp8", "alt32"):
+        for st in ("in8", "len32", "pp8", "alt32"):
             vals = {f: mean_se([final(r).get(st, {}).get(f) for r in rs])[0] for f in
                     ("p_halt_d0", "p_halt_d1", "p_halt_d2p", "p_halt_dead", "entropy_d0", "entropy_d2p")}
-            pr = mean_se([final(r).get("probe_r2") for r in rs])[0]
             out(f"| {g} | {st} | " + " | ".join(f"{vals[f]:.2f}" if not np.isnan(vals[f]) else "–" for f in
-                ("p_halt_d0", "p_halt_d1", "p_halt_d2p", "p_halt_dead", "entropy_d0", "entropy_d2p")) + f" | {pr:.2f} |")
+                ("p_halt_d0", "p_halt_d1", "p_halt_d2p", "p_halt_dead", "entropy_d0", "entropy_d2p")) + " |")
 
 
-def t95_of(rec, k, key="acc_by_k", min_n=250):
-    cur = rec["curve"]
-    g = lambda d: d.get(str(k), d.get(k))
-    blocks, hits, n, end = [], 0.0, 0, None
-    for c in cur:
-        a = g(c.get(key, {})); cnt = g(c.get("n_by_k", {})) if "n_by_k" in c else (1 if a is not None else 0)
-        if a is None or not cnt:
+def deviations(groups, out):
+    out("\n## First deviation from the oracle route (routed arms; oracle action > taken action, summed over runs)\n")
+    for g, rs in sorted(groups.items()):
+        if not rs[0].get("router"):
             continue
-        hits += a * cnt; n += cnt; end = c["step"]
-        if n >= min_n:
-            blocks.append((end, hits / n)); hits, n = 0.0, 0
-    if n:
-        blocks.append((end, hits / n))
-    for i, (s, a) in enumerate(blocks):
-        if a < CRIT:
-            continue
-        nxt = blocks[i + 1][1] if i + 1 < len(blocks) else None
-        if nxt is None or nxt >= CRIT:
+        cells = []
+        for st in ("in8", "pp8", "len32"):
+            conf = defaultdict(int); n = 0
+            for r in rs:
+                for k, v in final(r).get(st, {}).get("first_dev", {}).items():
+                    conf[k] += v; n += v
+            if n:
+                cells.append(f"{st} ({n} failures): " + ", ".join(f"{k} {v}" for k, v in sorted(conf.items(), key=lambda kv: -kv[1])))
+        if cells:
+            out(f"- {g}: " + "; ".join(cells))
+
+
+def t95_of(rec, k, key="acc_by_k"):
+    """First held-out evaluation step with accuracy >= CRIT at k, confirmed by the next; None if never."""
+    pts = [(c["step"], (c.get(key) or {}).get(str(k), (c.get(key) or {}).get(k))) for c in rec["curve"]]
+    pts = [(s, a) for s, a in pts if a is not None]
+    for i, (s, a) in enumerate(pts):
+        if a >= CRIT and (i + 1 >= len(pts) or pts[i + 1][1] >= CRIT):
             return s
+    return None
+
+
+def flip_of(rec, action, thr=0.5):
+    for c in rec["curve"]:
+        if c.get("act_acc", {}).get(action, 0.0) >= thr:
+            return c["step"]
     return None
 
 
@@ -207,20 +272,22 @@ def fmt_t95(vals, budget):
 
 
 def firsts(groups, out):
-    out(f"\n## Steps to criterion by k (training-batch accuracy ≥ {CRIT} on ≥ 250 examples, confirmed by the next block; "
-        "route accuracy for routed arms, answer accuracy for neural arms; censoring-aware median [min–max])\n")
-    out("| arm | n | " + " | ".join(f"k={k}" for k in range(1, 9)) + " |")
-    out("|---|---|" + "---|" * 8)
+    out(f"\n## Steps to criterion by k (held-out criterion set, accuracy ≥ {CRIT}, confirmed by the next 100-step point; "
+        "route accuracy for routed arms, answer accuracy for neural arms; censoring-aware median [min–max]) and the SET / PREV flip "
+        "times (first point with teacher-forced accuracy ≥ 0.5 on that action)\n")
+    out("| arm | n | " + " | ".join(f"k={k}" for k in range(1, 9)) + " | SET flip | PREV flip |")
+    out("|---|---|" + "---|" * 10)
     for g, rs in sorted(groups.items()):
         rs = [r for r in rs if r.get("curve")]
         if not rs or g.startswith("LR") or "@" in g:
             continue
         budget = rs[0]["train"]["steps"]
-        out(f"| {g} | {len(rs)} | " + " | ".join(fmt_t95([t95_of(r, k) for r in rs], budget) for k in range(1, 9)) + " |")
+        flips = [fmt_t95([flip_of(r, a) for r in rs], budget) if rs[0].get("router") else "–" for a in ("SET", "PREV")]
+        out(f"| {g} | {len(rs)} | " + " | ".join(fmt_t95([t95_of(r, k) for r in rs], budget) for k in range(1, 9)) + f" | {flips[0]} | {flips[1]} |")
 
 
 def pooling(groups, out):
-    out("\n## Pooling for selection (neural arms): final-window training accuracy on words with a P at depth d, and on all-H words (d = 0)\n")
+    out("\n## Pooling for selection (P4): held-out accuracy (last 5 points) on words whose deepest P is at depth d, and on all-H words (d = 0)\n")
     for g, rs in sorted(groups.items()):
         rs = [r for r in rs if r.get("curve") and "acc_by_Pdepth" in r["curve"][-1]]
         if not rs:
@@ -230,36 +297,36 @@ def pooling(groups, out):
         for d in range(0, 9):
             v = [np.mean([c["acc_by_Pdepth"][str(d)] for c in L if str(d) in c["acc_by_Pdepth"]]) for L in last
                  if any(str(d) in c["acc_by_Pdepth"] for c in L)]
-            n = int(np.mean([np.mean([c["n_by_Pdepth"].get(str(d), 0) for c in L]) for L in last]))
-            cells.append(f"d={d}: {np.mean(v):.2f} (n/100 steps {n})" if v else f"d={d}: –")
-        out(f"- {g}: " + "; ".join(cells))
+            cells.append(f"d={d}: {np.mean(v):.2f}" if v else f"d={d}: –")
+        out(f"- {g} (n={len(rs)}): " + "; ".join(cells))
 
 
 def over_training(groups, out):
-    out("\n## Extrapolation over training: answer accuracy at len16 / pp8 / alt32 by evaluation step (run means)\n")
+    out("\n## Extrapolation over training: route accuracy (routed) / answer accuracy (neural) at len16, pp8, len32 by evaluation step (run means)\n")
     for g, rs in sorted(groups.items()):
         rs = [r for r in rs if len(r.get("evals", [])) > 1 and "@" not in g and not g.startswith("LR")]
         if not rs:
             continue
         steps = [e["step"] for e in rs[0]["evals"]]
         rs = [r for r in rs if len(r["evals"]) == len(steps)]
+        fld = "route_acc" if rs[0].get("router") else "acc"
         line = []
-        for st in ("len16", "pp8", "alt32"):
-            a = np.array([[e["eval"].get(st, {}).get("acc", np.nan) for e in r["evals"]] for r in rs])
+        for st in ("len16", "pp8", "len32"):
+            a = np.array([[e["eval"].get(st, {}).get(fld, np.nan) for e in r["evals"]] for r in rs])
             line.append(f"{st} " + " ".join(f"{v:.2f}" for v in np.nanmean(a, 0)))
         out(f"- {g} (n={len(rs)}) steps {steps}: " + " | ".join(line))
 
 
 def heads(groups, out):
-    out("\n## Router heads (final): HOP/PREV/HALT column norms and biases; index tables\n")
+    out("\n## Router heads (final): HOP/PREV/SET/HALT column norms and biases; index tables\n")
     for g, rs in sorted(groups.items()):
         hs = [r.get("head") for r in rs if r.get("head")]
         if not hs:
             continue
         if "w_norm" in hs[0]:
-            out(f"- {g}: " + "; ".join(f"|w|=({h['w_norm'][0]:.2f},{h['w_norm'][1]:.2f},{h['w_norm'][2]:.2f}) b=({h['b'][0]:+.2f},{h['b'][1]:+.2f},{h['b'][2]:+.2f})" for h in hs[:6]))
+            out(f"- {g}: " + "; ".join("|w|=(" + ",".join(f"{x:.2f}" for x in h["w_norm"]) + ") b=(" + ",".join(f"{x:+.2f}" for x in h["b"]) + ")" for h in hs[:6]))
         elif "table" in hs[0]:
-            out(f"- {g}: π by step (run 0, first 10): " + " ".join("(" + ",".join(f"{x:.2f}" for x in row) + ")" for row in hs[0]["table"][:10]))
+            out(f"- {g}: π by step (run 0, first 12): " + " ".join("(" + ",".join(f"{x:.2f}" for x in row) + ")" for row in hs[0]["table"][:12]))
 
 
 def main():
@@ -276,8 +343,13 @@ def main():
     table(groups, out, "route_acc", "Route accuracy (committed route equals the oracle route)")
     table(groups, out, "marg_acc", "Marginal accuracy (argmax of the exact route mixture)")
     table(groups, out, "q_steps", "Steps per query (committed route / loops)", fmt="{:.1f}")
+    ins = [f"in{k}" for k in range(3, 9)] + ["len16", "len32", "deepP8"]
+    table(groups, out, "route_acc_P", "Route accuracy on words WITH a P", strata=ins)
+    table(groups, out, "acc_P", "Answer accuracy on words WITH a P", strata=ins)
+    table(groups, out, "acc_noP", "Answer accuracy on all-H words", strata=ins)
     preregistered(groups, out)
     residual(groups, out)
+    deviations(groups, out)
     firsts(groups, out)
     pooling(groups, out)
     over_training(groups, out)

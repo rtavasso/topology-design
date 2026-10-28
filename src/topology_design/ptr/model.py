@@ -163,6 +163,8 @@ class PtrModel(nn.Module):
         pairs = self.sym.key_slot[pk] + self.sym.val_slot[pv]                       # (B, P, d)
         if self.mc.slots == 5 and getattr(ep, "pair_prev", None) is not None:        # rung 1: the previous pair's key
             pairs = pairs + self.sym.prev_slot[torch.as_tensor(ep.pair_prev, device=dev)]
+        if getattr(ep, "pair_flag", None) is not None:                               # rung 1: the P-trigger flag
+            pairs = pairs + torch.as_tensor(ep.pair_flag, device=dev).to(pairs.dtype).unsqueeze(-1) * self.sym.free[3]
         queries = self.marker + self.sym.reg_slot[qs]                                # register starts at the start key
         answers = self.ans_tok + self.sym.reg_slot[qa]
         qa_tokens = torch.stack([queries, answers], 2).reshape(B, 2 * Qn, -1)       # q1 a1 q2 a2 ...
