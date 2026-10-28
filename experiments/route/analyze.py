@@ -63,7 +63,7 @@ def derived_rows(r):
     fin = final(r)
     if "eval_T_train" in r:
         twin = dict(r); twin["evals"] = [{"eval": r["eval_T_train"]}]
-        rows.append((group_key(r).replace("LF", f"LF@T{r['model']['T']}", 1), twin))
+        rows.append((lf_label(group_key(r), f"LF@T{r['model']['T']}"), twin))
     if any("kl_exit" in v for v in fin.values() if isinstance(v, dict)):
         ins = {}
         for k, v in fin.items():
@@ -71,13 +71,28 @@ def derived_rows(r):
                 ins[k] = {**{kk: vv for kk, vv in v.items() if kk != "kl_exit"}, "acc": v["kl_exit"][LR_PRIMARY]["acc"],
                           "q_steps": v["kl_exit"][LR_PRIMARY]["q_steps"]}
         twin = dict(r); twin["evals"] = [{"eval": ins}]
-        rows.append((group_key(r).replace("LF", "LR", 1), twin))
+        rows.append((lf_label(group_key(r), "LR"), twin))
     if any("acc_at_k" in v for v in fin.values() if isinstance(v, dict)):
-        for fld, tag in (("acc_at_k", "LF@k"), ("acc_at_k1", "LF@k+1"), ("acc_any", "LF@any")):
-            ins = {k: {"acc": v[fld], "q_steps": float("nan")} for k, v in fin.items() if isinstance(v, dict) and fld in v}
+        for fld, tag in (("acc_at_k", "LF@k"), ("acc_at_k1", "LF@k+1"), ("acc_at_kP", "LF@k+nP"), ("acc_any", "LF@any")):
+            ins = {}
+            for k, v in fin.items():
+                if isinstance(v, dict) and fld in v:
+                    ins[k] = {"acc": v[fld], "q_steps": float("nan")}
+                    for lab in ("P", "noP"):                       # the oracle-depth reading split by P-words
+                        src = f"{fld}_{lab}" if fld != "acc_at_k1" else None
+                        if src and src in v:
+                            ins[k][f"acc_{lab}"] = v[src]
             twin = dict(r); twin["evals"] = [{"eval": ins}]
-            rows.append((group_key(r).replace("LF", tag, 1), twin))
+            rows.append((lf_label(group_key(r), tag), twin))
     return rows
+
+
+def lf_label(g, tag):
+    """'LF' -> tag, 'LFd0' -> 'tag(d0)', 'LF[lr=...]' -> 'tag[lr=...]'."""
+    rest = g[2:]
+    if rest.startswith("d0"):
+        return f"{tag}(d0){rest[2:]}"
+    return tag + rest
 
 
 def build_groups(recs):
@@ -170,7 +185,11 @@ def preregistered(groups, out):
     for st in ("len16", "len32"):
         line(f"P2 route_acc@{st} − in8 (RM)", "RM", "RM", at(st, "route_acc"), at("in8", "route_acc"))
         line(f"P2 route_acc@{st} − in8 (RMd0)", "RMd0", "RMd0", at(st, "route_acc"), at("in8", "route_acc"))
-    out("\n### P3 (new orders: PP runs reach pending count 2, unseen in training, under deferral 1)")
+    out("\n### P3 (new orders: PP runs need two decisions training never shows; the counterfactual-state probes isolate them)")
+    for arm in ("RM", "RMd0", "RMs", "RMT"):
+        for st in ("in4", "in8"):
+            solo(f"P3a {arm} cf_count2_prev@{st} (count forced to 2 at the oracle PREV state -> PREV)", arm, at(st, "cf_count2_prev"))
+            solo(f"P3b {arm} cf_pending_set@{st} (flagged state entered with a pending count -> SET)", arm, at(st, "cf_pending_set"))
     for st in ("pp4", "pp6", "pp8", "pp16", "pp32"):
         solo(f"P3 RM route_acc@{st}", "RM", at(st, "route_acc"))
         line(f"P3 route_acc@{st} − route_acc_P@in8 (RM)", "RM", "RM", at(st, "route_acc"), at("in8", "route_acc_P"))
@@ -178,28 +197,34 @@ def preregistered(groups, out):
     for st in ("alt8", "deepP8"):
         line(f"frequency strata route_acc@{st} − route_acc_P@in8 (RM)", "RM", "RM", at(st, "route_acc"), at("in8", "route_acc_P"))
     out("\n### P5 (the looped block on the same tokens; LF-d0 the local-trigger control)")
-    for arm in ("LF", "LFd0", "LR", "LF@k", "LF@k+1", "LF@any", "S8"):
+    for arm in ("LF", "LFd0", "LR", "LR(d0)", "LF@k", "LF@k+nP", "LF@any", "LF@k(d0)", "LF@any(d0)", "S8"):
         for st in ("in4", "in8"):
             solo(f"P5 {arm} acc_P@{st}", arm, at(st, "acc_P")); solo(f"P5 {arm} acc_noP@{st}", arm, at(st, "acc_noP"))
         solo(f"P5 {arm} acc@none8", arm, at("none8", "acc"))
     for st in ("in4", "in8"):
         line(f"P5 acc_P@{st}: LFd0 − LF", "LFd0", "LF", at(st, "acc_P"))
-        line(f"P5 acc_P@{st}: LF@any − LF", "LF@any", "LF", at(st, "acc_P"))
+        line(f"P5 acc_P@{st}: LF@any − LF (the block vs the exit rule)", "LF@any", "LF", at(st, "acc_P"))
+        line(f"P5 acc_P@{st}: LF@k+nP − LF", "LF@k+nP", "LF", at(st, "acc_P"))
         line(f"P5 acc_P@{st}: RM − LF", "RM", "LF", at(st, "acc_P"))
     for st in ("len16", "pp8"):
         line(f"P5 acc@{st}: RM − LR", "RM", "LR", at(st, "acc"))
         line(f"P5 acc@{st}: LR − S8", "LR", "S8", at(st, "acc"))
-    out("\n### P7 (the distinguishing quantity: the state-blind reference 0.84 in both readings)")
+    out("\n### P7 (the distinguishing quantity: the state-blind references 0.84 committed / 0.85 marginal)")
     for arm in ("RMidx", "RM", "RMs", "RMd0", "RMT"):
         solo(f"P7 {arm} Zipf in-range acc (committed)", arm, zipf_in_range("acc"))
         solo(f"P7 {arm} Zipf in-range marg_acc", arm, zipf_in_range("marg_acc"))
     line("P7 Zipf in-range acc: RM − RMidx", "RM", "RMidx", zipf_in_range("acc"))
     line("P7 acc_P@in8: RM − RMidx", "RM", "RMidx", at("in8", "acc_P"))
-    out("\n### P9 (F4 null: the symbol-only router; committed route accuracy on P-words is 0 by construction)")
+    out("\n### P9 (F4 null: the symbol-only router; committed route accuracy on P-words is 0 by construction; the marginal and sampled readings)")
     for st in ("in4", "in8", "pp8"):
-        solo(f"P9 RMs route_acc_P@{st}", "RMs", at(st, "route_acc_P" if st.startswith("in") else "route_acc"))
-        solo(f"P9 RMs acc_P@{st}", "RMs", at(st, "acc_P" if st.startswith("in") else "acc"))
-        solo(f"P9 RMs marg_acc_P@{st}", "RMs", at(st, "marg_acc_P" if st.startswith("in") else "marg_acc"))
+        P = st.startswith("in")
+        solo(f"P9 RMs route_acc_P@{st}", "RMs", at(st, "route_acc_P" if P else "route_acc"))
+        solo(f"P9 RMs acc_P@{st}", "RMs", at(st, "acc_P" if P else "acc"))
+        solo(f"P9 RMs marg_acc_P@{st}", "RMs", at(st, "marg_acc_P" if P else "marg_acc"))
+        solo(f"P9 RMs p_correct_marg_P@{st}", "RMs", at(st, "p_correct_marg_P" if P else "p_correct_marg"))
+        solo(f"P9 RMs samp_acc_P@{st} (one sampled route)", "RMs", at(st, "samp_acc_P" if P else "samp_acc"))
+        solo(f"P9 RM samp_acc_P@{st}", "RM", at(st, "samp_acc_P" if P else "samp_acc"))
+        line(f"P9 p_correct_marg_P@{st}: RM − RMs", "RM", "RMs", at(st, "p_correct_marg_P" if P else "p_correct_marg"))
         solo(f"P9 RMs e_steps_P − oracle_steps_P@{st}", "RMs",
              lambda r, st=st: (lambda v: None if v.get("e_steps_P" if st.startswith("in") else "e_steps") is None else
                                v.get("e_steps_P" if st.startswith("in") else "e_steps") - v.get("oracle_steps_P" if st.startswith("in") else "oracle_steps"))(final(r).get(st, {})))
@@ -347,6 +372,9 @@ def main():
     table(groups, out, "route_acc_P", "Route accuracy on words WITH a P", strata=ins)
     table(groups, out, "acc_P", "Answer accuracy on words WITH a P", strata=ins)
     table(groups, out, "acc_noP", "Answer accuracy on all-H words", strata=ins)
+    table(groups, out, "samp_acc", "Answer accuracy of a sampled route (stochastic-system reading; mean of 4 samples)")
+    table(groups, out, "cf_count2_prev", "Counterfactual probe (a): PREV at the oracle PREV state with the count forced to 2", strata=ins[:6])
+    table(groups, out, "cf_pending_set", "Counterfactual probe (b): SET at the flagged state entered with a pending count", strata=ins[:6])
     preregistered(groups, out)
     residual(groups, out)
     deviations(groups, out)

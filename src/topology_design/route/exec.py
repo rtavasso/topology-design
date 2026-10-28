@@ -128,9 +128,10 @@ def marginal(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, T: int, R: torch
 
 
 @torch.no_grad()
-def committed(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, T: int):
-    """The argmax route. Returns final symbols (B, Q), steps taken (circuit applications incl. SET) (B, Q), actions
-    (B, Q, T) with -1 after halting, and the product-state sequence (B, Q, T + 1)."""
+def committed(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, T: int, sample: bool = False, generator=None):
+    """The argmax route (or, with sample=True, one route sampled from pi: the stochastic-system reading). Returns
+    final symbols (B, Q), steps taken (circuit applications incl. SET) (B, Q), actions (B, Q, T) with -1 after
+    halting, and the product-state sequence (B, Q, T + 1)."""
     B, Q = q_start.shape
     dev = q_start.device
     st = sid(q_start, torch.zeros_like(q_start), torch.zeros_like(q_start))
@@ -142,7 +143,10 @@ def committed(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, T: int):
     for t in range(T):
         p = pi[t] if pi.dim() == 4 else pi
         logits = p[:, 0, :].unsqueeze(1).expand(B, Q, 4) if p.shape[1] == 1 else p[ar, st]
-        a = logits.argmax(-1)
+        if sample:
+            a = torch.multinomial(logits.reshape(B * Q, 4).float().clamp_min(0), 1, generator=generator).view(B, Q)
+        else:
+            a = logits.argmax(-1)
         a = torch.where(done, torch.full_like(a, HALT), a)
         acts[:, :, t] = torch.where(done, torch.full_like(a, -1), a)
         nxt = torch.where(a == HOP, mp["hop"].gather(1, st), torch.where(a == PREV, mp["prev"].gather(1, st),
@@ -187,3 +191,34 @@ def remaining_distance(states: torch.Tensor, mp: dict, cfg: RouteConfig):
         if not (dist == -1)[(~is_ans) & (mp["sym_hop"][:, s_flat] != cfg.DEAD)].any() and d > 60:
             break
     return dist.gather(1, states.reshape(B, Q * L)).view(B, Q, L)
+
+
+@torch.no_grad()
+def counterfactual_probes(pi: torch.Tensor, oracle_acts: torch.Tensor, oracle_states: torch.Tensor):
+    """The two decisions PP runs need, probed at counterfactual states on ordinary P-words (review 2, finding 1):
+    (a) at every oracle PREV state (s, 1, h) the state (s, 2, h) with the count forced to 2: argmax pi == PREV
+        (is the count read as an ordinal quantity?);
+    (b) at every oracle SET state (s, 0, 0) the state (s, 1, 0), flagged with a pending count: argmax pi == SET
+        (does SET take precedence over PREV where both conditions hold?).
+    pi (B, NS, 4) [state routers only]. Returns hits and counts for (a) and (b) as four scalars."""
+    if pi.dim() != 3 or pi.shape[1] == 1:
+        nan = torch.tensor(float("nan"), device=pi.device)
+        return nan, nan, nan, nan
+    B, Q, T = oracle_acts.shape
+    ar = torch.arange(B, device=pi.device).unsqueeze(1)
+    ha = ca = hb = cb = 0.0
+    for t in range(T):
+        a = oracle_acts[:, :, t]
+        if not (a >= 0).any():
+            break
+        st = oracle_states[:, :, t]
+        sym, c, h = st // PER_SYM, (st % PER_SYM) // NH, st % NH
+        m_a = (a == PREV) & (c == 1)                          # (s, 1, h) -> probe (s, 2, h); h = 0 under deferral 1, 1 under 0
+        m_b = (a == SET) & (c == 0) & (h == 0)
+        if m_a.any():
+            pred = pi[ar, sid(sym, 2, h)].argmax(-1)
+            ha += float((pred[m_a] == PREV).sum()); ca += float(m_a.sum())
+        if m_b.any():
+            pred = pi[ar, sid(sym, 1, 0)].argmax(-1)
+            hb += float((pred[m_b] == SET).sum()); cb += float(m_b.sum())
+    return ha, ca, hb, cb

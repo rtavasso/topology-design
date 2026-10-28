@@ -10,7 +10,7 @@ import torch
 
 from topology_design.route.data import RouteConfig, generate, check_episode, word_class, oracle_actions, H, P
 from topology_design.route.exec import (tables, maps, marginal, committed, oracle, oracle_policy, route_ok, readout,
-                                        remaining_distance, sid, PER_SYM, HOP, PREV, SET, HALT)
+                                        remaining_distance, counterfactual_probes, sid, PER_SYM, HOP, PREV, SET, HALT)
 from topology_design.route.router import StackedRouter, RouterConfig, plant
 from topology_design.route.pool import to_dict, EpisodePool, stack_batches, strata_episodes, STRATA, KEYS
 
@@ -255,3 +255,26 @@ def test_trainers_smoke_and_record_fields():
     recs = train_neural.run_stack([{**base, "kind": "looped", "halting": "fixed", "T": 3, "T_eval": 6, "seed": 0}], dev="cpu", log=lambda s: None)
     e = recs[0]["evals"][-1]["eval"]["in4"]
     assert {"acc_at_k", "acc_at_k1", "acc_at_kP", "acc_any", "kl_exit"} <= set(e) and "eval_T_train" in recs[0]
+
+
+@pytest.mark.parametrize("cfg", [DC, DC0], ids=["deferral1", "deferral0"])
+def test_counterfactual_probes_and_sampled_routes(cfg):
+    rng = np.random.default_rng(11)
+    ep = generate(cfg, 24, rng, forced_k=6, forced_kind="train", Qn=3)
+    tb = tables(ep, cfg, "cpu")
+    oa, osteps, ostates = oracle(tb, tb["q_start"], 40, cfg)
+    # the planted router passes both probes wherever they are defined; a symbol-only router cannot pass (b) and (a) at once
+    with torch.no_grad():
+        pi = torch.softmax(plant(StackedRouter(1, RouterConfig(), cfg)).logits(_batch(ep, 1)), -1)[0]
+    ha, ca, hb, cb = counterfactual_probes(pi, oa, ostates)
+    assert cb > 0 and hb == cb and (ca == 0 or ha == ca)
+    # the probes are counterfactual: under deferral 1 the probed states carry no mass on oracle routes
+    if cfg.deferral == 1:
+        assert ca > 0 and not ((ostates % PER_SYM) == sid(0, 2, 0)).any() and not ((ostates[:, :, :-1] % PER_SYM) == sid(0, 1, 0))[oa == SET].any()
+    # sampling from a one-hot policy is the committed route; from a flat policy it is not the oracle route
+    g = torch.Generator().manual_seed(0)
+    s1, st1, a1, _ = committed(oracle_policy(tb, cfg), tb, tb["q_start"], 40, sample=True, generator=g)
+    assert route_ok(a1, st1, oa, osteps).all() and (s1 == tb["q_ans"]).all()
+    flat = torch.full_like(pi, 0.25)
+    s2, st2, a2, _ = committed(flat, tb, tb["q_start"], 40, sample=True, generator=g)
+    assert float(route_ok(a2, st2, oa, osteps).float().mean()) < 0.2

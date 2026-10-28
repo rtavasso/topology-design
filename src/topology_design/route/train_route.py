@@ -21,14 +21,15 @@ import torch.nn.functional as F
 
 from ..ptr.stacked import StackedAdamW, clip_grad_norm_per_run
 from .data import RouteConfig, generate
-from .exec import marginal, committed, oracle, route_ok, readout, maps, remaining_distance, HOP, PREV, SET, HALT
+from .exec import (marginal, committed, oracle, route_ok, readout, maps, remaining_distance, counterfactual_probes,
+                   HOP, PREV, SET, HALT)
 from .pool import EpisodePool, stack_batches, strata_episodes, to_dict, STRATA
 from .router import StackedRouter, RouterConfig
 
 DATA_KEYS = {f.name for f in fields(RouteConfig)}
 ROUTER_KEYS = {f.name for f in fields(RouterConfig)}
 TRAIN_DEFAULTS = dict(steps=6000, batch=64, lr=1e-3, warmup=500, seed=0, eval_every=2000, T_eval=64, eval_n=250,
-                      pool_n=60000, wd=0.01, grad_clip=1.0, teacher=False, crit_n=256, crit_every=100, eval_chunk=50)
+                      pool_n=60000, wd=0.01, grad_clip=1.0, teacher=False, crit_n=256, crit_every=100, eval_chunk=50, samples=4)
 PER_RUN_KEYS = ("seed", "lr")
 ACTION_NAMES = {HOP: "HOP", PREV: "PREV", SET: "SET", HALT: "HALT"}
 
@@ -129,8 +130,10 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
                 by_depth[d_] = float(okr[md].mean())
         pir = pi[:, sl] if pi.dim() == 4 else pi[sl]
         h, c = action_accuracy(pir, oa[sl], ostates[sl])
+        ha, ca, hb, cb = counterfactual_probes(pir, oa[sl], ostates[sl])
         out.append({"acc_by_k": acc, "ans_acc_by_k": ans_acc, "acc_by_Pdepth": by_depth, "acc": float(okr.mean()),
-                    "act_acc": {ACTION_NAMES[a]: float(h[a] / c[a]) for a in range(4) if c[a] > 0}})
+                    "act_acc": {ACTION_NAMES[a]: float(h[a] / c[a]) for a in range(4) if c[a] > 0},
+                    "cf_count2_prev": float(ha / ca) if ca else None, "cf_pending_set": float(hb / cb) if cb else None})
     return out
 
 
@@ -157,6 +160,14 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
         s, steps, acts, states = committed(pi, mp, fb["q_start"], T)
         oa, osteps, ostates = oracle(mp, fb["q_start"], T, dc)
         ok_route = route_ok(acts, steps, oa, osteps)
+        # the stochastic-system reading: K routes sampled from pi per query (review 2, finding 3)
+        gen = torch.Generator(device=dev).manual_seed(12345)
+        samp_ok, samp_route, samp_steps = [], [], []
+        for _ in range(tc["samples"]):
+            s_s, st_s, a_s, _ = committed(pi, mp, fb["q_start"], T, sample=True, generator=gen)
+            samp_ok.append((s_s == fb["q_ans"]).float()); samp_route.append(route_ok(a_s, st_s, oa, osteps).float())
+            samp_steps.append(st_s.float())
+        samp_ok, samp_route, samp_steps = (torch.stack(x, 0).mean(0) for x in (samp_ok, samp_route, samp_steps))
         ans = fb["q_ans"] - dc.n_keys
         ok_ans = (s == fb["q_ans"])
         ok_marg = (q.argmax(-1) == ans)
@@ -182,7 +193,11 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
             sel = torch.zeros_like(fb["q_k"][sl], dtype=torch.bool); sel[:, 0] = True      # the forced query
             pir = pi[:, sl] if pi.dim() == 4 else pi[sl]
             h, c = action_accuracy(pir, oa[sl][sel].unsqueeze(1), ostates[sl][sel].unsqueeze(1))
+            ha, ca, hb, cb = counterfactual_probes(pir, oa[sl][sel].unsqueeze(1), ostates[sl][sel].unsqueeze(1))
             rec = {"n": int(sel.sum()), "route_acc": float(ok_route[sl][sel].float().mean()),
+                   "samp_acc": float(samp_ok[sl][sel].mean()), "samp_route_acc": float(samp_route[sl][sel].mean()),
+                   "samp_steps": float(samp_steps[sl][sel].mean()),
+                   "cf_count2_prev": float(ha / ca) if ca else None, "cf_pending_set": float(hb / cb) if cb else None,
                    "acc": float(ok_ans[sl][sel].float().mean()), "marg_acc": float(ok_marg[sl][sel].float().mean()),
                    "q_steps": float(steps[sl][sel].float().mean()), "oracle_steps": float(osteps[sl][sel].float().mean()),
                    "e_steps": float(es[sl][sel].mean()),
@@ -196,6 +211,8 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
                     rec[f"n_{lab}"] = int(mask.sum()); rec[f"route_acc_{lab}"] = float(ok_route[sl][sel][mask].float().mean())
                     rec[f"acc_{lab}"] = float(ok_ans[sl][sel][mask].float().mean())
                     rec[f"marg_acc_{lab}"] = float(ok_marg[sl][sel][mask].float().mean())
+                    rec[f"p_correct_marg_{lab}"] = float(q[sl][sel][mask].gather(-1, ans[sl][sel][mask].unsqueeze(-1)).mean())
+                    rec[f"samp_acc_{lab}"] = float(samp_ok[sl][sel][mask].mean()); rec[f"samp_steps_{lab}"] = float(samp_steps[sl][sel][mask].mean())
                     rec[f"e_steps_{lab}"] = float(es[sl][sel][mask].mean()); rec[f"oracle_steps_{lab}"] = float(osteps[sl][sel][mask].float().mean())
             d = dist[sl][sel]; ph = p_halt[sl][sel]; en = ent[sl][sel]
             visited = torch.arange(d.shape[-1], device=dev).unsqueeze(0) <= steps[sl][sel].unsqueeze(-1)
@@ -267,6 +284,7 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
                 recs[r]["curve"].append({"step": s + 1, "loss": rl[r], "grad_norm": float(gl[r]),
                                          "acc_by_k": cr[r]["acc_by_k"], "ans_acc_by_k": cr[r]["ans_acc_by_k"],
                                          "acc_by_Pdepth": cr[r]["acc_by_Pdepth"], "acc": cr[r]["acc"], "act_acc": cr[r]["act_acc"],
+                                         "cf_count2_prev": cr[r]["cf_count2_prev"], "cf_pending_set": cr[r]["cf_pending_set"],
                                          "train_acc_by_k": {int(k): float(h[r, k] / c[r, k]) for k in range(c.shape[1]) if c[r, k] > 0}})
             run_loss.zero_(); hits.zero_(); cnt.zero_()
         if (s + 1) % tc["eval_every"] == 0 or s + 1 == tc["steps"]:

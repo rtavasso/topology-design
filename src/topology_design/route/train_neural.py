@@ -97,6 +97,12 @@ def evaluate(m: StackedPtrModel, dc, mc, tc, strata, dev, T=None, own_block=Fals
                 at = lambda t: float(lo[t.clamp(0, Tl - 1), ar][t < Tl].float().mean()) if bool((t < Tl).any()) else float("nan")
                 rec["acc_at_k"] = at(kk[r] - 1); rec["acc_at_k1"] = at(kk[r]); rec["acc_at_kP"] = at(kk[r] + nP[r] - 1)
                 rec["acc_any"] = float(lo.any(0).float().mean())
+                for lab, mask in (("P", hasP[r]), ("noP", ~hasP[r])):          # the oracle-depth reading on P-words (review 2)
+                    if mask.any():
+                        lom = lo[:, mask]; arm = torch.arange(int(mask.sum()), device=dev)
+                        atm = lambda t: float(lom[t.clamp(0, Tl - 1), arm][t < Tl].float().mean()) if bool((t < Tl).any()) else float("nan")
+                        rec[f"acc_at_k_{lab}"] = atm(kk[r][mask] - 1); rec[f"acc_at_kP_{lab}"] = atm(kk[r][mask] + nP[r][mask] - 1)
+                        rec[f"acc_any_{lab}"] = float(lom.any(0).float().mean())
                 rec["acc_by_loop"] = lo.float().mean(1).tolist()
             res[r][name] = rec
     m.train()
