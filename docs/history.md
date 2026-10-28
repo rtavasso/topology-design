@@ -1040,6 +1040,22 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 - **D81.** Nothing in the grid runs before the GPU pilot settles G2 and the learning rates; if the block cannot learn the second hop, the block (or the injection) is revised and recorded first.
 - **D82.** Run order: pilot → main → P-pool; the other cells only with budget left over.
 
+## Entry 55 (27 Oct 2026): rung-0 pilot 1
+
+**Runs.** 60 runs, 6,000 steps each, run-stacked on Kaggle's two T4s in 3.2 hours ([ptr/PILOT1.md](../experiments/ptr/PILOT1.md); raw records in `experiments/ptr/results_data/`). A first launch failed on the first optimizer step from a mixed-precision scaler misuse (fixed: per-run manual loss scaling, halting math in fp32, fp32 fallback).
+
+**Results.**
+1. **Gate G2 passes.** With oracle halting and input injection, lr 1e-3, the shared block learned all eight hops by 4,000 steps; trained on k ≤ 8 it is 1.00 at every k ≤ 24 and 0.89 at k = 32. lr 3e-3 diverges. **Without injection the block never learns the second hop at any learning rate** (the CPU hunch in Entry 54 was wrong; Yang 2024's finding holds here).
+2. **The fixed loop overthinks.** LF at its training depth is 1.00 for k ≤ 8; at 40 loops its accuracy rises with k, from 0.38 at k = 1 to 0.99 at k = 32. The answer state is not a fixed point beyond the training horizon. Oracle halting has no such decay. This is direct evidence for the halting question.
+3. **LH-s collapsed in all 24 configurations:** λ → 1 at step 1, perfect at k = 1, chance elsewhere. The index-only null LH-x learned a constant depth of 8 (perfect for k ≤ 8). The cause is an initialization asymmetry of ours: the state head started at λ ≈ 0.5 (halting mass on steps 1–2, so deep steps never carried enough weight for the block to learn them, after which early halting was optimal), the index head at λ ≈ 0.12. PonderNet's rich-get-richer failure, triggered by us. Fixed: every halting head starts at λ ≈ 0.12 (`halt_bias_init`).
+4. **The static arms barely learn in 6,000 steps:** S8 (7.3M parameters) 0.24 at k = 2, S2 at chance for k ≥ 2, while the shared block learns the hop once for all depths. This is the pooling effect of Entry 50 appearing early, but the fairness rule (over-provision so every arm fits) requires longer, gentler static runs before any conclusion.
+5. **Cost:** ≈ 0.06 s per run-step for a looped arm (T = 10, batch 64); the main cell at 10k steps is about one two-GPU session.
+
+**Decisions.**
+- **D83.** Record the pilot; gate G2 is passed with injection on; `LOni`/injection-off becomes a one-cell ablation as designed.
+- **D84.** Pilot 2 (22 runs): LH-s with the corrected init over lr × β × λ_p at 8,000 steps; S8 at lr 1e-4 and 3e-4, and S2, at 15,000 steps. The main grid waits for G4 (LH-s within 0.02 of LO in range) and for the static arms' budget.
+- **D85.** Lesson L23.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
