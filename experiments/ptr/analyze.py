@@ -46,6 +46,10 @@ def group_key(r):
         extras.append("no-inj")
     if cfg.get("d") not in (None, 264):
         extras.append(f"d={cfg['d']}")
+    if "_lr" in r["name"] and not r["name"].startswith("pilot"):      # a learning-rate bracket within the grid
+        extras.append(f"lr={cfg.get('lr')}")
+    if float(cfg.get("halt_lr_mult", 1.0)) != 1.0:
+        extras.append(f"m={cfg['halt_lr_mult']:g}")
     if r["name"].startswith("pilot"):
         extras.append(f"lr={cfg.get('lr')}")
         if "beta" in cfg:
@@ -486,6 +490,27 @@ def preregistered(groups, out):
             out(f"- {g}: " + "; ".join(cells))
 
 
+def extrapolation_over_training(groups, out):
+    """Out-of-range accuracy at every evaluation during training (the learned-halting arms reach it mid-training and
+    can lose it later, rev 3): per arm, the run-mean accuracy at k = 16 and 32 by evaluation step, and per seed the
+    peak and the final value at k = 16."""
+    out("\n## Extrapolation over training: accuracy at k = 16 / 32 by evaluation step (run means); per seed peak→final at k = 16\n")
+    for g, rs in sorted(groups.items()):
+        rs = [r for r in rs if len(r.get("evals", [])) > 1 and "@" not in g and not g.startswith("LR")]
+        if not rs:
+            continue
+        steps = [e["step"] for e in rs[0]["evals"]]
+        a16 = np.array([[e["eval"]["in"].get("16", {}).get("acc", np.nan) for e in r["evals"]] for r in rs if len(r["evals"]) == len(steps)])
+        a32 = np.array([[e["eval"]["in"].get("32", {}).get("acc", np.nan) for e in r["evals"]] for r in rs if len(r["evals"]) == len(steps)])
+        if a16.size == 0:
+            continue
+        pk = sum(row.max() >= 0.9 for row in a16); fin = sum(row[-1] >= 0.9 for row in a16)
+        out(f"- {g} (n={a16.shape[0]}) steps {steps}: k=16 " + " ".join(f"{v:.2f}" for v in np.nanmean(a16, 0))
+            + " | k=32 " + " ".join(f"{v:.2f}" for v in np.nanmean(a32, 0))
+            + f" | seeds ≥ 0.9 at k=16: at peak {pk}/{a16.shape[0]}, at the end {fin}/{a16.shape[0]}; per seed "
+            + " ".join(f"{row.max():.2f}→{row[-1]:.2f}" for row in a16))
+
+
 def lr_frontier(groups, out):
     """The stability exit at every threshold: accuracy and steps at k = 8, 16, 32 on LF's block and on each arm's own
     block (P3 is judged against this frontier, not a single threshold)."""
@@ -525,6 +550,7 @@ def main():
     ks = table(groups, recs, out)
     headline(groups, ks, out)
     preregistered(groups, out)
+    extrapolation_over_training(groups, out)
     lr_frontier(groups, out)
     calibration(groups, ks, out)
     firsts(groups, out)

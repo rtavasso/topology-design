@@ -1112,6 +1112,28 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 
 **Expected falsifiers.** P1: ≥ 8/10 seeds of LH-Δ < 0.6 at k = 16 while LR on its own block ≥ 0.9. P2: ≥ 4/5 seeds of LH-s24 < 0.6 at k = 16. P6: LO's time to k = 3 grows ≥ 3× at factor 10⁻².
 
+## Entry 59 (28 Oct 2026): rung-0 revision 3 ran — the block, not the head
+
+**Runs.** 99 (gate 6 + grid 93), one unattended Kaggle session (D92), 8.4 h; [ptr/REV3.md](../experiments/ptr/REV3.md); records in `experiments/ptr/results_data/`.
+
+**Preregistered verdicts (DESIGN.md §8).** P1 falsified (LH-Δ at the gate-chosen ×1 head rate: 0.65 at k = 16, 1/5/4 seeds; 0.15 at 32), P2 falsified on its k = 24 line (LH-s24: 0.96 at 16, 0.44 at 24), P3 falsified (the one-parameter stability exit is cheaper, k + 1.3 vs k + 2.3, and far more accurate out of range), P4 falsified on excess, P5 holds (S8 learns hops at 500 / 2,500 / 6,600 / > 25k steps; LO all eight by 3,600), P6a refuted in the opposite direction (the oracle-halted block never learns k = 2 when k = 1 dominates: 0/10 runs at tails ≤ 10⁻¹), P6b holds (S8 2.6× slower at 10⁻¹), P6c mixed and not isolating the policy, P7 two narrow misses.
+
+**The reading that the preregistration did not anticipate.** In every learned-halting arm the stability exit applied to the arm's *own block* fails at exactly the arm's own failure point (LR@LH-s 0.26 at 16; LR@LH-Δ 0.74 at 16; LR@LH-s24 0.36 at 24; LR@LH-s-k4 0.23 at 8), while on the fixed-loop block it reaches 0.93 at 32 and the oracle-trained block 0.92. The halting *head* is not the limit: chasing λ is 0.000 from step 2,000 in every arm; LH-s24's head keeps going to 36 loops at k = 32 with slope 1.06; LH-Δ's ramp begins only after its block has settled. **The block trained jointly with a halting policy loses the ability to iterate beyond its training range, and it loses it late:** at 4,000 steps LH-s and LH-Δ extrapolate to k = 16 in 8/10 seeds each (0.89, 0.88 — the oracle's level); at 8,000 steps 0/10 and 1/10. Pilot 2's result was the late-training state of this. The failure point scales with the chain lengths seen (LH-s-k4 fails at ≈ 1.5·k_max = 6–7) and moves out with the loop horizon (LH-s24: ≈ 22), so it is the block's trained range, not a fixed number.
+
+**The exception, exploratory.** The two gate runs of LH-Δ with a ×10 head learning rate: 1.00 at every k ≤ 32, steps k + 1.1 (cheaper than the exit rule), LR on their own block 1.00 everywhere, and no decay through 8k steps. Their heads reached w_KL ≈ −3 to −5 (×1: −0.66). The preregistered gate rule, blind to out-of-range accuracy by design, chose ×1 for the confirmatory cell because both multipliers passed in range; so this is a 2-seed pilot result, and the rule did its job (the headline is not claimed from 2 seeds that were not preregistered).
+
+**Candidate mechanism (H11).** The PonderNet KL-to-prior term is absorbed by whichever part can move. At ×1 the head barely moves (|w| ≈ 0.7–1.9 after 8k steps, within the Σ lr bound of L24) and the term reaches the block through the head's input, pushing intermediate states to look "settled"; inside the trained range the cross-entropy holds the block to the answer, outside it the pressure wins. At ×10 the head absorbs the term (its KL term is 2.1 nats, the largest; its block is clean). Consistent with LH-x (an index head cannot absorb it; its block fails even in range: LR@LH-x 0.36 at k = 8) and with LH-s24 (λ ≈ 0.17 after the answer spreads p closer to the prior; its block holds to ≈ T).
+
+**On pooling (Entry 50).** The oracle arm, meant as the clean block test, failed for a reason that is itself about pooling: a shared block pools signal across depths only when training iterates it on every example; oracle halting never iterates the dominant k = 1 queries, and the one-loop map wins (0/10 runs learn k = 2 at tails ≤ 10⁻¹; 1/10 fails at factor 1). The static stack's time to k = 3 grows 2.6× when the k ≥ 3 share drops 7×; the shared block under LH-s grows 1.3×. At a 70× drop both learned-halting arms slow ≈ 7× at the T-loop readout too, so the policy's data dependence could not be separated from the block's.
+
+**Decisions.**
+- **D93.** The next round is *decoupling*, one short session (≈ 4 T4-hours): LH-Δ ×10 at 10 seeds (confirmatory of the exploratory result; preregistered: ≥ 8/10 seeds ≥ 0.9 at k = 32, steps ≤ k + 1.5, no decay between the 4k and 8k evaluations); LH-s ×10 (does a fast state head also leave the block clean?); LH-Δ ×1 with the head's input detached from the block (stop-gradient) and with β = 0 (which of the two is the damage); evaluations every 1,000 steps to time the collapse. Oracle arms iterate k = 1 queries at least twice, or are dropped as a pooling control.
+- **D94.** Pilot results and the confirmatory grid are reported as they fell: the preregistered P1–P4 are falsified, and the ×10 result is a pilot result until D93 runs.
+
+**Rejected alternatives.** Re-running the ×10 cell now as "the real P1": the rule chose ×1 before the data, and choosing afterwards on out-of-range accuracy is the selection the gate was built to prevent. Reading the ×1 failure as "change features do not transfer": LR on LH-Δ's own block fails at the same point, so the signal is gone from the block, not misread by the head.
+
+**Expected falsifiers of H11.** LH-Δ ×1 with the stop-gradient still decays (then the damage is not through the head's input); β = 0 still decays (then not the prior); LH-Δ ×10 at 10 seeds below 6/10 at k = 32 (then the 2-seed result was luck).
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

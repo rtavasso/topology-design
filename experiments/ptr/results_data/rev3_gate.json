@@ -1,0 +1,73 @@
+{
+ "rule": {
+  "pass_acc": 0.95,
+  "pass_slope": 0.8,
+  "choice": "smallest passing multiplier"
+ },
+ "arms": {
+  "LHd": {
+   "10.0": [
+    {
+     "name": "pilot3_LHd_m10_s0",
+     "seed": 0,
+     "pass": true,
+     "min_acc_in_range": 1.0,
+     "step_slope_in_range": 1.0079718061855862
+    },
+    {
+     "name": "pilot3_LHd_m10_s1",
+     "seed": 1,
+     "pass": true,
+     "min_acc_in_range": 1.0,
+     "step_slope_in_range": 1.0006066674277898
+    }
+   ],
+   "1.0": [
+    {
+     "name": "pilot3_LHd_m1_s0",
+     "seed": 0,
+     "pass": true,
+     "min_acc_in_range": 1.0,
+     "step_slope_in_range": 0.8159798610778086
+    },
+    {
+     "name": "pilot3_LHd_m1_s1",
+     "seed": 1,
+     "pass": true,
+     "min_acc_in_range": 1.0,
+     "step_slope_in_range": 0.9493520373389841
+    }
+   ]
+  },
+  "LHs24": {
+   "1.0": [
+    {
+     "name": "pilot3_LHs24_s0",
+     "seed": 0,
+     "pass": true,
+     "min_acc_in_range": 1.0,
+     "step_slope_in_range": 1.3340430600302562
+    },
+    {
+     "name": "pilot3_LHs24_s1",
+     "seed": 1,
+     "pass": false,
+     "min_acc_in_range": 0.12542372941970825,
+     "step_slope_in_range": 9.327739141271672e-17
+    }
+   ]
+  }
+ },
+ "verdict": {
+  "LHd": {
+   "10.0": true,
+   "1.0": true
+  },
+  "LHs24": {
+   "1.0": false
+  }
+ },
+ "LHd_halt_lr_mult": 1.0,
+ "LHd_status": "passed G4b",
+ "LHs24_status": "failed G4b (P2 is no test for LH-s24)"
+}

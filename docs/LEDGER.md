@@ -211,6 +211,32 @@ A short synthesis for discussion. Each line points to the entry that carries the
 - Ungrokking and scratch thresholds are both 1,218 pairs (sym: 870). That places the wiring's cost in the prior at least as much as in the search.
 - Fragile: the asym floor rests on 2 of 3 seeds at one learning rate, and 24 asym scratch runs cross 0.95 without sustaining it.
 
+### From rung 0 of the dynamic-depth ladder (27–28 Oct 2026; [REV3](../experiments/ptr/REV3.md), [PILOT1](../experiments/ptr/PILOT1.md), [PILOT2](../experiments/ptr/PILOT2.md))
+
+**F22 — A shared block trained with a fixed loop or oracle halting iterates 4× beyond its training depth; the same block trained jointly with a learned halting policy does not.** *Strong (10 paired seeds per arm, preregistered arms, one task); mechanism.*
+- LR (the stability exit) on the fixed-loop block: 1.00 to k = 16, 0.93 at 32 (trained on k ≤ 8); the oracle-trained block 0.92 at 32. On every learned-halting arm's own block it fails at the arm's own failure point (0.26 / 0.74 / 0.36 / 0.23 at k = 16 / 16 / 24 / 8 for LH-s / LH-Δ / LH-s24 / LH-s-k4).
+- The heads are not the limit: chasing λ = 0.000 from step 2k in every arm; LH-s24's head continues to 36 loops.
+- The failure point scales with the chain lengths seen (≈ 1.5·k_max) and moves out with the loop horizon (T = 24 → ≈ 22).
+- Evidence: Entry 59; REV3 tables "LR@arm", "fixed@arm", λ by loop.
+
+**F23 — Extrapolation under a learned halting policy is reached mid-training and then lost.** *Strong (8/10 seeds in each of two arms); mechanism (late-training degradation of the block).*
+- At 4k steps LH-s and LH-Δ reach 0.89 and 0.88 at k = 16 (8/10 seeds ≥ 0.9 each); at 8k, 0.22 and 0.65 (0/10, 1/10). LH-s24 keeps it (5/5); LO and LF never lose it.
+- Pilot 2's "fails beyond ≈ 1.5× the horizon" was this state at the end of training.
+- Evidence: Entry 59; REV3 "Extrapolation over training".
+
+**F24 — A change-reading halting head with a fast-enough head learning rate halts at k + 1 and extrapolates 4× with no decay.** *Exploratory (2 seeds, the gate's ×10 cell; not the preregistered cell); mechanism if confirmed.*
+- 1.00 at every k ≤ 32, steps k + 1.1 (cheaper than the one-parameter exit's k + 1.3), LR on its own block 1.00, 0.85 → 1.00 at k = 16 over training. Heads at w_KL ≈ −3 to −5 against −0.66 at ×1.
+- Confirmatory run: D93.
+
+**F25 — Oracle halting with a dominant one-hop share does not learn the hop.** *Strong (0/10 runs at tails ≤ 10⁻¹; 1/10 at factor 1); optimization.*
+- Training accuracy at k = 2 stays at chance for 6k steps while the loss (71–76 % one-hop queries) falls to 0.05: the one-loop map wins and the reusable hop is never learned. A block pools signal across depths only when training iterates it on every example.
+
+**F26 — Unique-layer depth learns hops sequentially; the shared block does not.** *Strong (preregistered P5, 5–10 seeds); optimization.*
+- S8 (lr 1e-4, bracketed): k = 1 / 2 / 3 / 4 at 500 / 2,500 / 6,600 / > 25k steps; LO all eight by 3,600; LF by 3,200. The static stack is 2.6× slower to k = 3 when the k ≥ 3 share drops 7×; the shared block under LH-s 1.3×.
+
+**F27 — On this task the one-parameter stability exit beats every learned policy that was preregistered.** *Strong (10 seeds); performance.*
+- Geiping-style KL exit on the fixed-loop block: 1.00 to k = 16, 0.97 / 0.93 at 24 / 32, k + 1.1–1.6 steps, flat across thresholds 10⁻⁴–10⁻². Only the exploratory ×10 change head (F24) is cheaper.
+
 ### Derived constraints (arguments checked numerically during design)
 
 **F12 — Under AdamW, decoupled weight decay is itself the time filter.** *Established (derivation plus check).*
@@ -257,6 +283,16 @@ These are the negative results. They rule things out, and are kept so that nobod
 - This is the program's original bet in its simplest form. Across every wiring tried, topology changed *speed, stability and which path carries everything*, never *what each path carries*.
 - Scope: one shallow task (modular addition), AdamW, parent-selection graphs.
 - *2026-10-23:* the first possible exception is exploratory: E3's matched-time reanalysis in asym finds generalization spread across both branches while memorization stays in the chain, even at equal speeds (F18, I15). Not preregistered, branch-level only. X10 stands until I15 is tested.
+
+### From rung 0 (28 Oct 2026, [REV3](../experiments/ptr/REV3.md))
+
+**X18 — "What the halting policy reads" decides extrapolation (rev-3 P1, P2).** *Falsified as preregistered.* LH-Δ (change features) at the gate-chosen head rate: 0.65 at k = 16, 0.15 at 32; LH-s24 (state head, T = 24): 0.96 at 16, 0.44 at 24. In both the stability exit on the arm's own block fails at the same point (F22): the block lost the signal; the head did not misread it. The ×10 head (F24) is the open exception.
+
+**X19 — A learned change head is cheaper than the stability exit (rev-3 P3).** *Falsified at ×1* (k + 2.3 vs k + 1.3; the head commits late, post-answer λ 0.3–0.8). *Exploratory counter-evidence* at ×10 (k + 1.1).
+
+**X20 — The oracle-halted block's time to learn a depth is insensitive to how rare that depth is (rev-3 P6a).** *Refuted in the opposite direction* (F25): at tails ≤ 10⁻¹ the oracle arm never learns k = 2.
+
+**X21 — The state head's failure tracks the loop horizon T (pilot-2 reading, rev-3 P2's LH-s-k4 line).** *Falsified:* with k_max = 4 and T = 10 the failure is at k ≈ 6–7 (≈ 1.5·k_max), not ≈ 15; with T = 24 it is at ≈ 22. The block's trained range, not a fixed horizon.
 
 ### From "diagnosing the walk" (E1–E4, 23 Oct 2026)
 
@@ -386,6 +422,12 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 
 ---
 
+**H11 — Joint training with a halting policy degrades the shared block through the policy's objective, and the degradation goes to whichever part can move.** *Argument from rev-3 data (F22–F24); untested.*
+- **Claim:** the PonderNet KL-to-prior term (and more generally any pressure from the halting loss) reaches the block through the head's input when the head's own parameters move slowly; it pushes intermediate states to look "settled"; inside the trained range the cross-entropy holds the block to the answer, outside it the pressure wins and iteration fails. A head that moves fast absorbs the pressure itself.
+- **Predicts:** LH-Δ ×10 at 10 seeds extrapolates (≥ 8/10 ≥ 0.9 at k = 32) with no decay; LH-Δ ×1 with its input detached from the block (stop-gradient) extrapolates; β = 0 at ×1 extrapolates; LH-s ×10 extrapolates too (the input does not matter when the head absorbs the pressure).
+- **Falsifiers:** stop-gradient still decays (the damage is not through the head's input); β = 0 still decays (not the prior); ×10 at 10 seeds < 6/10 at k = 32.
+- **Cheapest test:** D93, ≈ 4 T4-hours.
+
 ## Ideas (not yet hypotheses)
 
 | ID | idea | origin | status |
@@ -416,7 +458,7 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | I24 | Express structural diversity as masks or primitives inside one shared tensor shape, so a population of structures batches as dense matmuls (the fleet trainer already batches same-shape independent runs). Heterogeneous topologies break batching. | 24 Oct discussion | Open (design constraint from tooling). |
 | I25 | A generator of worlds (PFN-style) for a library of uniform, composable blocks with a separate memory store: random symbol bijection per world, length-weighted programs over modular arithmetic and group operations, an exact Bayes reference from `program_prior.py`, a sweep of world diversity, splits on held-out compositions and lengths, and rule-plus-exception worlds. Claims C1–C5 and what each needs: [generator_design.md](generator_design.md). | 26 Oct discussion; literature review of generator design | Open. Not yet designed as an experiment; decisions in §5 of the note are the researcher's. *2026-10-26 decisions (researcher):* hand-chosen primitives with exact solutions; chunking allowed and measured; no memory store yet; monolithic PFN vs routed library of uniform blocks; instrumentation is a primary deliverable (generator_design.md §6). *2026-10-26:* consolidated into [worlds/DESIGN.md](../experiments/worlds/DESIGN.md): 3 arms (monolithic PFN, open-loop and execution-conditioned composers) × 9 training-mix cells × 3 seeds; mod-7 two-register instruction set (297,845 functions at ℓ ≤ 6); stacked-run batching implemented and tested; GPU throughput test pending. |
 | I26 | Exact step classification on the toy, plus the commit-vs-average framing. From any partial program on Z_7, the remaining distance to the target (or to the version space consistent with the context) is computable by enumeration. So every step the meta-model takes has an exact regret, 1 + d(s') − d(s): 0 = optimal, ≥1 = suboptimal, budget-fatal when it exceeds the cap, and dead when the state merges two inputs the target separates (irreversible at any length). The Bayes-optimal step policy (posterior mass of minimal programs extending each prefix) is also exact. A static PFN averages worlds in output space; the dynamic meta-model averages committed, self-consistent worlds in path space, and the two have the same optimum under log loss. The differences are in errors (a wrong valid world vs an invalid blend), joint coherence across queries, verifiability against the context, and where novelty is extrapolated. Commitment is also irreversible: most of the branch space is dead. | 26 Oct discussion; `experiments/worlds/branch_classify.py` | Open. *Measured 26 Oct* (25 targets of minimal length 4 × 32 first moves): optimal 5.9%, lateral 24.9%, away or beyond 69.3%, of which provably dead 42.2%. To be folded into the redesign as diagnostic, exact step-level reference, and an optional privileged-signal arm. *26 Oct, revision 2 review:* the step-level references need a tie-break prior over equivalent programs (π* is not unique), and branch classes need a precedence order (history Entry 32). |
-| I27 | Rung 0 of the dynamic-depth ladder (history Entries 45–54): pointer chasing with hidden, heavy-tailed chain length; a shared block with learned halting against static stacks and an oracle; headline = halting extrapolation beyond the training depth with the oracle separating block from policy; plus the signal-pooling test. Design, review and code: [ptr/DESIGN.md](../experiments/ptr/DESIGN.md). | 27 Oct; review 1 recorded | Open. Implemented with run-stacking. *Pilot 1 (27 Oct):* G2 passes (oracle-halted block extrapolates to k = 32; injection essential); the fixed loop overthinks beyond its horizon; LH-s collapsed from a halting-init asymmetry (fixed, L23); static arms slow. *Pilot 2:* G4 passes in a narrow region (lr 3e-4, weak prior); the state-reading halting policy extrapolates only ≈ 1.5× its horizon (its reading of the state drifts with depth) while a change-based exit reaches 0.97 at 4×; unique-layer depth learns hops one at a time (k = 3 at ~10k steps vs all eight by 4k for the shared block). *Revision 3 (28 Oct, Entry 58):* the question is now what the halting policy reads (LH-Δ on standardized change features; LH-s24 with T = 24; LR on every arm's own block); reviewed twice and revised; a gate (pilot 3) then a 93-run confirmatory grid, preregistered P1–P7. Awaiting the runs. |
+| I27 | Rung 0 of the dynamic-depth ladder (history Entries 45–54): pointer chasing with hidden, heavy-tailed chain length; a shared block with learned halting against static stacks and an oracle; headline = halting extrapolation beyond the training depth with the oracle separating block from policy; plus the signal-pooling test. Design, review and code: [ptr/DESIGN.md](../experiments/ptr/DESIGN.md). | 27 Oct; review 1 recorded | Open. Implemented with run-stacking. *Pilot 1 (27 Oct):* G2 passes (oracle-halted block extrapolates to k = 32; injection essential); the fixed loop overthinks beyond its horizon; LH-s collapsed from a halting-init asymmetry (fixed, L23); static arms slow. *Pilot 2:* G4 passes in a narrow region (lr 3e-4, weak prior); the state-reading halting policy extrapolates only ≈ 1.5× its horizon (its reading of the state drifts with depth) while a change-based exit reaches 0.97 at 4×; unique-layer depth learns hops one at a time (k = 3 at ~10k steps vs all eight by 4k for the shared block). *Revision 3 (28 Oct, Entry 58):* the question is now what the halting policy reads (LH-Δ on standardized change features; LH-s24 with T = 24; LR on every arm's own block); reviewed twice and revised; a gate (pilot 3) then a 93-run confirmatory grid, preregistered P1–P7. *Ran 28 Oct (Entry 59, F22–F27, X18–X21, H11):* P1–P4 falsified as preregistered, P5 holds, P6a refuted the other way; the limit is the block trained jointly with the policy, not the head, and it is lost late in training; a ×10 head learning rate (2 seeds, exploratory) removes it entirely. Next: D93 (decoupling). |
 
 ---
 
