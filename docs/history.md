@@ -1134,6 +1134,21 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 
 **Expected falsifiers of H11.** LH-Δ ×1 with the stop-gradient still decays (then the damage is not through the head's input); β = 0 still decays (then not the prior); LH-Δ ×10 at 10 seeds below 6/10 at k = 32 (then the 2-seed result was luck).
 
+## Entry 60 (28 Oct 2026): rung 0 closed; D93 deferred to rung 3 (discussion)
+
+**Premise (researcher).** Concern that the program was narrowing onto the halting mechanics of rung 0; unless the proposed decoupling round (D93) could be argued to be worth running before the planned sequence, move on.
+
+**Argument (agreed).** D93 tests whether joint training of a halting head and its block damages the block, and what prevents it. That is a rung-3 question (Q4, primitives learned jointly with routing). Rung 1 as defined (D72) has fixed symbolic circuits, so the mechanism of F22–F23 cannot occur there and no D93 outcome would change rung 1's design or reading. What rung 0 settled that rung 1 needs carries over without another run:
+- one primitive iterated per token extrapolates 4× in chain length when its training does not pass through a halting objective (F22);
+- a router's policy must be reachable by the optimizer within the step budget (L24): standardized inputs, a planted solution within reach;
+- halting from change works, but the readout-stability rule is blind on exact circuits (the readout is constant while chasing); the state-change signal is not;
+- signal pooling across depths requires the training procedure to iterate the primitive on every example (F25);
+- unique-layer depth learns hops one at a time (F26), the baseline rung 1 inherits.
+
+**Decisions.**
+- **D95.** Rung 0 is closed with its record (Entries 54–59). D93 is deferred to rung 3, where joint learning is the question; the ×10 result (F24) stays exploratory until then. The 10-seed ×10 confirmation may ride on a spare GPU during a later session but gates nothing.
+- **D96.** Rung 1 is designed next, per D72 and D75, with the carry-over rules above as design constraints.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
