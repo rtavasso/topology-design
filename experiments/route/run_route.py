@@ -27,7 +27,7 @@ import torch  # noqa: E402
 from topology_design.route import train_route, train_neural  # noqa: E402
 
 PER_RUN_KEYS = ("seed", "lr")
-SEC = {"router": 0.08, "index": 0.02, "static": 0.0075, "looped": 0.0072}   # per run-step (static: per layer; looped: per loop)
+SEC = {"router": 0.09, "index": 0.02, "static": 0.012, "looped": 0.0113}   # per run-step, pilot-measured (static: per layer; looped: per loop)
 
 
 def est_cost(cfg):

@@ -28,9 +28,9 @@ ARMS = {
 DEFAULT_LR = {"RM": 1e-3, "RMs": 1e-3, "RMd0": 1e-3, "RMT": 1e-3, "RMidx": 1e-2, "S8": 1e-4, "S2": 3e-4, "LF": 1e-3, "LFd0": 1e-3}
 STEPS = {"RM": 6000, "RMs": 6000, "RMd0": 6000, "RMT": 6000, "RMidx": 6000, "S8": 12000, "S2": 8000, "LF": 6000, "LFd0": 6000}
 EVAL_EVERY = {"S8": 4000}
-# T4 seconds per run-step: routed arms = the revision-1 pilot's 0.02 s x 6 product states per symbol (to be replaced by
-# the revision-2 pilot's measurement); neural arms from rung 0 at d = 344
-SEC = {"RM": 0.08, "RMs": 0.08, "RMd0": 0.08, "RMT": 0.08, "RMidx": 0.02, "S8": 0.058, "S2": 0.015, "LF": 0.072, "LFd0": 0.072}
+# T4 seconds per run-step, measured in the revision-2 pilot (PILOT.md): routed 0.09 (stacks of 2 and 6 alike),
+# LF 0.113 (T = 10), S8 0.095 (8 layers); RMidx and S2 scaled from those
+SEC = {"RM": 0.09, "RMs": 0.09, "RMd0": 0.09, "RMT": 0.09, "RMidx": 0.02, "S8": 0.095, "S2": 0.03, "LF": 0.113, "LFd0": 0.113}
 
 
 def run(name, arm, seed, **extra):

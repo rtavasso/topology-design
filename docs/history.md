@@ -1177,6 +1177,18 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 
 - **D100.** If P3b holds in the main grid, the follow-up candidate is a dose–response in the PP training rate with a depth-pooling readout (how many conjunction examples at any depth fix the precedence at every depth, against the static stack); recorded, not scheduled — it competes with rung 2 under the researcher's rule (Entry 60).
 
+## Entry 62 (28 Oct 2026): rung-1 pilot ran — rates unchanged; the precedence failure, the F4 null and the block's silence on P-words, at two seeds
+
+**Runs.** 20 (`grids/pilot.json`), one Kaggle session, 1.2 h; [route/PILOT.md](../experiments/route/PILOT.md); records in `experiments/route/results_data/pilot/`.
+
+**G3.** RM lr 1e-3, λ 0.02; LF lr 1e-3; S8 1e-4 — all the defaults; the main grid runs as written. Cost measured: routed 0.09 s per run-step, LF 0.113, S8 0.095; main ≈ 7.9 T4-hours.
+
+**Observed (2 seeds; the main grid gives counts).** RM: route accuracy 1.00 in range, at length to 32 (steps = the oracle's), on alternation and deep-P; SET flips at step 600 vs 500 under teacher forcing (the setup credit costs ≈ 6,400 episodes); p(HALT) exact by distance. PP runs 0.00 for every RM configuration and RM-T, first deviation `SET>PREV`; probe (a) (count forced to 2 → PREV) 1.00 in all 12 routed runs, probe (b) (flagged ∧ pending → SET) ≤ 0.06: the count is ordinal, the precedence untrained. RM-s: committed 0 on P-words (answer accuracy = the all-H share), marginal argmax 1.00 with p(target) 0.75 (0.60 at len32), sampled 0.75 — review 2's reading of F4 at this rung. LF: all-H words 1.00 at T = 10 and under LR, P-words at chance at every depth and every evaluation; S8 reaches k ≤ 2 by 8k (F26).
+
+**Not anticipated: two basins, selected by λ.** At λ = 0.005 (2/2) and lr 3e-3 (1/2) the router converges to "SET at every key state, PREV where the predecessor's pair is flagged" — exact answers in both readings, never the oracle route, k extra actions: the locally-readable solution (a value-slot match on the predecessor's pair) with the count as a free resource. At λ ≥ 0.02 the carried-bit route wins. The step cost therefore selects between two exact programs of different length here (B1 in its weakest form; an observation, not a preregistered result).
+
+**Decision.** D101: the main grid runs unchanged (the preregistered cell); the always-SET basin is read from the first-deviation and steps columns wherever route accuracy is 0 with answer accuracy 1.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
