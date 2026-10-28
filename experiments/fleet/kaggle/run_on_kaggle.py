@@ -154,5 +154,30 @@ elif job["job"] == "ptr":
     rcs = run_shards(grid_path, "ptr")
     n = len([f for f in os.listdir(out) if f.endswith(".json.gz")])
     print(f"\nSUMMARY ptr grid={grid_path} gate={job.get('gate')} gate_rcs={gate_rcs} rcs={rcs} results={n}", flush=True)
+elif job["job"] == "route":
+    out = os.path.join(W, "results")
+    os.makedirs(out, exist_ok=True)
+    if os.path.isdir("prior"):
+        for f in os.listdir("prior"):
+            shutil.copy(os.path.join("prior", f), out)
+        print(f"resumed with {len(os.listdir(out))} prior results", flush=True)
+    rc = run("tests", [sys.executable, "-m", "pytest", "-q", "-x", "tests/test_route.py"])
+    if rc != 0:
+        print("TESTS FAILED: grid not run", flush=True)
+        sys.exit(1)
+    k = max(1, n_gpus()) * int(job.get("per_gpu", 1))
+    g = max(1, n_gpus())
+    procs = []
+    for i in range(k):
+        e = {**env, "CUDA_VISIBLE_DEVICES": str(i % g)} if n_gpus() > 0 else env
+        cmd = [sys.executable, "experiments/route/run_route.py", "--grid", job["grid"], "--out", W, "--shard", f"{i}/{k}",
+               "--max-stack", str(job.get("max_stack", 10))]
+        tee = f"exec {' '.join(cmd)} 2>&1 | tee {os.path.join(W, f'route_shard{i}.txt')} | sed -u 's/^/[route{i}] /'"
+        procs.append(subprocess.Popen(tee, shell=True, env=e))
+    rcs = [p.wait() for p in procs]
+    for i in range(k):
+        print(open(os.path.join(W, f"route_shard{i}.txt")).read()[-2000:], flush=True)
+    n = len([f for f in os.listdir(out) if f.endswith(".json.gz")])
+    print(f"\nSUMMARY route grid={job['grid']} shards={k} rcs={rcs} results={n}", flush=True)
 else:
     sys.exit(f"unknown job {job}")
