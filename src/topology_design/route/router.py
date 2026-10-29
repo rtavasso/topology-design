@@ -37,6 +37,7 @@ class RouterConfig:
     lam: float = 0.02             # step cost per action other than HALT
     eps: float = 0.02             # readout error of a halted answer
     emb_seed: int = 1234
+    value_head: bool = False      # rung 2 AC16: a value head V(x) beside the policy head
 
     def dict(self):
         return asdict(self)
@@ -64,6 +65,8 @@ class StackedRouter(nn.Module):
         self.f1, self.f2 = SLinear(R, d, rc.mlp * d), SLinear(R, rc.mlp * d, d)
         self.head_norm = SLayerNorm(R, d)
         self.head = SLinear(R, d, 4)
+        if getattr(rc, "value_head", False):                    # rung 2 AC: the router's contextual value of a state
+            self.vhead = SLinear(R, d, 1)
         with torch.no_grad():
             self.head.weight.normal_(std=0.02)
             self.head.bias.zero_()
@@ -106,6 +109,11 @@ class StackedRouter(nn.Module):
             idx = torch.clamp(torch.arange(T, device=self.table.device), max=self.rc.T - 1)   # repeat the last trained logit
             return self.table[:, idx].permute(1, 0, 2).unsqueeze(2)
         return self.head(self._trunk(b)).float()
+
+    def logits_and_values(self, b: dict):
+        """(logits (R, B, NS, 4), values (R, B, NS)) from one trunk pass (value_head routers only)."""
+        x = self._trunk(b)
+        return self.head(x).float(), self.vhead(x).float().squeeze(-1)
 
     def features(self, b: dict):
         """The head's input (R, B, NS, d) after the LayerNorm."""

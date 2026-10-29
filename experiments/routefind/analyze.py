@@ -53,9 +53,14 @@ def learned(r, field="min_acc_P"):
 
 
 def program(r):
-    """Which shortest program a learned run uses on P-words: the fraction of its SETs taken at a flagged state
-    (A, the oracle's: 1; B, SET at the P-leaving state: 0)."""
-    return A.final(r).get("in8", {}).get("set_on_flag_P")
+    """Which shortest program a run uses on P-words: the fraction of its SETs taken AT the P-leaving state
+    (L, "late": 1; E, "early", SET one state before and carry: 0). The oracle is E under deferral 1, L under 0."""
+    return A.final(r).get("in8", {}).get("set_late_P")
+
+
+def prog_label(r):
+    p = program(r)
+    return "–" if p is None else ("L" if p >= 0.5 else "E")
 
 
 def g_(d, k):
@@ -81,16 +86,16 @@ def main():
     out = lambda s="": (print(s), lines.append(s))
     out(f"# Rung-2 results: {len(recs)} runs" + (f" (+ rung-1 reference from {args.ref})" if args.ref else "") + "\n")
     for field, title in (("min_acc_P", "Shortest-correct-route accuracy on P-words (any shortest correct program)"),
-                         ("set_on_flag_P", "Program identity on P-words: fraction of SETs at a flagged state (A = 1, B = 0)"),
-                         ("route_acc", "Route accuracy (committed = the oracle's program A)"), ("route_acc_P", "Oracle-route accuracy on P-words"),
+                         ("set_late_P", "Program identity on P-words: fraction of SETs at the P-leaving state (L = 1, E = 0)"),
+                         ("route_acc", "Route accuracy (committed = the oracle's program)"), ("route_acc_P", "Oracle-route accuracy on P-words"),
                          ("acc", "Answer accuracy (committed)"), ("samp_acc_P", "Sampled-route accuracy on P-words"),
                          ("q_steps", "Committed steps"),
                          ("cf_count2_prev", "Probe (a): count 2 -> PREV"), ("cf_pending_set", "Probe (b): flagged ∧ pending -> SET")):
         A.table(groups, out, field, title, strata=STRATA)
 
     out("\n## Learning: held-out criterion (all k ≤ 8 at shortest-correct-route accuracy ≥ 0.95, confirmed by the next point), flips, episodes and rollouts to criterion, clipping\n")
-    out("Learned and criterion are program-agnostic (any shortest correct route); 'oracle program' counts runs that use the oracle's A; flips are teacher-forced at the oracle's (A's) states.\n")
-    out("| arm | n | learned | of which program A | criterion step | oracle-route criterion | SET flip (A) | PREV flip | episodes to crit. (median) | rollouts to crit. (median) | final crit_obj | grad-clip binding (mean frac.) |")
+    out("Learned and criterion are program-agnostic (any shortest correct route); 'E / L' counts learned runs by program (E: SET early and carry; L: SET late at the P-leaving state; the oracle is E under δ1, L under δ0); flips are teacher-forced at the oracle's states.\n")
+    out("| arm | n | learned | E / L | criterion step | oracle-route criterion | SET flip (oracle) | PREV flip | episodes to crit. (median) | rollouts to crit. (median) | final crit_obj | grad-clip binding (mean frac.) |")
     out("|---|---|---|---|---|---|---|---|---|---|---|---|")
     ex_obj = {}
     for g, rs in sorted(groups.items()):
@@ -101,8 +106,8 @@ def main():
         if g.startswith("EXd") and "(" not in g:
             ex_obj[g[-1]] = obj
         clip = A.mean_se([np.mean([c.get("clip_frac", np.nan) for c in r["curve"]]) for r in rs])[0]
-        nA = sum(1 for r in rs if learned(r) and (program(r) is None or program(r) >= 0.5))
-        out(f"| {g} | {len(rs)} | {sum(learned(r) for r in rs)}/{len(rs)} | {nA} | {A.fmt_t95(cs, budget)} | {A.fmt_t95([crit_step(r, 'acc_by_k') for r in rs], budget)} | "
+        nE = sum(1 for r in rs if learned(r) and prog_label(r) == "E"); nL = sum(1 for r in rs if learned(r) and prog_label(r) == "L")
+        out(f"| {g} | {len(rs)} | {sum(learned(r) for r in rs)}/{len(rs)} | {nE} / {nL} | {A.fmt_t95(cs, budget)} | {A.fmt_t95([crit_step(r, 'acc_by_k') for r in rs], budget)} | "
             f"{A.fmt_t95([A.flip_of(r, 'SET') for r in rs], budget)} | {A.fmt_t95([A.flip_of(r, 'PREV') for r in rs], budget)} | "
             f"{'–' if med is None else int(med * batch)} | {'–' if med is None or not rpq else int(med * batch * QN * rpq)} | "
             f"{obj:.3f} | {clip:.2f} |")
@@ -146,13 +151,14 @@ def main():
     ex_set = {d: A.cmedian([A.flip_of(r, "SET") for r in groups.get(f"EXd{d}", []) + groups.get(f"EXd{d}(rung1)", [])]) for d in (1, 0)}
     ex_crit = {d: A.cmedian([crit_step(r) for r in groups.get(f"EXd{d}", []) + groups.get(f"EXd{d}(rung1)", [])]) for d in (1, 0)}
     out(f"- EX reference (this grid + rung 1): δ1 SET flip {ex_set[1]}, criterion {ex_crit[1]}; δ0 {ex_set[0]} / {ex_crit[0]}; crit_obj (this grid) {ex_obj}")
-    for arm in ("IW16d1", "RL16d1", "ELL16d1", "SI16d1", "EI16d1", "IW16d0", "RL16d0", "ELL16d0", "SI16d0", "EI16d0", "EI16Bd0", "RTd0", "EXd1", "EXd0"):
+    core = ("EX", "IW16", "PF", "TB16", "RL16", "AC16", "EI16")
+    for arm in [f"{a}d1" for a in core] + [f"{a}d0" for a in core] + [f"{a}d1a4" for a in core] + ["SI16d1", "ELL16d1", "EI16Bd0", "IW16d0"]:
         counts(arm, learned, f"{arm} learned (shortest-correct-route accuracy on P-words ≥ 0.95 at in4 and in8)")
-        counts(arm, lambda r: learned(r) and (program(r) is None or program(r) >= 0.5), f"{arm} learned with the oracle's program A")
-        counts(arm, lambda r: learned(r) and program(r) is not None and program(r) < 0.5, f"{arm} learned with program B (SET at the P-leaving state)")
+        counts(arm, lambda r: learned(r) and prog_label(r) == "E", f"{arm} learned with program E (SET early, carry)")
+        counts(arm, lambda r: learned(r) and prog_label(r) == "L", f"{arm} learned with program L (SET late, PREV at once)")
         if ex_crit[1] and arm.endswith("d1"):
             counts(arm, lambda r: (crit_step(r) or 1e9) <= 4 * ex_crit[1], f"{arm} criterion within 4× EX (≤ {4 * ex_crit[1]:.0f} steps)")
-    for a, b_ in (("RL16d1", "IW16d1"), ("ELL16d1", "IW16d1"), ("EI16d0", "RTd0")):
+    for a, b_ in (("RL16d1", "IW16d1"), ("AC16d1", "RL16d1"), ("TB16d1", "IW16d1"), ("PFd1", "EXd1"), ("TB16d1a4", "IW16d1a4"), ("EI16d1a4", "IW16d1a4")):
         x, y = A.paired(groups, a, b_, lambda r: crit_step(r) or 1e5)
         if x:
             (pg, pl), d = A.p_gt(x, y)

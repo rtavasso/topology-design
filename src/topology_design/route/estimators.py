@@ -206,3 +206,130 @@ def replay(mp: dict, q_start: torch.Tensor, acts: torch.Tensor) -> torch.Tensor:
         st = nxt
         out.append(st)
     return torch.stack(out, 2)
+
+
+# ---------- rung 2 revision 3: amortized-posterior and value signals ----------
+def answer_likelihood(sym: torch.Tensor, q_ans: torch.Tensor, cfg: RouteConfig, eps: float) -> torch.Tensor:
+    """p(y | a route that halts at symbol sym) for the POSTERIOR targets: 1 - eps on the label, eps / (A - 1) on another
+    answer, and 0 on a key or dead. A route explains the observed answer only if it outputs an answer; without this the
+    flat-prior posterior is dominated by "halt at once and guess" (1/4 x 1/16 per query beats every real computation)."""
+    A = cfg.n_ans
+    is_ans = (sym >= cfg.n_keys) & (sym < cfg.DEAD)
+    return torch.where(sym == q_ans, torch.full(sym.shape, 1 - eps, dtype=torch.float64, device=sym.device),
+                       torch.where(is_ans, torch.full(sym.shape, eps / (A - 1), dtype=torch.float64, device=sym.device),
+                                   torch.zeros(sym.shape, dtype=torch.float64, device=sym.device)))
+
+
+def flat_prior(mp: dict, cfg: RouteConfig) -> torch.Tensor:
+    """The fixed route prior pi0 (B, NS, 4): uniform over the four actions at a key; HALT at an answer or dead (the
+    executor's convention that computation stops at an answer)."""
+    B, S = mp["flag"].shape
+    NS = S * PER_SYM
+    s = torch.arange(NS, device=mp["flag"].device) // PER_SYM
+    term = (s >= cfg.n_keys)                                             # answers and dead
+    pi0 = torch.full((NS, 4), 0.25, dtype=torch.float64, device=s.device)
+    pi0[term] = torch.tensor([0.0, 0.0, 0.0, 1.0], dtype=torch.float64, device=s.device)
+    return pi0.unsqueeze(0).expand(B, NS, 4)
+
+
+@torch.no_grad()
+def posterior_counts(pi0: torch.Tensor, mp: dict, q_start: torch.Tensor, q_ans: torch.Tensor, T: int, cfg: RouteConfig,
+                     lam: float, eps: float):
+    """The exact posterior over routes given the answer, under a fixed prior pi0 (B, NS, 4), the step cost (factor
+    exp(-lam) per move) and the answer likelihood, by forward-backward over (state, step):
+        p0(r | y) ∝ prod_t pi0(a_t | x_t) exp(-lam [a_t is a move]) * L_y(end of r),   forced halt at T.
+    Returns counts (B, Q, NS, 4): the posterior expected number of times action a is taken at state x (summed over
+    steps), and Z (B, Q) = p0(y) (0 where no route of length <= T reaches an answer)."""
+    B, Q = q_start.shape
+    NS = pi0.shape[1]
+    dev = q_start.device
+    sym = torch.arange(NS, device=dev) // PER_SYM
+    Ly = answer_likelihood(sym.view(1, 1, NS).expand(B, Q, NS), q_ans.unsqueeze(-1), cfg, eps)          # (B, Q, NS)
+    w = pi0.double().clone()
+    w[..., :3] = w[..., :3] * math.exp(-lam)
+    w = w.unsqueeze(1).expand(B, Q, NS, 4)
+    tabs = [mp[k].unsqueeze(1).expand(B, Q, NS) for k in ("hop", "prev", "set")]
+    alpha = [F_onehot(sid(q_start, torch.zeros_like(q_start), torch.zeros_like(q_start)), NS)]
+    for t in range(T):
+        a = alpha[-1]
+        nb = torch.zeros_like(a)
+        for i, tab in enumerate(tabs):
+            nb.scatter_add_(2, tab, a * w[..., i])
+        alpha.append(nb)
+    beta = [None] * (T + 1)
+    beta[T] = Ly
+    for t in range(T - 1, -1, -1):
+        nxt = beta[t + 1]
+        beta[t] = w[..., HALT] * Ly + sum(w[..., i] * nxt.gather(2, tab) for i, tab in enumerate(tabs))
+    s0 = sid(q_start, torch.zeros_like(q_start), torch.zeros_like(q_start))
+    Z = beta[0].gather(2, s0.unsqueeze(-1)).squeeze(-1)
+    counts = torch.zeros(B, Q, NS, 4, dtype=torch.float64, device=dev)
+    for t in range(T):
+        a, nxt = alpha[t], beta[t + 1]
+        for i, tab in enumerate(tabs):
+            counts[..., i] += a * w[..., i] * nxt.gather(2, tab)
+        counts[..., HALT] += a * w[..., HALT] * Ly
+    counts = counts / Z.clamp_min(1e-300).view(B, Q, 1, 1)
+    counts = torch.where((Z > 0).view(B, Q, 1, 1), counts, torch.zeros_like(counts))
+    return counts, Z
+
+
+def F_onehot(idx: torch.Tensor, n: int) -> torch.Tensor:
+    return torch.nn.functional.one_hot(idx, n).double()
+
+
+def pf_loss(pi: torch.Tensor, counts: torch.Tensor) -> torch.Tensor:
+    """Amortized-posterior supervision (the PFN signal): -sum_{x,a} counts(x, a) log pi(a | x) per query, i.e. the
+    expected log-likelihood of the router's routes under the FIXED-prior posterior. Its gradient is
+    E_{p0(r | y)}[grad log pi(r)], where the exact marginal's (EX) is E_{p_pi(r | y)}[grad log pi(r)]: the same
+    M-step with the posterior taken under the fixed prior instead of the router's own policy."""
+    logpi = torch.log(pi.float() + 1e-12)                                               # (B, NS, 4)
+    return -(counts.float() * logpi.unsqueeze(1)).sum((-1, -2))                         # (B, Q)
+
+
+def tb_loss(lpy_route: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, logp0_route: torch.Tensor,
+            lam: float, floor: float = 1e-6):
+    """GFlowNet trajectory balance with log Z estimated per query as the mean over its K samples (the VarGrad / log-Z-free
+    form): loss = Var_k[ log pi(r_k) - log R(r_k) ], with the reward R(r) = pi0(r) exp(-lam steps) max(L_y(r), floor),
+    whose normalized form is the fixed-prior posterior (the PF target). On-policy samples. lpy_route = log L_y at the
+    route's end, logp0_route = log pi0(r). Returns (loss per query, mean log-ratio per query detached)."""
+    logR = logp0_route - lam * steps.float() + torch.clamp(lpy_route, min=math.log(floor))
+    d = logp_route - logR.detach()
+    return ((d - d.mean(-1, keepdim=True)) ** 2).mean(-1), d.mean(-1).detach()
+
+
+def ac_loss(pi: torch.Tensor, V: torch.Tensor, acts: torch.Tensor, states: torch.Tensor, reward: torch.Tensor,
+            lam: float, gae: float = 0.0):
+    """Actor-critic with a learned contextual value V(x) (B, NS) — the router's own estimate of a state's value given
+    the context, without the label. Reward: -lam per move, `reward` (B, Q, K) at the end (p(y | r), as RL16's), so
+    RL16 vs AC16 isolates bootstrapping. TD(lambda=gae) advantages along K sampled routes; gae = 0 is TD(0) (pure
+    bootstrapping), gae = 1 the Monte-Carlo return. Critic loss: squared error to the lambda-return (detached).
+    Returns (actor loss + critic loss, per query; mean return per query detached)."""
+    B = pi.shape[0]
+    T = acts.shape[-1]
+    logpi = torch.log(pi.float() + 1e-12)
+    st = states                                                                          # (B, Q, K, T + 1)
+    bidx = torch.arange(B, device=pi.device).view(B, 1, 1, 1)
+    v = V.float()[bidx.expand_as(st), st]                                                # (B, Q, K, T + 1)
+    valid = acts >= 0                                                                    # (B, Q, K, T)
+    is_move = valid & (acts != HALT)
+    n_steps = valid.sum(-1)                                                              # actions incl. HALT
+    last = (n_steps - 1).clamp_min(0)
+    # the value after the final action: 0 (terminal) for HALT and for the forced halt at T
+    r = torch.where(is_move, torch.full(acts.shape, -lam, device=pi.device), torch.zeros(acts.shape, device=pi.device))
+    endmask = torch.zeros_like(r).scatter_(-1, last.unsqueeze(-1), 1.0) * (n_steps > 0).unsqueeze(-1).float()
+    r = r + endmask * reward.float().unsqueeze(-1)
+    v_next = torch.cat([v[..., 1:T + 1], torch.zeros_like(v[..., :1])], -1)[..., :T]
+    v_next = torch.where(endmask.bool(), torch.zeros_like(v_next), v_next)
+    delta = (r + v_next - v[..., :T]).detach() * valid.float()
+    adv = torch.zeros_like(delta)
+    run = torch.zeros_like(delta[..., 0])
+    for t in range(T - 1, -1, -1):
+        run = delta[..., t] + gae * run * valid[..., t].float()
+        adv[..., t] = run
+    target = (adv + v[..., :T]).detach()
+    lp = logpi[bidx.expand_as(st[..., :T]), st[..., :T]].gather(-1, acts.clamp_min(0).unsqueeze(-1)).squeeze(-1)
+    actor = -(adv * lp * valid.float()).sum(-1)
+    critic = 0.5 * (((v[..., :T] - target) ** 2) * valid.float()).sum(-1)
+    ret = (r * valid.float()).sum(-1)
+    return (actor + critic).mean(-1), (-ret.mean(-1)).detach()

@@ -206,3 +206,81 @@ def test_best_correct_sample_picks_the_most_probable_correct_route():
     assert bool(ok[0, 0]) and int(idx[0, 0]) == 2
     ok2, _ = best_correct_sample(sym, torch.tensor([[60]]), lp, steps, 0.02)
     assert not bool(ok2[0, 0])
+
+
+# ---------- revision 3: fixed-prior posterior, trajectory balance, actor-critic ----------
+from topology_design.route.estimators import posterior_counts, flat_prior, answer_likelihood, pf_loss, tb_loss, ac_loss
+
+
+@pytest.mark.parametrize("deferral", [1, 0])
+def test_fixed_prior_posterior_matches_brute_force(deferral):
+    cfg = RouteConfig(deferral=deferral)
+    ep = generate(cfg, 2, np.random.default_rng(1), Qn=1, forced_k=3, forced_kind="alt")
+    tb = tables(ep, cfg, "cpu")
+    T, lam, eps = 5, 0.02, 0.02
+    pi0 = flat_prior(tb, cfg)
+    counts, Z = posterior_counts(pi0, tb, tb["q_start"], tb["q_ans"], T, cfg, lam, eps)
+    tabs = {HOP: tb["hop"], PREV: tb["prev"], SET: tb["set"]}
+    for b in range(2):
+        Zb = 0.0; cb = torch.zeros(cfg.n_sym * PER_SYM, 4, dtype=torch.float64)
+        for L in range(T + 1):
+            for mv in itertools.product([HOP, PREV, SET], repeat=L):
+                s = int(sid(tb["q_start"][b, 0], 0, 0)); w = 1.0; visits = []
+                for a in mv:
+                    w *= float(pi0[b, s, a]) * math.exp(-lam); visits.append((s, a)); s = int(tabs[a][b, s])
+                if w == 0:
+                    continue
+                if L < T:
+                    w *= float(pi0[b, s, HALT]); visits.append((s, HALT))
+                w *= float(answer_likelihood(torch.tensor(s // PER_SYM), tb["q_ans"][b, 0], cfg, eps))
+                Zb += w
+                for x, a in visits:
+                    cb[x, a] += w
+        assert float(Z[b, 0]) == pytest.approx(Zb, rel=1e-9)
+        assert torch.allclose(counts[b, 0], cb / Zb, atol=1e-12)
+
+
+def test_pf_gradient_is_the_fixed_prior_posterior_expectation_of_grad_log_pi():
+    torch.manual_seed(2)
+    tb = _small(2, B=1, k=2)
+    T, lam = 3, 0.02
+    theta = torch.nn.Parameter(torch.randn(1, NS, 4))
+    pi = torch.softmax(theta, -1)
+    counts, Z = posterior_counts(flat_prior(tb, DC), tb, tb["q_start"], tb["q_ans"], T, DC, lam, 0.02)
+    g_pf, = torch.autograd.grad(pf_loss(pi, counts).sum(), theta)
+    acts, states, steps = _enumerate_routes(tb, T)
+    lp0 = route_logprob(flat_prior(tb, DC), acts, states)[0].double()
+    Ly = answer_likelihood(states[0, :, -1] // PER_SYM, tb["q_ans"][0, 0].expand(acts.shape[1]), DC, 0.02)
+    w = lp0.exp() * torch.exp(-lam * steps[0].double()) * Ly
+    post = (w / w.sum()).float()
+    lpr = route_logprob(torch.softmax(theta, -1), acts, states)[0]
+    g_ref, = torch.autograd.grad(-(post * lpr).sum(), theta)
+    assert torch.allclose(g_pf, g_ref, atol=1e-5)
+
+
+def test_trajectory_balance_is_zero_iff_log_ratios_agree():
+    lp = torch.tensor([[[-2.0, -3.0, -1.0]]]); steps = torch.tensor([[[2, 3, 1]]]); lLy = torch.zeros(1, 1, 3)
+    lp0 = torch.tensor([[[-1.0, -2.0, 0.0]]])
+    loss, _ = tb_loss(lLy, steps, lp, lp0 - 0.02 * steps.float() * 0, 0.0)
+    assert float(loss) == pytest.approx(0.0, abs=1e-12)                                 # log pi - log R = -1 for all three
+    loss2, _ = tb_loss(lLy, steps, lp + torch.tensor([[[0.0, 0.5, 0.0]]]), lp0, 0.0)
+    assert float(loss2) > 0
+
+
+def test_actor_critic_targets_and_advantages_on_a_hand_built_route():
+    """One route of 2 moves then HALT, reward 1 at the end, lam = 0.1: TD(0) targets are -0.1 + V(next) for moves and
+    1 at the HALT; with gae = 1 the advantage is the Monte-Carlo return minus V."""
+    NSs = 5
+    pi = torch.full((1, NSs, 4), 0.25, requires_grad=True)
+    V = torch.tensor([[0.3, 0.5, 0.7, 0.0, 0.0]], requires_grad=True)
+    acts = torch.tensor([[[[HOP, HOP, HALT, -1]]]]); states = torch.tensor([[[[0, 1, 2, 2, 2]]]])
+    reward = torch.tensor([[[1.0]]])
+    loss0, _ = ac_loss(pi, V, acts, states, reward, 0.1, gae=0.0)
+    gV, = torch.autograd.grad(loss0.sum(), V, retain_graph=True)
+    # critic gradient (V - target): t0: 0.3 - (-0.1 + 0.5) = -0.1; t1: 0.5 - (-0.1 + 0.7) = -0.1; t2: 0.7 - 1 = -0.3
+    assert torch.allclose(gV[0, :3], torch.tensor([-0.1, -0.1, -0.3]), atol=1e-6)
+    loss1, ret = ac_loss(pi, V, acts, states, reward, 0.1, gae=1.0)
+    gpi, = torch.autograd.grad(loss1.sum(), pi)
+    # MC return from t0 = -0.1 - 0.1 + 1 = 0.8: advantage 0.8 - 0.3 = 0.5 on HOP at state 0 (d(-A log pi)/d pi = -A / pi)
+    assert float(gpi[0, 0, HOP]) == pytest.approx(-0.5 / 0.25, rel=1e-5)
+    assert float(ret) == pytest.approx(-0.8, rel=1e-6)

@@ -13,7 +13,7 @@ For each: the fraction of training queries (by chain length k) on which K sample
 label ("hit") and contain the oracle route ("oracle"), and on which a width-W beam (eps-mixed) returns a correct MAP
 route that is the oracle's. Also the exact marginal's posterior share of the oracle route among label-reaching mass.
 
-    PYTHONPATH=src python experiments/routefind/derive/search.py
+    PYTHONPATH=src python experiments/routefind/derive/search.py [n_ans]
 """
 import sys
 import numpy as np, torch
@@ -81,8 +81,9 @@ def measure(pi, tb, cfg, oa, osteps, kk, hasP, g):
 
 cfg_lam = 0.02
 ZW = None
+N_ANS = int(sys.argv[1]) if len(sys.argv) > 1 else 16       # 4 = the spurious-density dose (revision 3)
 for deferral in (1, 0):
-    cfg = RouteConfig(deferral=deferral)
+    cfg = RouteConfig(deferral=deferral, n_ans=N_ANS)
     ep = generate(cfg, 200, np.random.default_rng(0)); tb = tables(ep, cfg, "cpu")
     oa, osteps, _ = oracle(tb, tb["q_start"], 14, cfg)
     kk = tb["q_k"]; hasP = (tb["q_word"] == 1).any(-1)
