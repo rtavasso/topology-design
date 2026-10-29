@@ -22,7 +22,7 @@ import torch.nn.functional as F
 from ..ptr.stacked import StackedAdamW, clip_grad_norm_per_run
 from .data import RouteConfig, generate
 from .exec import (marginal, committed, oracle, route_ok, readout, maps, remaining_distance, counterfactual_probes,
-                   HOP, PREV, SET, HALT)
+                   HOP, PREV, SET, HALT, PER_SYM)
 from .pool import EpisodePool, stack_batches, strata_episodes, to_dict, STRATA
 from .router import StackedRouter, RouterConfig
 from . import estimators as E
@@ -114,10 +114,12 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
     fb = flat(b)
     mp = maps(fb["pair_key"], fb["pair_val"], fb["pair_prev"], fb["pair_flag"], dc)
     pi = policy(m, b, rc.T, chunk=tc["eval_chunk"])
-    s_fin, steps, acts, _ = committed(pi, mp, fb["q_start"], rc.T)
+    s_fin, steps, acts, states_c = committed(pi, mp, fb["q_start"], rc.T)
     oa, osteps, ostates = oracle(mp, fb["q_start"], rc.T, dc)
     ok = route_ok(acts, steps, oa, osteps).float()
     ok_ans = (s_fin == fb["q_ans"]).float()
+    min_ok, on_flag = program_stats(acts, states_c, steps, s_fin, fb["q_ans"], osteps, mp)
+    min_ok = min_ok.float()
     q, es, _, _ = marginal(pi, mp, fb["q_start"], rc.T, readout(dc, rc.eps, dev))     # the exact objective (every estimator)
     nll = -torch.log(q.gather(-1, (fb["q_ans"] - dc.n_keys).unsqueeze(-1)).squeeze(-1) + 1e-9) + rc.lam * es
     depth = deepest_P(fb["q_word"], fb["q_k"])
@@ -126,11 +128,12 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
     for r in range(R):
         sl = slice(r * B, (r + 1) * B)
         kk = fb["q_k"][sl].reshape(-1); okr = ok[sl].reshape(-1); oka = ok_ans[sl].reshape(-1); dp = depth[sl].reshape(-1)
-        acc, ans_acc, by_depth = {}, {}, {}
+        okm = min_ok[sl].reshape(-1); ofl = on_flag[sl].reshape(-1)
+        acc, ans_acc, by_depth, min_acc = {}, {}, {}, {}
         for k in range(1, dc.kmax + 1):
             mk = kk == k
             if mk.any():
-                acc[k] = float(okr[mk].mean()); ans_acc[k] = float(oka[mk].mean())
+                acc[k] = float(okr[mk].mean()); ans_acc[k] = float(oka[mk].mean()); min_acc[k] = float(okm[mk].mean())
         for d_ in range(0, dc.kmax + 1):                     # 0: no P; d: the deepest P is at step d
             md = dp == d_
             if md.any():
@@ -139,10 +142,31 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
         h, c = action_accuracy(pir, oa[sl], ostates[sl])
         ha, ca, hb, cb = counterfactual_probes(pir, oa[sl], ostates[sl])
         out.append({"acc_by_k": acc, "ans_acc_by_k": ans_acc, "acc_by_Pdepth": by_depth, "acc": float(okr.mean()),
+                    "min_acc_by_k": min_acc, "min_acc": float(okm.mean()),
+                    "set_on_flag": float(torch.nanmean(ofl)) if torch.isfinite(ofl).any() else None,
                     "crit_obj": float(nll[sl].mean()),
                     "act_acc": {ACTION_NAMES[a]: float(h[a] / c[a]) for a in range(4) if c[a] > 0},
                     "cf_count2_prev": float(ha / ca) if ca else None, "cf_pending_set": float(hb / cb) if cb else None})
     return out
+
+
+@torch.no_grad()
+def program_stats(acts, states, steps, s_fin, q_ans, osteps, mp):
+    """Program-agnostic success and program identity (rung 2, CPU sanity: the deferred task has two shortest correct
+    programs). min_ok: the committed route reaches the label in the oracle's number of moves (any shortest correct
+    route: the oracle's "SET at the flagged predecessor, carry" program A, or "SET at the P-leaving state, PREV at once"
+    program B, which the executor allows because PREV needs only a pending count). set_on_flag: per query, the
+    fraction of the committed route's SETs taken at a state whose own pair is flagged (A under deferral 1 ⇒ 1;
+    B ⇒ 0; under deferral 0 the two coincide and the value is 1); NaN where the route takes no SET."""
+    min_ok = (s_fin == q_ans) & (steps == osteps)
+    B, Q, T = acts.shape
+    sym = states[:, :, :T] // PER_SYM
+    fl = mp["flag"].gather(1, sym.reshape(B, -1)).view(B, Q, T) == 1
+    is_set = acts == SET
+    n_set = is_set.sum(-1).float()
+    on_flag = (is_set & fl).sum(-1).float() / n_set.clamp_min(1)
+    on_flag = torch.where(n_set > 0, on_flag, torch.full_like(on_flag, float("nan")))
+    return min_ok, on_flag
 
 
 def deepest_P(q_word, q_k):
@@ -168,6 +192,7 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
         s, steps, acts, states = committed(pi, mp, fb["q_start"], T)
         oa, osteps, ostates = oracle(mp, fb["q_start"], T, dc)
         ok_route = route_ok(acts, steps, oa, osteps)
+        ok_min, on_flag = program_stats(acts, states, steps, s, fb["q_ans"], osteps, mp)
         # the stochastic-system reading: K routes sampled from pi per query (review 2, finding 3)
         gen = torch.Generator(device=dev).manual_seed(12345)
         samp_ok, samp_route, samp_steps = [], [], []
@@ -203,6 +228,7 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
             h, c = action_accuracy(pir, oa[sl][sel].unsqueeze(1), ostates[sl][sel].unsqueeze(1))
             ha, ca, hb, cb = counterfactual_probes(pir, oa[sl][sel].unsqueeze(1), ostates[sl][sel].unsqueeze(1))
             rec = {"n": int(sel.sum()), "route_acc": float(ok_route[sl][sel].float().mean()),
+                   "min_acc": float(ok_min[sl][sel].float().mean()),
                    "samp_acc": float(samp_ok[sl][sel].mean()), "samp_route_acc": float(samp_route[sl][sel].mean()),
                    "samp_steps": float(samp_steps[sl][sel].mean()),
                    "cf_count2_prev": float(ha / ca) if ca else None, "cf_pending_set": float(hb / cb) if cb else None,
@@ -217,6 +243,9 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
             for lab, mask in (("P", hasP), ("noP", ~hasP)):
                 if mask.any():
                     rec[f"n_{lab}"] = int(mask.sum()); rec[f"route_acc_{lab}"] = float(ok_route[sl][sel][mask].float().mean())
+                    rec[f"min_acc_{lab}"] = float(ok_min[sl][sel][mask].float().mean())
+                    of = on_flag[sl][sel][mask]
+                    rec[f"set_on_flag_{lab}"] = float(torch.nanmean(of)) if torch.isfinite(of).any() else None
                     rec[f"acc_{lab}"] = float(ok_ans[sl][sel][mask].float().mean())
                     rec[f"marg_acc_{lab}"] = float(ok_marg[sl][sel][mask].float().mean())
                     rec[f"p_correct_marg_{lab}"] = float(q[sl][sel][mask].gather(-1, ans[sl][sel][mask].unsqueeze(-1)).mean())
@@ -402,6 +431,7 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
                                          "acc_by_Pdepth": cr[r]["acc_by_Pdepth"], "acc": cr[r]["acc"], "act_acc": cr[r]["act_acc"],
                                          "cf_count2_prev": cr[r]["cf_count2_prev"], "cf_pending_set": cr[r]["cf_pending_set"],
                                          "crit_obj": cr[r]["crit_obj"], "estimator_now": est_now,
+                                         "min_acc_by_k": cr[r]["min_acc_by_k"], "min_acc": cr[r]["min_acc"], "set_on_flag": cr[r]["set_on_flag"],
                                          "train_acc_by_k": {int(k): float(h[r, k] / c[r, k]) for k in range(c.shape[1]) if c[r, k] > 0}})
                 if ss is not None:
                     recs[r]["curve"][-1]["search"] = ss[r]

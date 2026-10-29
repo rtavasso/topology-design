@@ -30,19 +30,32 @@ def arm_of(r):
     return a
 
 
-def crit_step(rec):
-    """First held-out point with route accuracy >= 0.95 at every k <= 8, CONFIRMED by the next point (a crossing at the
-    last point does not count: code review 1, finding 8); None if never."""
-    pts = [(c["step"], min((c.get("acc_by_k") or {}).values(), default=0.0)) for c in rec["curve"] if c.get("acc_by_k")]
+def crit_step(rec, key="min_acc_by_k"):
+    """First held-out point with shortest-correct-route accuracy (any shortest correct program; key="acc_by_k" for the
+    oracle's program) >= 0.95 at every k <= 8, CONFIRMED by the next point (a crossing at the last point does not
+    count: code review 1, finding 8); None if never. Rung-1 records have no min_acc_by_k: fall back to acc_by_k."""
+    if rec["curve"] and key not in rec["curve"][-1]:
+        key = "acc_by_k"
+    pts = [(c["step"], min((c.get(key) or {}).values(), default=0.0)) for c in rec["curve"] if c.get(key)]
     for i in range(len(pts) - 1):
         if pts[i][1] >= A.CRIT and pts[i + 1][1] >= A.CRIT:
             return pts[i][0]
     return None
 
 
-def learned(r):
+def learned(r, field="min_acc_P"):
+    """Reached a shortest correct program on P-words at in4 and in8 (program-agnostic; field="route_acc_P" for the
+    oracle's program). Rung-1 records lack min_acc_P: fall back to route_acc_P."""
     e = A.final(r)
-    return all((e.get(st, {}).get("route_acc_P") or 0) >= 0.95 for st in ("in4", "in8"))
+    if field not in e.get("in4", {}):
+        field = "route_acc_P"
+    return all((e.get(st, {}).get(field) or 0) >= 0.95 for st in ("in4", "in8"))
+
+
+def program(r):
+    """Which shortest program a learned run uses on P-words: the fraction of its SETs taken at a flagged state
+    (A, the oracle's: 1; B, SET at the P-leaving state: 0)."""
+    return A.final(r).get("in8", {}).get("set_on_flag_P")
 
 
 def g_(d, k):
@@ -67,15 +80,18 @@ def main():
     lines = []
     out = lambda s="": (print(s), lines.append(s))
     out(f"# Rung-2 results: {len(recs)} runs" + (f" (+ rung-1 reference from {args.ref})" if args.ref else "") + "\n")
-    for field, title in (("route_acc", "Route accuracy (committed)"), ("route_acc_P", "Route accuracy on P-words"),
+    for field, title in (("min_acc_P", "Shortest-correct-route accuracy on P-words (any shortest correct program)"),
+                         ("set_on_flag_P", "Program identity on P-words: fraction of SETs at a flagged state (A = 1, B = 0)"),
+                         ("route_acc", "Route accuracy (committed = the oracle's program A)"), ("route_acc_P", "Oracle-route accuracy on P-words"),
                          ("acc", "Answer accuracy (committed)"), ("samp_acc_P", "Sampled-route accuracy on P-words"),
                          ("q_steps", "Committed steps"),
                          ("cf_count2_prev", "Probe (a): count 2 -> PREV"), ("cf_pending_set", "Probe (b): flagged ∧ pending -> SET")):
         A.table(groups, out, field, title, strata=STRATA)
 
-    out("\n## Learning: held-out criterion (all k ≤ 8 at route accuracy ≥ 0.95, confirmed by the next point), flips, episodes and rollouts to criterion, clipping\n")
-    out("| arm | n | learned | criterion step | SET flip | PREV flip | episodes to crit. (median) | rollouts to crit. (median) | final crit_obj | grad-clip binding (mean frac.) |")
-    out("|---|---|---|---|---|---|---|---|---|---|")
+    out("\n## Learning: held-out criterion (all k ≤ 8 at shortest-correct-route accuracy ≥ 0.95, confirmed by the next point), flips, episodes and rollouts to criterion, clipping\n")
+    out("Learned and criterion are program-agnostic (any shortest correct route); 'oracle program' counts runs that use the oracle's A; flips are teacher-forced at the oracle's (A's) states.\n")
+    out("| arm | n | learned | of which program A | criterion step | oracle-route criterion | SET flip (A) | PREV flip | episodes to crit. (median) | rollouts to crit. (median) | final crit_obj | grad-clip binding (mean frac.) |")
+    out("|---|---|---|---|---|---|---|---|---|---|---|---|")
     ex_obj = {}
     for g, rs in sorted(groups.items()):
         budget = rs[0]["train"]["steps"]; batch = rs[0]["train"]["batch"]; rpq = rs[0]["train"].get("rollouts_per_query", 0)
@@ -85,7 +101,8 @@ def main():
         if g.startswith("EXd") and "(" not in g:
             ex_obj[g[-1]] = obj
         clip = A.mean_se([np.mean([c.get("clip_frac", np.nan) for c in r["curve"]]) for r in rs])[0]
-        out(f"| {g} | {len(rs)} | {sum(learned(r) for r in rs)}/{len(rs)} | {A.fmt_t95(cs, budget)} | "
+        nA = sum(1 for r in rs if learned(r) and (program(r) is None or program(r) >= 0.5))
+        out(f"| {g} | {len(rs)} | {sum(learned(r) for r in rs)}/{len(rs)} | {nA} | {A.fmt_t95(cs, budget)} | {A.fmt_t95([crit_step(r, 'acc_by_k') for r in rs], budget)} | "
             f"{A.fmt_t95([A.flip_of(r, 'SET') for r in rs], budget)} | {A.fmt_t95([A.flip_of(r, 'PREV') for r in rs], budget)} | "
             f"{'–' if med is None else int(med * batch)} | {'–' if med is None or not rpq else int(med * batch * QN * rpq)} | "
             f"{obj:.3f} | {clip:.2f} |")
@@ -130,7 +147,9 @@ def main():
     ex_crit = {d: A.cmedian([crit_step(r) for r in groups.get(f"EXd{d}", []) + groups.get(f"EXd{d}(rung1)", [])]) for d in (1, 0)}
     out(f"- EX reference (this grid + rung 1): δ1 SET flip {ex_set[1]}, criterion {ex_crit[1]}; δ0 {ex_set[0]} / {ex_crit[0]}; crit_obj (this grid) {ex_obj}")
     for arm in ("IW16d1", "RL16d1", "ELL16d1", "SI16d1", "EI16d1", "IW16d0", "RL16d0", "ELL16d0", "SI16d0", "EI16d0", "EI16Bd0", "RTd0", "EXd1", "EXd0"):
-        counts(arm, learned, f"{arm} learned (route accuracy on P-words ≥ 0.95 at in4 and in8)")
+        counts(arm, learned, f"{arm} learned (shortest-correct-route accuracy on P-words ≥ 0.95 at in4 and in8)")
+        counts(arm, lambda r: learned(r) and (program(r) is None or program(r) >= 0.5), f"{arm} learned with the oracle's program A")
+        counts(arm, lambda r: learned(r) and program(r) is not None and program(r) < 0.5, f"{arm} learned with program B (SET at the P-leaving state)")
         if ex_crit[1] and arm.endswith("d1"):
             counts(arm, lambda r: (crit_step(r) or 1e9) <= 4 * ex_crit[1], f"{arm} criterion within 4× EX (≤ {4 * ex_crit[1]:.0f} steps)")
     for a, b_ in (("RL16d1", "IW16d1"), ("ELL16d1", "IW16d1"), ("EI16d0", "RTd0")):
