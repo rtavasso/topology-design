@@ -30,9 +30,11 @@ ARMS = {
     # reward: Monte-Carlo with route-level baselines (REINFORCE + RLOO), Monte-Carlo with the router's learned state
     # value as baseline, and bootstrapped through it (TD(0))
     "RL16": dict(estimator="rl", K=16),
-    # (both: 200 critic-only steps first, policy evaluation before improvement; DESIGN.md §9)
+    # (all: 200 critic-only steps first, policy evaluation before improvement; DESIGN.md §9). AC16 bootstraps with
+    # TD(lambda = 0.9); pure TD(0) (AC16T0) collapses into halting at the start on CPU, so it is a check
     "ACMC16": dict(estimator="ac", K=16, value_head=True, gae=1.0, critic_warmup=200),
-    "AC16": dict(estimator="ac", K=16, value_head=True, gae=0.0, critic_warmup=200),
+    "AC16": dict(estimator="ac", K=16, value_head=True, gae=0.9, critic_warmup=200),
+    "AC16T0": dict(estimator="ac", K=16, value_head=True, gae=0.0, critic_warmup=200),
     # search + imitation
     "EI16": dict(estimator="ei", W=16),
     # checks (derivable or already observed on CPU)
@@ -46,7 +48,7 @@ CELLS = [  # (deferral, ans_pool, {arm: seeds}); ans_pool 0 = every episode draw
     (1, 0, {"EX": 3, "EXAL": 2, "PF": 2, "IW16": 5, "PFIS16": 5, "TB16": 5, "RL16": 5, "ACMC16": 3, "AC16": 5, "EI16": 5}),
     (0, 0, {"EX": 2, "EXAL": 3, "PF": 2, "IW16": 2, "PFIS16": 3, "TB16": 3, "RL16": 3, "AC16": 3, "EI16": 2}),
     (1, 4, {"EX": 2, "IW16": 3, "PFIS16": 3, "TB16": 3, "RL16": 3, "AC16": 3, "EI16": 3}),   # the dose
-    (1, 0, {"SI16": 2, "ELL16": 2}),                            # checks
+    (1, 0, {"SI16": 2, "ELL16": 2, "AC16T0": 2}),               # checks
     (0, 0, {"EI16B": 2}),
 ]
 SEC = 0.09                                                      # T4 seconds per run-step (rung-1 pilot; signals measured in the pilot)

@@ -280,7 +280,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -300,7 +300,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -320,7 +320,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -458,7 +458,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 }
 ]

@@ -528,7 +528,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -548,7 +548,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -568,7 +568,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -588,7 +588,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -608,7 +608,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -1012,7 +1012,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -1032,7 +1032,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -1052,7 +1052,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -1342,7 +1342,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -1362,7 +1362,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -1382,7 +1382,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0,
+"gae": 0.9,
 "critic_warmup": 200
 },
 {
@@ -1503,6 +1503,46 @@
 "per_run_init": true,
 "estimator": "ell",
 "K": 16
+},
+{
+"name": "rfmain_AC16T0d1_s0",
+"arm": "AC16T0d1",
+"seed": 0,
+"lr": 0.001,
+"deferral": 1,
+"ans_pool": 0,
+"model": "router",
+"kind": "state",
+"state_input": "full",
+"lam": 0.02,
+"steps": 5000,
+"eval_every": 2500,
+"per_run_init": true,
+"estimator": "ac",
+"K": 16,
+"value_head": true,
+"gae": 0.0,
+"critic_warmup": 200
+},
+{
+"name": "rfmain_AC16T0d1_s1",
+"arm": "AC16T0d1",
+"seed": 1,
+"lr": 0.001,
+"deferral": 1,
+"ans_pool": 0,
+"model": "router",
+"kind": "state",
+"state_input": "full",
+"lam": 0.02,
+"steps": 5000,
+"eval_every": 2500,
+"per_run_init": true,
+"estimator": "ac",
+"K": 16,
+"value_head": true,
+"gae": 0.0,
+"critic_warmup": 200
 },
 {
 "name": "rfmain_EI16Bd0_s0",

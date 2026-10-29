@@ -186,7 +186,7 @@ def main():
     out(f"- EX reference: δ1 SET flip {ex_set[1]}, criterion {ex_crit_ref[1]} (this grid + rung 1); δ0 {ex_set[0]} / {ex_crit_ref[0]}; "
         f"success clock (this grid only): δ1 {ex_crit['d1']}, δ1p4 {ex_crit['d1p4']}; crit_obj {ex_obj}")
     core = ("EX", "EXAL", "PF", "IW16", "PFIS16", "TB16", "RL16", "ACMC16", "AC16", "EI16")
-    arms = [f"{a}d1" for a in core] + [f"{a}d0" for a in core] + [f"{a}d1p4" for a in core] + ["SI16d1", "ELL16d1", "EI16Bd0"]
+    arms = [f"{a}d1" for a in core] + [f"{a}d0" for a in core] + [f"{a}d1p4" for a in core] + ["SI16d1", "ELL16d1", "AC16T0d1", "EI16Bd0"]
     for arm in arms:
         counts(arm, learned, f"{arm} learned (shortest-correct committed route on P-words ≥ 0.95 at in4 and in8)")
         clock = ex_crit.get(arm[arm.index("d"):]) if arm.endswith(("d1", "d1p4")) else None
