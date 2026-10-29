@@ -56,9 +56,8 @@ def readout_logp(sym: torch.Tensor, q_ans: torch.Tensor, cfg: RouteConfig, eps: 
     A = cfg.n_ans
     is_ans = (sym >= cfg.n_keys) & (sym < cfg.DEAD)
     right = sym == q_ans
-    return torch.where(right, torch.full(sym.shape, math.log(1 - eps), device=sym.device),
-                       torch.where(is_ans, torch.full(sym.shape, math.log(eps / (A - 1)), device=sym.device),
-                                   torch.full(sym.shape, math.log(1.0 / A), device=sym.device)))
+    f = lambda v: torch.full(sym.shape, v, device=sym.device, dtype=torch.float32)     # float32 under any default dtype
+    return torch.where(right, f(math.log(1 - eps)), torch.where(is_ans, f(math.log(eps / (A - 1))), f(math.log(1.0 / A))))
 
 
 def _loo_mean(x: torch.Tensor) -> torch.Tensor:
