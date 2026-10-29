@@ -1245,6 +1245,68 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 - **D105.** The framing is recorded at the head of the ledger's Direction section, with the ordered risk list and the experiment-design rule (L27). Future rungs are justified by the risk they retire.
 - **D106 (proposed, not yet decided).** Rung 2 is re-scoped from "estimators" to "the router's training signal". The core is the cells whose outcome we cannot derive: current-policy vs fixed-prior posterior targets, each exact and sampled; reward; search. Spurious density is a second axis. Derivable cells become checks. The distillation curve (risk 1) is the leading candidate for the rung after.
 
+## Entry 66 (29 Oct 2026): rung 2 revision 3 designed and reviewed; revision 4; CPU sanity runs set P3–P4
+
+**Premise (researcher).** "Design and review it": rung 2 re-scoped to the router's training signal (D106), designed, reviewed by two independent agents (design, code), fixes implemented.
+
+**Revision 3** (`f34b73d`; [DESIGN.md](../experiments/routefind/DESIGN.md)). Arms by signal: EX (exact current-policy posterior), IW16 (sampled), PF (exact fixed-prior posterior: the PFN signal, with an answer-only likelihood), TB16 (trajectory balance toward it), RL16 vs AC16 (Monte-Carlo vs bootstrapped value), EI16 (search + imitation); a 4-answer spurious-density dose; program identity E/L (two equally short programs per trigger, with an exact expressivity table).
+
+**Reviews 3** ([design](../experiments/routefind/review/review3_design.md), [code](../experiments/routefind/review/review3_code.md)).
+- *Design (do not run as written).*
+  - PF is derivable: its fixed point, the target pooled over the one-lookup features, is the oracle's program in every cell, stochastic when sampled.
+  - At step 0 PF's gradient equals EX's with PF's likelihood to 1 % per class. So P2 was not a causal test of F29: "whose posterior" contributes nothing at step 0, and the EX–PF difference is the likelihood. EX's own step-0 target is already correct in every class, so F29's basin is built by the dynamics. (Reproduced here.)
+  - Success could be met by exact enumeration.
+  - The critic was not zero at init.
+  - On-policy VarGrad TB is the reverse KL (entropy-regularized), not "PF sampled".
+  - The 4-answer dose also changed the readout.
+  - PP precedence is an open endpoint, not a check.
+- *Code.* `posterior_counts` exact (independent brute force to 3·10⁻¹⁵); `ac_loss` and `set_late` correct. Two bugs:
+  - TB's loss was dominated by no-op moves at answers (log π₀ = log 10⁻¹²);
+  - the value head's init shifted the RNG and was not zero.
+
+**Revision 4** (`77ca591`–`445a9b9`).
+- **Added:** EX-AL (exact current-policy marginal with the answer-only likelihood); PF-IS16 (PF's forward KL by self-normalized importance weights); ACMC16 (λ = 1); RL16 on δ = 0.
+- **Demoted:** PF to a 2-seed check.
+- **Relabeled:** TB16.
+- **The dose** became a per-episode answer pool with the readout fixed.
+- **Success** is restricted to candidates (no state enumeration), judged on the committed route within 3× EX in the same grid. Determinism is reported apart.
+- **Program identity** is classified positively (early / late / other) on shortest-correct routes.
+- **Other:** 5,000 steps; pilot seed 100; the value head zero-initialized behind a stop-gradient.
+
+**CPU sanity (batch 16, 1,500 steps, seed 0; DESIGN §9).**
+- *δ = 0.* EX and EX-AL stay in all-H; exact PF leaves all-H at ≈ 1,000 steps toward L.
+- *δ = 1, exact PF* heads for L first, though its derived fixed point is E.
+- *δ = 1, value arms.*
+  - RL16: all-H.
+  - AC16 with TD(0) collapses into halting at the start within 100 steps, even after a 200-step critic-only warm-up. This is a myopic trap: under the init policy the start state's value is below the 1/16 a halt at a key earns, and once all routes halt nothing explores.
+  - TD(0.9) and ACMC16 avoid it and sit in all-H. The query-blind critic explains ≈ 5 % of the return's variance.
+- *δ = 1, posterior-matching arms.*
+  - TB16's first canonical form, which kept a log π(HALT | arrival) term, collapsed into PREV-to-dead. TB could shrink that term freely, making dead routes look under-weighted.
+  - Corrected (cut routes end with no action; a separate −log π(HALT | arrival) loss), TB16 sits in all-H with its gradient clipped on ≈ 95 % of steps.
+  - PF-IS16 sits in all-H, with a first L SET at 1,300 steps.
+
+**Decisions.**
+- **D106 decided:** rung 2 is "the router's training signal", as revision 4.
+- **D107:**
+  - AC16 bootstraps with TD(λ = 0.9); pure TD(0) is the check AC16T0.
+  - The actor-critic arms train the critic alone for 200 steps first.
+  - TB16 and PF-IS16 score canonical routes that end on arrival, with a local halt loss.
+- **P2 restated:** where F29's basin comes from. EX-AL ≤ 1/3 on δ = 0 (the likelihood alone does not prevent it); PF-IS16 ≥ 2/3 (a sampled fixed target is not trapped).
+- **P3:** PF-IS16 beats TB16 (forward over reverse KL).
+- **P4:** no advantage from the learned value at this horizon. It is uninterpretable if RL16 sits at ceiling or floor.
+
+**Rejected.**
+- Keeping PF as a core arm (derivable).
+- Reading "PF fails δ = 0" as "the task is the attractor" (a fixed target has no attractor).
+- The 4-answer dose (confounded by the readout).
+- AC16 with TD(0) as the bootstrapping test (it tests the myopic trap, not contextual value).
+
+**Expected falsifiers.**
+- EX-AL learning δ = 0: the basin was the readout's credit for halting, not self-consistency.
+- TB16 ≥ PF-IS16.
+- A learned value beating RL16 by more than a quarter of seeds.
+- Every candidate stuck in all-H at 5k: rung 2 fails, and "learned from next-token loss" needs exact inference.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
