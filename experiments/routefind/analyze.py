@@ -1,8 +1,8 @@
-"""Analysis of rung-2 results (experiments/routefind/DESIGN.md §§4, 7; revision 2).
+"""Analysis of rung-2 results (experiments/routefind/DESIGN.md §§4, 7; revision 4).
 
     PYTHONPATH=src python experiments/routefind/analyze.py results/kaggle_route-rf_main [--ref experiments/route/results_data/main] [--md out.md]
 
-Arms are estimator × deferral (e.g. IW16d1, EI16Bd0). --ref adds rung 1's exact-marginal runs (RM -> EXd1(rung1), RMd0 ->
+Arms are signal × deferral [× answer pool] (e.g. IW16d1, EI16Bd0, PFIS16d1p4). --ref adds rung 1's exact-marginal runs (RM -> EXd1(rung1), RMd0 ->
 EXd0(rung1)) as a reference distribution for SET-flip and criterion times (rung-1 records have no crit_obj). Verdicts
 here are descriptive; DESIGN.md §7 fixes the thresholds.
 """
@@ -53,14 +53,28 @@ def learned(r, field="min_acc_P"):
 
 
 def program(r):
-    """Which shortest program a run uses on P-words: the fraction of its SETs taken AT the P-leaving state
-    (L, "late": 1; E, "early", SET one state before and carry: 0). The oracle is E under deferral 1, L under 0."""
-    return A.final(r).get("in8", {}).get("set_late_P")
+    """Which shortest program a run uses on P-words (in8, committed route, shortest-correct routes only): the fraction
+    of its SETs taken AT the P-leaving state (L, "late": 1; E, "early", SET one state before and carry: 0), and the
+    fraction that are neither. The oracle is E under deferral 1, L under 0."""
+    e = A.final(r).get("in8", {})
+    return e.get("set_late_P"), e.get("set_other_P")
 
 
 def prog_label(r):
-    p = program(r)
-    return "–" if p is None else ("L" if p >= 0.5 else "E")
+    p, o = program(r)
+    if p is None:
+        return "–"
+    if (o or 0) > 0.25:
+        return "other"
+    return "L" if p >= 0.75 else ("E" if p <= 0.25 else "mix")
+
+
+def success(r, ex_crit):
+    """DESIGN.md §1 (revision 4): learned (shortest-correct committed route on P-words at in4 and in8 >= 0.95) AND the
+    held-out criterion within 3x EX's median criterion step on the same deferral in this grid. Determinism is reported
+    separately (a well-fit posterior-matching router is stochastic by derivation)."""
+    c = crit_step(r)
+    return learned(r) and ex_crit is not None and c is not None and c <= 3 * ex_crit
 
 
 def g_(d, k):
@@ -86,7 +100,8 @@ def main():
     out = lambda s="": (print(s), lines.append(s))
     out(f"# Rung-2 results: {len(recs)} runs" + (f" (+ rung-1 reference from {args.ref})" if args.ref else "") + "\n")
     for field, title in (("min_acc_P", "Shortest-correct-route accuracy on P-words (any shortest correct program)"),
-                         ("set_late_P", "Program identity on P-words: fraction of SETs at the P-leaving state (L = 1, E = 0)"),
+                         ("set_late_P", "Program identity on P-words (shortest-correct routes): fraction of SETs at the P-leaving state (L = 1, E = 0)"),
+                         ("set_other_P", "Program identity on P-words: fraction of SETs neither early nor late"),
                          ("route_acc", "Route accuracy (committed = the oracle's program)"), ("route_acc_P", "Oracle-route accuracy on P-words"),
                          ("acc", "Answer accuracy (committed)"), ("samp_acc_P", "Sampled-route accuracy on P-words"),
                          ("q_steps", "Committed steps"),
@@ -95,7 +110,7 @@ def main():
 
     out("\n## Learning: held-out criterion (all k ≤ 8 at shortest-correct-route accuracy ≥ 0.95, confirmed by the next point), flips, episodes and rollouts to criterion, clipping\n")
     out("Learned and criterion are program-agnostic (any shortest correct route); 'E / L' counts learned runs by program (E: SET early and carry; L: SET late at the P-leaving state; the oracle is E under δ1, L under δ0); flips are teacher-forced at the oracle's states.\n")
-    out("| arm | n | learned | E / L | criterion step | oracle-route criterion | SET flip (oracle) | PREV flip | episodes to crit. (median) | rollouts to crit. (median) | final crit_obj | grad-clip binding (mean frac.) |")
+    out("| arm | n | learned | E / L / other-or-mixed | criterion step | oracle-route criterion | SET flip (oracle) | PREV flip | episodes to crit. (median) | rollouts to crit. (median) | final crit_obj | grad-clip binding (mean frac.) |")
     out("|---|---|---|---|---|---|---|---|---|---|---|---|")
     ex_obj = {}
     for g, rs in sorted(groups.items()):
@@ -103,11 +118,12 @@ def main():
         cs = [crit_step(r) for r in rs]; med = A.cmedian(cs)
         objs = [r["curve"][-1].get("crit_obj") for r in rs]
         obj = A.mean_se(objs)[0]
-        if g.startswith("EXd") and "(" not in g:
-            ex_obj[g[-1]] = obj
+        if g in ("EXd0", "EXd1"):
+            ex_obj[g[3]] = obj
         clip = A.mean_se([np.mean([c.get("clip_frac", np.nan) for c in r["curve"]]) for r in rs])[0]
-        nE = sum(1 for r in rs if learned(r) and prog_label(r) == "E"); nL = sum(1 for r in rs if learned(r) and prog_label(r) == "L")
-        out(f"| {g} | {len(rs)} | {sum(learned(r) for r in rs)}/{len(rs)} | {nE} / {nL} | {A.fmt_t95(cs, budget)} | {A.fmt_t95([crit_step(r, 'acc_by_k') for r in rs], budget)} | "
+        lab = [prog_label(r) for r in rs if learned(r)]
+        nE, nL, nX = lab.count("E"), lab.count("L"), len(lab) - lab.count("E") - lab.count("L")
+        out(f"| {g} | {len(rs)} | {sum(learned(r) for r in rs)}/{len(rs)} | {nE} / {nL} / {nX} | {A.fmt_t95(cs, budget)} | {A.fmt_t95([crit_step(r, 'acc_by_k') for r in rs], budget)} | "
             f"{A.fmt_t95([A.flip_of(r, 'SET') for r in rs], budget)} | {A.fmt_t95([A.flip_of(r, 'PREV') for r in rs], budget)} | "
             f"{'–' if med is None else int(med * batch)} | {'–' if med is None or not rpq else int(med * batch * QN * rpq)} | "
             f"{obj:.3f} | {clip:.2f} |")
@@ -139,26 +155,50 @@ def main():
     for g, rs in sorted(groups.items()):
         if not (g.startswith("EI") or g.startswith("SI")) or "search_init" not in rs[0]:
             continue
-        cells = [f"s{r['train']['seed']}: init {g_(r['search_init']['oracle_kept_P_by_k'], 3) or 0:.2f} → "
-                 f"{'learned' if learned(r) else 'not'} (crit {crit_step(r)})" for r in sorted(rs, key=lambda r: r['train']['seed'])]
+        def bl(r):
+            v = r["search_init"].get("beam_set_late_P")
+            return "–" if v is None else ("L" if v >= 0.5 else "E") + f" ({v:.2f})"
+        cells = [f"s{r['train']['seed']}: init kept {g_(r['search_init']['oracle_kept_P_by_k'], 3) or 0:.2f}, init beam program {bl(r)} → "
+                 f"{'learned ' + prog_label(r) if learned(r) else 'not'} (crit {crit_step(r)})" for r in sorted(rs, key=lambda r: r['train']['seed'])]
         out(f"- {g}: " + "; ".join(cells))
 
-    out("\n## Preregistered (DESIGN.md §7, revision 2)\n")
+    out("\n## Critic and importance-weight diagnostics (mean over the last 1,000 steps)\n")
+    for g, rs in sorted(groups.items()):
+        ks = sorted({k for r in rs for c in r["curve"] for k in (c.get("diag") or {})})
+        if not ks:
+            continue
+        last = rs[0]["curve"][-1]["step"]
+        cells = []
+        for k in ks:
+            v = [np.mean([c["diag"][k] for c in r["curve"] if c["step"] > last - 1000 and c.get("diag")]) for r in rs]
+            cells.append(f"{k} {np.nanmin(v):.3f}…{np.nanmax(v):.3f}")
+        out(f"- {g}: " + "; ".join(cells))
+
+    out("\n## Preregistered (DESIGN.md §7, revision 4)\n")
     def counts(arm, test, label):
         rs = groups.get(arm, [])
         if rs:
             out(f"- {label}: {sum(bool(test(r)) for r in rs)}/{len(rs)}")
     ex_set = {d: A.cmedian([A.flip_of(r, "SET") for r in groups.get(f"EXd{d}", []) + groups.get(f"EXd{d}(rung1)", [])]) for d in (1, 0)}
-    ex_crit = {d: A.cmedian([crit_step(r) for r in groups.get(f"EXd{d}", []) + groups.get(f"EXd{d}(rung1)", [])]) for d in (1, 0)}
-    out(f"- EX reference (this grid + rung 1): δ1 SET flip {ex_set[1]}, criterion {ex_crit[1]}; δ0 {ex_set[0]} / {ex_crit[0]}; crit_obj (this grid) {ex_obj}")
-    core = ("EX", "IW16", "PF", "TB16", "RL16", "AC16", "EI16")
-    for arm in [f"{a}d1" for a in core] + [f"{a}d0" for a in core] + [f"{a}d1a4" for a in core] + ["SI16d1", "ELL16d1", "EI16Bd0", "IW16d0"]:
-        counts(arm, learned, f"{arm} learned (shortest-correct-route accuracy on P-words ≥ 0.95 at in4 and in8)")
-        counts(arm, lambda r: learned(r) and prog_label(r) == "E", f"{arm} learned with program E (SET early, carry)")
-        counts(arm, lambda r: learned(r) and prog_label(r) == "L", f"{arm} learned with program L (SET late, PREV at once)")
-        if ex_crit[1] and arm.endswith("d1"):
-            counts(arm, lambda r: (crit_step(r) or 1e9) <= 4 * ex_crit[1], f"{arm} criterion within 4× EX (≤ {4 * ex_crit[1]:.0f} steps)")
-    for a, b_ in (("RL16d1", "IW16d1"), ("AC16d1", "RL16d1"), ("TB16d1", "IW16d1"), ("PFd1", "EXd1"), ("TB16d1a4", "IW16d1a4"), ("EI16d1a4", "IW16d1a4")):
+    ex_crit_ref = {d: A.cmedian([crit_step(r) for r in groups.get(f"EXd{d}", []) + groups.get(f"EXd{d}(rung1)", [])]) for d in (1, 0)}
+    ex_crit = {"d1": A.cmedian([crit_step(r) for r in groups.get("EXd1", [])]),
+               "d1p4": A.cmedian([crit_step(r) for r in groups.get("EXd1p4", [])])}
+    out(f"- EX reference: δ1 SET flip {ex_set[1]}, criterion {ex_crit_ref[1]} (this grid + rung 1); δ0 {ex_set[0]} / {ex_crit_ref[0]}; "
+        f"success clock (this grid only): δ1 {ex_crit['d1']}, δ1p4 {ex_crit['d1p4']}; crit_obj {ex_obj}")
+    core = ("EX", "EXAL", "PF", "IW16", "PFIS16", "TB16", "RL16", "ACMC16", "AC16", "EI16")
+    arms = [f"{a}d1" for a in core] + [f"{a}d0" for a in core] + [f"{a}d1p4" for a in core] + ["SI16d1", "ELL16d1", "EI16Bd0"]
+    for arm in arms:
+        counts(arm, learned, f"{arm} learned (shortest-correct committed route on P-words ≥ 0.95 at in4 and in8)")
+        clock = ex_crit.get(arm[arm.index("d"):]) if arm.endswith(("d1", "d1p4")) else None
+        if clock:
+            counts(arm, lambda r: success(r, clock), f"{arm} SUCCESS (learned and criterion ≤ 3× EX = {3 * clock:.0f} steps)")
+        for lab in ("E", "L", "mix", "other"):
+            counts(arm, lambda r: learned(r) and prog_label(r) == lab, f"{arm} learned with program {lab}")
+        counts(arm, lambda r: learned(r) and (A.final(r).get("pp8", {}).get("route_acc") or 0) >= 0.95, f"{arm} learned and passes pp8 (PP precedence)")
+        counts(arm, lambda r: learned(r) and (A.final(r).get("in8", {}).get("samp_acc_P") or 0) >= 0.95, f"{arm} learned and deterministic (sampled acc. on P-words ≥ 0.95)")
+    for a, b_ in (("EXALd0", "EXd0"), ("PFd0", "EXALd0"), ("PFIS16d1", "IW16d1"), ("PFIS16d0", "EXALd0"), ("TB16d1", "PFIS16d1"),
+                  ("ACMC16d1", "RL16d1"), ("AC16d1", "ACMC16d1"), ("AC16d1", "RL16d1"), ("AC16d0", "RL16d0"),
+                  ("EI16d1p4", "IW16d1p4"), ("PFIS16d1p4", "PFIS16d1")):
         x, y = A.paired(groups, a, b_, lambda r: crit_step(r) or 1e5)
         if x:
             (pg, pl), d = A.p_gt(x, y)
@@ -168,7 +208,7 @@ def main():
         rs = [r for r in groups[arm] if learned(r)]
         if not rs:
             continue
-        d = "0" if "d0" in arm else "1"
+        d = "0" if "d0" in arm else "1"   # crit_obj−EX compares within deferral
         e = lambda r, st, f: A.final(r).get(st, {}).get(f)
         cols = {"len16−in8": lambda r: (e(r, "len16", "route_acc") or 0) - (e(r, "in8", "route_acc") or 0),
                 "len32−in8": lambda r: (e(r, "len32", "route_acc") or 0) - (e(r, "in8", "route_acc") or 0),

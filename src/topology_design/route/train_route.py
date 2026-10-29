@@ -33,10 +33,12 @@ TRAIN_DEFAULTS = dict(steps=6000, batch=64, lr=1e-3, warmup=500, seed=0, eval_ev
                       pool_n=60000, wd=0.01, grad_clip=1.0, teacher=False, crit_n=256, crit_every=100, eval_chunk=50, samples=4,
                       estimator="exact", K=16, W=16, ei_eps=0.1, warm_steps=0, per_run_init=False, gae=0.0)
 # rung 2 (experiments/routefind/DESIGN.md): route-finding estimators; "rf" is an alias of "ell"
-ESTIMATORS = ("exact", "teacher", "iw", "ell", "rf", "rl", "si", "ei", "pf", "tb", "ac")
-SAMPLED = ("iw", "ell", "rf", "rl", "si", "tb", "ac")
-# revision 3: pf = exact fixed-prior posterior supervision (the PFN signal); tb = GFlowNet trajectory balance toward
-# the same posterior from samples; ac = actor-critic with the router's learned contextual value V(x)
+ESTIMATORS = ("exact", "teacher", "iw", "ell", "rf", "rl", "si", "ei", "pf", "tb", "ac", "exal", "pfis")
+SAMPLED = ("iw", "ell", "rf", "rl", "si", "tb", "ac", "pfis")
+# revisions 3-4: pf = exact fixed-prior posterior supervision (the PFN signal); pfis = its forward KL from samples
+# (self-normalized importance weights); tb = trajectory balance toward the same posterior (reverse KL); ac =
+# actor-critic with the router's learned contextual value V(x); exal = the exact current-policy marginal with the
+# answer-only likelihood (EX's objective with PF's likelihood)
 PER_RUN_KEYS = ("seed", "lr")
 ACTION_NAMES = {HOP: "HOP", PREV: "PREV", SET: "SET", HALT: "HALT"}
 
@@ -120,7 +122,7 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
     oa, osteps, ostates = oracle(mp, fb["q_start"], rc.T, dc)
     ok = route_ok(acts, steps, oa, osteps).float()
     ok_ans = (s_fin == fb["q_ans"]).float()
-    min_ok, on_flag = program_stats(acts, states_c, steps, s_fin, fb["q_ans"], osteps, mp, oa, ostates)
+    min_ok, on_flag, set_oth = program_stats(acts, states_c, steps, s_fin, fb["q_ans"], osteps, mp, oa, ostates)
     min_ok = min_ok.float()
     q, es, _, _ = marginal(pi, mp, fb["q_start"], rc.T, readout(dc, rc.eps, dev))     # the exact objective (every estimator)
     nll = -torch.log(q.gather(-1, (fb["q_ans"] - dc.n_keys).unsqueeze(-1)).squeeze(-1) + 1e-9) + rc.lam * es
@@ -130,7 +132,7 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
     for r in range(R):
         sl = slice(r * B, (r + 1) * B)
         kk = fb["q_k"][sl].reshape(-1); okr = ok[sl].reshape(-1); oka = ok_ans[sl].reshape(-1); dp = depth[sl].reshape(-1)
-        okm = min_ok[sl].reshape(-1); ofl = on_flag[sl].reshape(-1)
+        okm = min_ok[sl].reshape(-1); ofl = on_flag[sl].reshape(-1); oth = set_oth[sl].reshape(-1)
         acc, ans_acc, by_depth, min_acc = {}, {}, {}, {}
         for k in range(1, dc.kmax + 1):
             mk = kk == k
@@ -146,6 +148,7 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
         out.append({"acc_by_k": acc, "ans_acc_by_k": ans_acc, "acc_by_Pdepth": by_depth, "acc": float(okr.mean()),
                     "min_acc_by_k": min_acc, "min_acc": float(okm.mean()),
                     "set_late": float(torch.nanmean(ofl)) if torch.isfinite(ofl).any() else None,
+                    "set_other": float(torch.nanmean(oth)) if torch.isfinite(oth).any() else None,
                     "crit_obj": float(nll[sl].mean()),
                     "act_acc": {ACTION_NAMES[a]: float(h[a] / c[a]) for a in range(4) if c[a] > 0},
                     "cf_count2_prev": float(ha / ca) if ca else None, "cf_pending_set": float(hb / cb) if cb else None})
@@ -155,15 +158,18 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
 @torch.no_grad()
 def program_stats(acts, states, steps, s_fin, q_ans, osteps, mp, oracle_acts=None, oracle_states=None):
     """Program-agnostic success and program identity (rung 2: each trigger placement admits two equally short correct
-    programs, because PREV needs only a pending count). min_ok: the committed route reaches the label in the oracle's
-    number of moves (any shortest correct route). set_late: per query, the fraction of the committed route's SETs taken
-    AT a P-leaving state (a symbol the oracle PREVs out of): program L ("late": SET where the P-step leaves, PREV at
-    once) = 1; program E ("early": SET one state before, carry the count across a hop) = 0. The oracle is E under
-    deferral 1 and L under deferral 0. NaN where the route takes no SET."""
+    programs, because PREV needs only a pending count). min_ok: the route reaches the label in the oracle's number of
+    moves (any shortest correct route). Each SET of a shortest correct route is classified positively (design review
+    3, S9): LATE if taken AT a P-leaving symbol (one the oracle PREVs out of; program L: SET where the P-step leaves,
+    PREV at once), EARLY if the route's next non-SET action is a HOP onto a P-leaving symbol (program E: SET one state
+    before, carry the count across the hop), OTHER otherwise. The oracle is E under deferral 1 and L under deferral 0.
+    Returns min_ok, set_late = late / SETs and set_other = other / SETs per query (NaN unless the route is shortest
+    correct and takes a SET)."""
     min_ok = (s_fin == q_ans) & (steps == osteps)
     B, Q, T = acts.shape
+    nan = torch.full(min_ok.shape, float("nan"), device=acts.device)
     if oracle_acts is None:
-        return min_ok, torch.full(min_ok.shape, float("nan"), device=acts.device)
+        return min_ok, nan, nan.clone()
     S = mp["flag"].shape[1]
     pleave = torch.zeros(B, S, dtype=torch.bool, device=acts.device)
     To = oracle_acts.shape[-1]
@@ -171,12 +177,24 @@ def program_stats(acts, states, steps, s_fin, q_ans, osteps, mp, oracle_acts=Non
     m = oracle_acts == PREV
     bidx = torch.arange(B, device=acts.device).view(B, 1, 1).expand_as(osym)
     pleave[bidx[m], osym[m]] = True
-    sym = states[:, :, :T] // PER_SYM
-    late = pleave.gather(1, sym.reshape(B, -1)).view(B, Q, T)
+    sym = states[:, :, :T + 1] // PER_SYM
+    on_pl = pleave.gather(1, sym.reshape(B, -1)).view(B, Q, T + 1)
+    late = on_pl[..., :T]
+    # nh[t]: the first non-SET action at index >= t is a HOP onto a P-leaving symbol (nh[T] = False); a SET at t is
+    # EARLY when nh[t + 1]
+    nh = torch.zeros(B, Q, T + 1, dtype=torch.bool, device=acts.device)
+    for t in range(T - 1, -1, -1):
+        a = acts[..., t]
+        nh[..., t] = torch.where(a == SET, nh[..., t + 1], (a == HOP) & on_pl[..., t + 1])
+    early = nh[..., 1:]
     is_set = acts == SET
     n_set = is_set.sum(-1).float()
-    frac = (is_set & late).sum(-1).float() / n_set.clamp_min(1)
-    return min_ok, torch.where(n_set > 0, frac, torch.full_like(frac, float("nan")))
+    n_late = (is_set & late).sum(-1).float()
+    n_early = (is_set & early & ~late).sum(-1).float()
+    ok = min_ok & (n_set > 0)
+    frac_late = torch.where(ok, n_late / n_set.clamp_min(1), nan)
+    frac_other = torch.where(ok, (n_set - n_late - n_early) / n_set.clamp_min(1), nan)
+    return min_ok, frac_late, frac_other
 
 
 def deepest_P(q_word, q_k):
@@ -202,7 +220,7 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
         s, steps, acts, states = committed(pi, mp, fb["q_start"], T)
         oa, osteps, ostates = oracle(mp, fb["q_start"], T, dc)
         ok_route = route_ok(acts, steps, oa, osteps)
-        ok_min, on_flag = program_stats(acts, states, steps, s, fb["q_ans"], osteps, mp, oa, ostates)
+        ok_min, on_flag, set_oth = program_stats(acts, states, steps, s, fb["q_ans"], osteps, mp, oa, ostates)
         # the stochastic-system reading: K routes sampled from pi per query (review 2, finding 3)
         gen = torch.Generator(device=dev).manual_seed(12345)
         samp_ok, samp_route, samp_steps = [], [], []
@@ -256,6 +274,8 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
                     rec[f"min_acc_{lab}"] = float(ok_min[sl][sel][mask].float().mean())
                     of = on_flag[sl][sel][mask]
                     rec[f"set_late_{lab}"] = float(torch.nanmean(of)) if torch.isfinite(of).any() else None
+                    oo = set_oth[sl][sel][mask]
+                    rec[f"set_other_{lab}"] = float(torch.nanmean(oo)) if torch.isfinite(oo).any() else None
                     rec[f"acc_{lab}"] = float(ok_ans[sl][sel][mask].float().mean())
                     rec[f"marg_acc_{lab}"] = float(ok_marg[sl][sel][mask].float().mean())
                     rec[f"p_correct_marg_{lab}"] = float(q[sl][sel][mask].gather(-1, ans[sl][sel][mask].unsqueeze(-1)).mean())
@@ -303,25 +323,45 @@ def per_run_init_(m: StackedRouter, seeds, rc, dc):
                 p[r].copy_(p1[0].to(p.device))
 
 
+def answer_only_readout(Rd, dc):
+    """The readout (NS, A) with the answer-only likelihood: 0 at keys and dead (EX-AL; design review 3, B2)."""
+    sym = torch.arange(Rd.shape[0], device=Rd.device) // PER_SYM
+    return torch.where(((sym < dc.n_keys) | (sym == dc.DEAD)).unsqueeze(-1), torch.zeros_like(Rd), Rd)
+
+
 def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None):
-    """(surrogate per run [backward through it], reported objective per run) for one training batch."""
+    """(surrogate per run [backward through it], reported objective per run, diagnostics per run or None) for one
+    training batch."""
     if est == "pf":
         counts, Z = E.posterior_counts(E.flat_prior(mp, dc), mp, fb["q_start"], fb["q_ans"], rc.T, dc, rc.lam, rc.eps)
         per_q = E.pf_loss(pi, counts)
         n_ok = (Z > 0).view(R, -1).sum(1).clamp_min(1).float()
         sur = per_q.view(R, -1).sum(1) / n_ok
-        return sur, sur.detach()
+        return sur, sur.detach(), None
     if est == "teacher":
         oa, osteps, ostates = oracle(mp, fb["q_start"], rc.T, dc)
         per_run = teacher_loss(pi, oa, ostates).view(R, -1).mean(1)
-        return per_run, per_run
-    if est == "exact":
-        q, es, _, _ = marginal(pi, mp, fb["q_start"], rc.T, Rd)
+        return per_run, per_run, None
+    if est in ("exact", "exal"):
+        q, es, _, _ = marginal(pi, mp, fb["q_start"], rc.T, Rd if est == "exact" else answer_only_readout(Rd, dc))
         ans = fb["q_ans"] - dc.n_keys
-        per_run = (-torch.log(q.gather(-1, ans.unsqueeze(-1)).squeeze(-1) + 1e-9) + rc.lam * es).view(R, -1).mean(1)
-        return per_run, per_run
+        floor = 1e-9 if est == "exact" else 1e-30
+        per_run = (-torch.log(q.gather(-1, ans.unsqueeze(-1)).squeeze(-1) + floor) + rc.lam * es).view(R, -1).mean(1)
+        return per_run, per_run, None
     if est in SAMPLED:
         sym, st_k, a_k, x_k = sample_per_run(pi, mp, fb["q_start"], rc.T, tc["K"], gens, R)
+        if est in ("tb", "pfis"):                          # canonical routes: cut at the first arrival (code review 3, bug 1)
+            a_c, mv = E.canonical_routes(a_k, x_k, dc)
+            lpr = E.route_logprob(pi, a_c, x_k)
+            lLy = torch.log(E.answer_likelihood(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)).float()
+            lp0 = E.route_logprob(E.flat_prior(mp, dc), a_c, x_k)
+            if est == "tb":
+                sur, obj = E.tb_loss(lLy, mv, lpr, lp0, rc.lam)
+                return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), None
+            sur, ess = E.pfis_loss(lLy, mv, lpr, lp0, rc.lam)
+            okq = (ess > 0).float().view(R, -1)
+            return (sur.view(R, -1).sum(1) / okq.sum(1).clamp_min(1)), ess.view(R, -1).mean(1), \
+                {"ess": ess.view(R, -1).mean(1), "any_ans": okq.mean(1)}
         lpr = E.route_logprob(pi, a_k, x_k)
         if est == "si":
             ok, idx = E.best_correct_sample(sym, fb["q_ans"], lpr.detach(), st_k, rc.lam)
@@ -329,26 +369,25 @@ def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None):
             a_t = torch.where(ok.unsqueeze(-1), a_t, torch.full_like(a_t, -1))
             per_q = teacher_loss(pi, a_t, E.replay(mp, fb["q_start"], a_t))
             sur = per_q.view(R, -1).sum(1) / ok.view(R, -1).sum(1).clamp_min(1).float()
-            return sur, sur.detach()
-        if est == "tb":
-            lLy = torch.log(E.answer_likelihood(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)).float()
-            lp0 = E.route_logprob(E.flat_prior(mp, dc), a_k, x_k)
-            sur, obj = E.tb_loss(lLy, st_k, lpr, lp0, rc.lam)
-            return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1)
+            return sur, sur.detach(), None
         if est == "ac":
             lpy = E.readout_logp(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)
             sur, obj = E.ac_loss(pi, V, a_k, x_k, lpy.exp(), rc.lam, gae=tc["gae"])
-            return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1)
+            d = {k: v.view(R, -1).sum(1) for k, v in E.ac_loss.diag.items()}
+            n = d["n"].clamp_min(1)
+            var = lambda s1, s2: s2 / n - (s1 / n) ** 2
+            diag = {"td_abs": d["sTD"] / n, "ev": 1 - var(d["sR"], d["sR2"]) / var(d["sG"], d["sG2"]).clamp_min(1e-12)}
+            return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), diag
         lpy = E.readout_logp(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)
         fn = {"iw": E.iw_loss, "ell": E.rf_loss, "rf": E.rf_loss, "rl": E.rl_loss}[est]
         sur, obj = fn(lpy, st_k, lpr, rc.lam)
-        return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1)
+        return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), None
     # ei
     found, a_b, _ = E.beam_search(pi.detach(), mp, fb["q_start"], fb["q_ans"], rc.T, tc["W"], dc, eps_mix=tc["ei_eps"], lam=rc.lam)
     a_t = torch.where(found.unsqueeze(-1), a_b, torch.full_like(a_b, -1))
     per_q = teacher_loss(pi, a_t, E.replay(mp, fb["q_start"], a_t))
     sur = per_q.view(R, -1).sum(1) / found.view(R, -1).sum(1).clamp_min(1).float()
-    return sur, sur.detach()
+    return sur, sur.detach(), None
 
 
 @torch.no_grad()
@@ -362,10 +401,13 @@ def search_stats(m, dc, rc, tc, crit, est, R, dev):
     b = stack_batches([crit[r] for r in range(R)]); fb = flat(b)
     mp = maps(fb["pair_key"], fb["pair_val"], fb["pair_prev"], fb["pair_flag"], dc)
     pi = policy(m, b, rc.T, chunk=tc["eval_chunk"])
-    oa, osteps, _ = oracle(mp, fb["q_start"], rc.T, dc)
+    oa, osteps, ostates_ = oracle(mp, fb["q_start"], rc.T, dc)
     if est == "ei":
         found, a_b, st_b = E.beam_search(pi, mp, fb["q_start"], fb["q_ans"], rc.T, tc["W"], dc, eps_mix=tc["ei_eps"], lam=rc.lam)
         hit, orc_any, orc_kept = found, None, found & route_ok(a_b, st_b, oa, osteps)
+        xs_b = E.replay(mp, fb["q_start"], a_b)               # the program of the route imitation would use (S7)
+        _, beam_late, _ = program_stats(a_b, xs_b, st_b, xs_b[:, :, -1] // PER_SYM, fb["q_ans"], osteps, mp, oa, ostates_)
+        beam_late = torch.where(found, beam_late, torch.full_like(beam_late, float("nan")))
     else:
         gens = [torch.Generator(device=dev).manual_seed(4242 + r) for r in range(R)]
         sym, st_k, a_k, x_k = sample_per_run(pi, mp, fb["q_start"], rc.T, tc["K"], gens, R)
@@ -389,6 +431,10 @@ def search_stats(m, dc, rc, tc, crit, est, R, dev):
             rec[name + "_P"] = float(xr[hp].mean()) if hp.any() else None
             rec[name + "_by_k"] = {k: float(xr[kk == k].mean()) for k in range(1, dc.kmax + 1) if (kk == k).any()}
             rec[name + "_P_by_k"] = {k: float(xr[(kk == k) & hp].mean()) for k in range(1, dc.kmax + 1) if ((kk == k) & hp).any()}
+        if est == "ei":
+            bl = beam_late[sl][hp]
+            rec["beam_set_late_P"] = float(torch.nanmean(bl)) if torch.isfinite(bl).any() else None
+            rec["beam_n_shortest_P"] = int(torch.isfinite(bl).sum())
         out.append(rec)
     return out
 
@@ -426,6 +472,7 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
     gens = [torch.Generator(device=dev).manual_seed(1000003 * sd + 17) for sd in seeds]
     run_loss = torch.zeros(R, device=dev, dtype=torch.float32)
     clip_hits = torch.zeros(R, device=dev, dtype=torch.float32)
+    diag_acc = {}
     hits = torch.zeros(R, dc.kmax + 1, device=dev, dtype=torch.float32); cnt = torch.zeros_like(hits)
     for s in range(tc["steps"]):
         b = stack_batches([p.sample(tc["batch"]) for p in pools])
@@ -438,7 +485,10 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
             pi = torch.softmax(lg, -1).reshape(R * fb["pair_key"].shape[0] // R, -1, 4); V = vv.reshape(pi.shape[0], -1)
         else:
             pi = policy(m, b, rc.T)
-        surrogate, per_run = estimator_loss(est_now, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=V)
+        surrogate, per_run, diag = estimator_loss(est_now, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=V)
+        if diag is not None:
+            for k_, v_ in diag.items():
+                diag_acc[k_] = diag_acc.get(k_, torch.zeros(R, device=dev)) + v_.detach().float()
         opt.zero_grad()
         surrogate.sum().backward()
         gn = clip_grad_norm_per_run(m.parameters(), tc["grad_clip"])
@@ -465,6 +515,10 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
                                          "train_acc_by_k": {int(k): float(h[r, k] / c[r, k]) for k in range(c.shape[1]) if c[r, k] > 0}})
                 if ss is not None:
                     recs[r]["curve"][-1]["search"] = ss[r]
+                if diag_acc:
+                    recs[r]["curve"][-1]["diag"] = {k_: float(v_[r] / tc["crit_every"]) for k_, v_ in diag_acc.items()}
+                recs[r]["curve"][-1]["set_other"] = cr[r]["set_other"]
+            diag_acc = {}
             run_loss.zero_(); hits.zero_(); cnt.zero_(); clip_hits.zero_()
         if (s + 1) % tc["eval_every"] == 0 or s + 1 == tc["steps"]:
             m.eval()

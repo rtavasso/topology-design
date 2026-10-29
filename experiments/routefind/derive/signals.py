@@ -47,9 +47,9 @@ def route_prob(pi0, acts, states, cfg, lam):
     return f.prod(-1)
 
 
-for n_ans in (16, 4):
+for pool in (0, 4):
     for deferral in (1, 0):
-        cfg = RouteConfig(deferral=deferral, n_ans=n_ans)
+        cfg = RouteConfig(deferral=deferral, ans_pool=pool)
         ep = generate(cfg, 300, np.random.default_rng(0)); tb = tables(ep, cfg, "cpu")
         oa, osteps, ost = oracle(tb, tb["q_start"], T, cfg)
         pi0 = flat_prior(tb, cfg)
@@ -62,7 +62,7 @@ for n_ans in (16, 4):
         isA = (aB == oa).all(-1)
         pB = torch.where(okB & ~isA, route_prob(pi0, aB, xB, cfg, LAM) * (1 - EPS) / Z, torch.zeros_like(pA))
         kk = tb["q_k"]; hasP = (tb["q_word"] == 1).any(-1)
-        print(f"\n=== n_ans {n_ans}, deferral {deferral}: posterior mass by k (P-words / all-H words)")
+        print(f"\n=== ans_pool {pool}, deferral {deferral}: posterior mass by k (P-words / all-H words)")
         print("   k  | P-words: A    B    spurious-right  wrong-answer | all-H: A    spurious-right  wrong")
         for k in range(1, 9):
             for lab, m in (("P", (kk == k) & hasP), ("H", (kk == k) & ~hasP)):
@@ -88,9 +88,9 @@ for n_ans in (16, 4):
 # ---- what a router that fits the PF target exactly would do: argmax of the episode's posterior action counts ----
 print("\n=== committed route of the target's argmax policy (a router that fits the PF target exactly), per stratum")
 from topology_design.route.exec import route_ok
-for n_ans in (16, 4):
+for pool in (0, 4):
     for deferral in (1, 0):
-        cfg = RouteConfig(deferral=deferral, n_ans=n_ans)
+        cfg = RouteConfig(deferral=deferral, ans_pool=pool)
         ep = generate(cfg, 300, np.random.default_rng(1)); tb = tables(ep, cfg, "cpu")
         oa, osteps, ost = oracle(tb, tb["q_start"], T, cfg)
         counts, Z = posterior_counts(flat_prior(tb, cfg), tb, tb["q_start"], tb["q_ans"], T, cfg, LAM, EPS)
@@ -102,7 +102,7 @@ for n_ans in (16, 4):
         ok = route_ok(a, st, oa, osteps); okm = (s == tb["q_ans"]) & (st == osteps)
         kk = tb["q_k"]; hasP = (tb["q_word"] == 1).any(-1)
         f = lambda v, m: float(v[m].float().mean()) if m.any() else float("nan")
-        print(f"n_ans {n_ans}, deferral {deferral}: oracle-route acc P-words k=3/5/8 "
+        print(f"ans_pool {pool}, deferral {deferral}: oracle-route acc P-words k=3/5/8 "
               + "/".join(f"{f(ok, (kk == k) & hasP):.2f}" for k in (3, 5, 8))
               + "; shortest-correct P-words " + "/".join(f"{f(okm, (kk == k) & hasP):.2f}" for k in (3, 5, 8))
               + "; all-H k=1/4/8 " + "/".join(f"{f(ok, (kk == k) & ~hasP):.2f}" for k in (1, 4, 8)))

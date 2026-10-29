@@ -38,6 +38,7 @@ class RouterConfig:
     eps: float = 0.02             # readout error of a halted answer
     emb_seed: int = 1234
     value_head: bool = False      # rung 2 AC16: a value head V(x) beside the policy head
+    critic_detach: bool = True    # the value head reads the trunk through a stop-gradient (code review 3, item 4)
 
     def dict(self):
         return asdict(self)
@@ -65,11 +66,16 @@ class StackedRouter(nn.Module):
         self.f1, self.f2 = SLinear(R, d, rc.mlp * d), SLinear(R, rc.mlp * d, d)
         self.head_norm = SLayerNorm(R, d)
         self.head = SLinear(R, d, 4)
-        if getattr(rc, "value_head", False):                    # rung 2 AC: the router's contextual value of a state
-            self.vhead = SLinear(R, d, 1)
         with torch.no_grad():
             self.head.weight.normal_(std=0.02)
             self.head.bias.zero_()
+        if getattr(rc, "value_head", False):
+            # rung 2 AC: the router's contextual value of a state, a small MLP on the (stop-gradient) trunk features.
+            # Built after the policy head's init, so the policy parameters at a seed equal a router without it, and its
+            # output layer zeroed, so V = 0 at init (code review 3, bug 2; design review 3, B4).
+            self.v1, self.v2 = SLinear(R, d, d), SLinear(R, d, 1)
+            with torch.no_grad():
+                self.v2.weight.zero_(); self.v2.bias.zero_()
 
     def state_tokens(self):
         """(NS, d): frozen embeddings of every product state (symbol register + count and set-here markers)."""
@@ -113,7 +119,8 @@ class StackedRouter(nn.Module):
     def logits_and_values(self, b: dict):
         """(logits (R, B, NS, 4), values (R, B, NS)) from one trunk pass (value_head routers only)."""
         x = self._trunk(b)
-        return self.head(x).float(), self.vhead(x).float().squeeze(-1)
+        xv = x.detach() if getattr(self.rc, "critic_detach", True) else x
+        return self.head(x).float(), self.v2(F.gelu(self.v1(xv))).float().squeeze(-1)
 
     def features(self, b: dict):
         """The head's input (R, B, NS, d) after the LayerNorm."""

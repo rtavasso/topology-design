@@ -284,3 +284,108 @@ def test_actor_critic_targets_and_advantages_on_a_hand_built_route():
     # MC return from t0 = -0.1 - 0.1 + 1 = 0.8: advantage 0.8 - 0.3 = 0.5 on HOP at state 0 (d(-A log pi)/d pi = -A / pi)
     assert float(gpi[0, 0, HOP]) == pytest.approx(-0.5 / 0.25, rel=1e-5)
     assert float(ret) == pytest.approx(-0.8, rel=1e-6)
+
+
+# ---------- revision 4 (design review 3, code review 3) ----------
+from topology_design.route.estimators import canonical_routes, pfis_loss
+
+
+@pytest.mark.parametrize("est", ["pf", "exal", "tb", "pfis", "ac"])
+def test_trainer_runs_the_revision_4_signals(est):
+    from topology_design.route.train_route import run_stack
+    base = dict(steps=2, batch=4, pool_n=40, eval_n=2, eval_every=2, crit_n=6, crit_every=1, warmup=1, T_eval=20,
+                K=4, W=4, estimator=est, per_run_init=True, value_head=(est == "ac"), ans_pool=4)
+    recs = run_stack([{**base, "seed": 0}, {**base, "seed": 1}], dev="cpu", log=lambda s: None)
+    c = recs[0]["curve"][-1]
+    assert math.isfinite(c["loss"]) and "set_other" in c
+    if est in ("ac", "pfis"):
+        assert set(c["diag"]) == ({"td_abs", "ev"} if est == "ac" else {"ess", "any_ans"})
+
+
+def test_value_head_is_zero_at_init_detached_and_leaves_the_policy_init_unchanged():
+    from topology_design.route.router import StackedRouter, RouterConfig
+    from topology_design.route.train_route import per_run_init_
+    dc = RouteConfig()
+    ms = []
+    for vh in (False, True):
+        rc = RouterConfig(value_head=vh)
+        torch.manual_seed(0); m = StackedRouter(1, rc, dc); per_run_init_(m, [3], rc, dc); ms.append(m)
+    pa = dict(ms[0].named_parameters()); pb = dict(ms[1].named_parameters())
+    assert all(torch.equal(pa[n], pb[n]) for n in pa)                        # same policy parameters at a seed
+    b = {k: torch.as_tensor(v).unsqueeze(0) for k, v in
+         dict(pair_key=generate(dc, 2, np.random.default_rng(0)).pair_key, pair_val=generate(dc, 2, np.random.default_rng(0)).pair_val,
+              pair_prev=generate(dc, 2, np.random.default_rng(0)).pair_prev, pair_flag=generate(dc, 2, np.random.default_rng(0)).pair_flag).items()}
+    lg, V = ms[1].logits_and_values(b)
+    assert torch.equal(V, torch.zeros_like(V))
+    with torch.no_grad():
+        ms[1].v2.weight.normal_()
+    _, V = ms[1].logits_and_values(b)
+    V.sum().backward()
+    assert ms[1].head.weight.grad is None and ms[1].q.weight.grad is None and ms[1].v1.weight.grad is not None
+
+
+def test_canonical_routes_cut_at_the_first_arrival_and_tb_ignores_no_op_moves():
+    cfg = RouteConfig()
+    ans = sid(torch.tensor(cfg.n_keys), torch.tensor(0), torch.tensor(0)).item()
+    k0, k1 = sid(torch.tensor(0), torch.tensor(0), torch.tensor(0)).item(), sid(torch.tensor(1), torch.tensor(0), torch.tensor(0)).item()
+    # clean: HOP, HOP(->answer), HALT ; looped: HOP, HOP(->answer), HOP (no-op at the answer), SET (no-op), HALT
+    acts = torch.tensor([[[[HOP, HOP, HALT, -1, -1, -1], [HOP, HOP, HOP, SET, HALT, -1]]]])
+    states = torch.tensor([[[[k0, k1, ans, ans, ans, ans, ans], [k0, k1, ans, ans, ans, ans, ans]]]])
+    a_c, mv = canonical_routes(acts, states, cfg)
+    assert torch.equal(a_c[0, 0, 0], a_c[0, 0, 1]) and mv.tolist() == [[[2, 2]]]
+    NS = cfg.n_sym * PER_SYM
+    pi = torch.full((1, NS, 4), 0.25)
+    pi0 = torch.full((1, NS, 4), 0.25); pi0[0, cfg.n_keys * PER_SYM:] = torch.tensor([0.0, 0.0, 0.0, 1.0])
+    lpr, lp0 = route_logprob(pi, a_c, states), route_logprob(pi0, a_c, states)
+    assert torch.isfinite(lp0).all() and float(lp0[0, 0, 0]) == pytest.approx(2 * math.log(0.25))
+    loss, _ = tb_loss(torch.zeros(1, 1, 2), mv, lpr, lp0, 0.02)
+    assert float(loss) == pytest.approx(0.0, abs=1e-10)                      # the two samples are the same canonical route
+
+
+def test_pfis_weights_are_the_self_normalized_fixed_prior_posterior_ratios():
+    lpy = torch.log(torch.tensor([[[0.98, 0.98, 0.0, 0.001]]]))
+    steps = torch.tensor([[[2, 3, 1, 2]]])
+    lpi = torch.log(torch.tensor([[[0.1, 0.2, 0.3, 0.05]]])).requires_grad_(True)
+    lp0 = torch.log(torch.tensor([[[0.05, 0.01, 0.2, 0.05]]]))
+    loss, ess = pfis_loss(lpy, steps, lpi, lp0, 0.02)
+    g, = torch.autograd.grad(loss.sum(), lpi)
+    w = torch.exp(lp0 - 0.02 * steps.float() + lpy - lpi.detach()); w = w / w.sum()
+    assert torch.allclose(-g, w, atol=1e-6) and float(-g[0, 0, 2]) == 0.0
+    assert float(ess) == pytest.approx(float(1 / (w ** 2).sum() / 4), rel=1e-5)
+    l2, e2 = pfis_loss(torch.full((1, 1, 2), -math.inf), torch.ones(1, 1, 2), torch.zeros(1, 1, 2), torch.zeros(1, 1, 2), 0.02)
+    assert float(l2) == 0.0 and float(e2) == 0.0
+
+
+def test_program_stats_classifies_early_late_and_other_sets_on_shortest_correct_routes():
+    from topology_design.route.train_route import program_stats
+    cfg = RouteConfig()
+    S = cfg.n_sym
+    s_ = lambda sym, c=0, h=0: sid(torch.tensor(sym), torch.tensor(c), torch.tensor(h)).item()
+    mp = {"flag": torch.zeros(1, S, dtype=torch.long)}
+    A = cfg.n_keys
+    # oracle: 0 -HOP-> 1 -PREV-> 5 -HOP-> answer (symbol 1 is P-leaving); the oracle takes 4 moves incl. one SET
+    oa = torch.tensor([[[SET, HOP, PREV, HOP, HALT, -1]]])
+    ost = torch.tensor([[[s_(0), s_(0, 1, 1), s_(1, 1), s_(5), s_(A), s_(A), s_(A)]]])
+    E_ = torch.tensor([[[SET, HOP, PREV, HOP, HALT, -1]]]); E_st = ost.clone()
+    L_ = torch.tensor([[[HOP, SET, PREV, HOP, HALT, -1]]]); L_st = torch.tensor([[[s_(0), s_(1), s_(1, 1, 1), s_(5), s_(A), s_(A), s_(A)]]])
+    O_ = torch.tensor([[[HOP, PREV, SET, HOP, HALT, -1]]]); O_st = torch.tensor([[[s_(0), s_(1), s_(5), s_(5, 1, 1), s_(A), s_(A), s_(A)]]])
+    q_ans, osteps, fin = torch.tensor([[A]]), torch.tensor([[4]]), torch.tensor([[A]])
+    out = [program_stats(a, st, osteps, fin, q_ans, osteps, mp, oa, ost) for a, st in ((E_, E_st), (L_, L_st), (O_, O_st))]
+    assert [float(o[1]) for o in out] == [0.0, 1.0, 0.0] and [float(o[2]) for o in out] == [0.0, 0.0, 1.0]
+    ok, late, oth = program_stats(L_, L_st, torch.tensor([[5]]), fin, q_ans, osteps, mp, oa, ost)
+    assert not bool(ok) and math.isnan(float(late))                          # not shortest: not classified
+
+
+def test_answer_pool_limits_distinct_answers_and_leaves_the_default_stream_unchanged():
+    from topology_design.route.train_route import answer_only_readout
+    a = generate(RouteConfig(), 5, np.random.default_rng(3)); b = generate(RouteConfig(ans_pool=0), 5, np.random.default_rng(3))
+    assert np.array_equal(a.pair_val, b.pair_val) and np.array_equal(a.q_ans, b.q_ans)
+    cfg = RouteConfig(ans_pool=4)
+    ep = generate(cfg, 20, np.random.default_rng(3))
+    for i in range(20):
+        vals = ep.pair_val[i]
+        assert len(set(v for v in vals.tolist() if cfg.n_keys <= v < cfg.DEAD)) <= 4
+    Rd = answer_only_readout(readout(cfg, 0.02, "cpu"), cfg)
+    sym = torch.arange(Rd.shape[0]) // PER_SYM
+    assert float(Rd[sym < cfg.n_keys].abs().sum()) == 0.0 and float(Rd[sym == cfg.DEAD].abs().sum()) == 0.0
+    assert torch.allclose(Rd[sym == cfg.n_keys + 2][0], readout(cfg, 0.02, "cpu")[(cfg.n_keys + 2) * PER_SYM])

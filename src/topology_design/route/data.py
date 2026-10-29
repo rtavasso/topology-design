@@ -38,6 +38,8 @@ class RouteConfig:
     tail_factor: float = 1.0
     k_deep: int = 6
     seed: int = 0
+    ans_pool: int = 0           # rung 2 dose: if > 0, each episode's chains end in only this many distinct answers
+                                # (drawn per episode from all n_ans); the readout and likelihood keep all n_ans
 
     def dict(self):
         return asdict(self)
@@ -161,15 +163,18 @@ def generate(cfg: RouteConfig, B: int, rng: np.random.Generator, forced_k=None, 
     for b in range(B):
         keys = rng.permutation(cfg.n_keys)
         ks = _chain_lengths(rng, Qn, cfg, forced_k)
+        pool = rng.choice(cfg.n_ans, cfg.ans_pool, replace=False) if cfg.ans_pool else None
+        draw_ans = (lambda: cfg.n_keys + int(rng.integers(cfg.n_ans))) if pool is None else \
+                   (lambda: cfg.n_keys + int(pool[rng.integers(cfg.ans_pool)]))
         chains = []
         used = 0
         for j, k in enumerate(ks):
             w = forced_word(rng, k, forced_kind, cfg.p_P) if (j == 0 and forced_kind) else sample_word(rng, k, cfg.p_P, cfg.max_prun)
-            chains.append((keys[used:used + k], w, cfg.n_keys + int(rng.integers(cfg.n_ans))))
+            chains.append((keys[used:used + k], w, draw_ans()))
             used += k
         while used < cfg.n_keys:
             k = min(int(rng.choice(np.arange(1, cfg.kmax + 1), p=pmf)), cfg.n_keys - used)
-            chains.append((keys[used:used + k], sample_word(rng, k, cfg.p_P, cfg.max_prun), cfg.n_keys + int(rng.integers(cfg.n_ans))))
+            chains.append((keys[used:used + k], sample_word(rng, k, cfg.p_P, cfg.max_prun), draw_ans()))
             used += k
         val, flag = {}, {}
         for ck, w, ans in chains:

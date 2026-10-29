@@ -16,8 +16,16 @@ exactly by the executor and the readout (the label is used only through p(y | ro
   ei  — expert iteration (hard EM): a beam search under the current router (mixed with uniform, eps) over product
         states, the most probable route that reaches the label kept, the router trained by teacher forcing on it.
 
-All three carry the step cost: iw and rf by a leave-one-out score-function term on the step count, ei in the route selection. The router is evaluated densely at every state for convenience (pi is Markov), but
-gradients reach only the states the sampled / searched routes visit.
+Revision 3-4 (the router's training signal; DESIGN.md §3) adds, with the answer-only likelihood L_y (answer_likelihood):
+  pf    — supervision by the exact fixed-prior posterior p0(r | y) (posterior_counts, pf_loss: the PFN signal; it
+          enumerates the state space, so it is a reference, not a candidate).
+  pfis  — the same forward KL from K on-policy samples by self-normalized importance weights (pfis_loss).
+  tb    — trajectory balance toward the same posterior (tb_loss; on-policy, i.e. its reverse KL).
+  ac    — actor-critic with the router's learned contextual value V(x) (ac_loss; TD(gae)).
+  exal  — (in the trainer) the exact current-policy marginal with the answer-only likelihood.
+
+Every estimator carries the step cost. The router is evaluated densely at every state for convenience (pi is Markov),
+but the sampled and searched estimators' gradients reach only the states their routes visit.
 """
 
 from __future__ import annotations
@@ -287,15 +295,54 @@ def pf_loss(pi: torch.Tensor, counts: torch.Tensor) -> torch.Tensor:
     return -(counts.float() * logpi.unsqueeze(1)).sum((-1, -2))                         # (B, Q)
 
 
+@torch.no_grad()
+def canonical_routes(acts: torch.Tensor, states: torch.Tensor, cfg: RouteConfig):
+    """Cut sampled routes at their first arrival at an answer or dead state (code review 3, bug 1). Answers and dead
+    absorb, so the end symbol is unchanged, but a sampled route may keep "moving" there (no-op moves) before halting,
+    where the flat prior pi0 has zero mass. The canonical route halts on arrival: actions after the arrival -> HALT
+    then -1; an arrival exactly at T keeps the forced halt (no HALT term). Returns (actions, moves) of the canonical
+    routes; the states are unchanged up to the arrival."""
+    T = acts.shape[-1]
+    sym = states // PER_SYM
+    term = sym >= cfg.n_keys                                                           # (..., T + 1): answer or dead
+    t_arr = torch.where(term.any(-1), term.float().argmax(-1), torch.full(term.shape[:-1], T + 1, device=acts.device))
+    t_end = torch.minimum(t_arr, (acts >= 0).sum(-1))                                  # halted earlier on a key
+    tt = torch.arange(T, device=acts.device).view(*([1] * (acts.dim() - 1)), T)
+    a = torch.where(tt < t_end.unsqueeze(-1), acts, torch.full_like(acts, -1))
+    halt_at = (tt == t_end.unsqueeze(-1)) & (t_end < T).unsqueeze(-1)
+    a = torch.where(halt_at, torch.full_like(acts, HALT), a)
+    moves = ((a >= 0) & (a != HALT)).sum(-1)
+    return a, moves
+
+
 def tb_loss(lpy_route: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, logp0_route: torch.Tensor,
             lam: float, floor: float = 1e-6):
     """GFlowNet trajectory balance with log Z estimated per query as the mean over its K samples (the VarGrad / log-Z-free
     form): loss = Var_k[ log pi(r_k) - log R(r_k) ], with the reward R(r) = pi0(r) exp(-lam steps) max(L_y(r), floor),
-    whose normalized form is the fixed-prior posterior (the PF target). On-policy samples. lpy_route = log L_y at the
-    route's end, logp0_route = log pi0(r). Returns (loss per query, mean log-ratio per query detached)."""
+    whose normalized form is the fixed-prior posterior (the PF target). On-policy samples, on CANONICAL routes (cut at
+    the first arrival at an answer or dead state: canonical_routes). On-policy VarGrad TB is the gradient of the reverse
+    KL(pi || p0(.|y)) (an entropy-regularized REINFORCE on log R; design review 3, B5), not PF's forward KL.
+    lpy_route = log L_y at the route's end, logp0_route = log pi0(r). Returns (loss per query, mean log-ratio per query
+    detached)."""
     logR = logp0_route - lam * steps.float() + torch.clamp(lpy_route, min=math.log(floor))
     d = logp_route - logR.detach()
     return ((d - d.mean(-1, keepdim=True)) ** 2).mean(-1), d.mean(-1).detach()
+
+
+def pfis_loss(lpy_route: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, logp0_route: torch.Tensor,
+              lam: float):
+    """The fixed-prior posterior's forward KL from samples (design review 3, B5): self-normalized importance sampling
+    with the router as proposal, weights w_k ∝ pi0(r_k) exp(-lam steps_k) L_y(r_k) / pi(r_k) on canonical routes;
+    loss = -sum_k w~_k log pi(r_k), whose gradient estimates PF's E_{p0(r|y)}[grad log pi(r)]. It differs from IW16's
+    VIMCO-free form only by the factor pi0 / pi in the weights (IW16's posterior is the router's own). Queries whose
+    samples all miss an answer give no gradient. Returns (loss per query, effective sample size / K per query)."""
+    K = logp_route.shape[-1]
+    logw = (logp0_route.float() - lam * steps.float() + lpy_route.float() - logp_route.detach().float())
+    ok = torch.isfinite(logw).any(-1, keepdim=True)
+    logw = torch.where(ok, logw, torch.zeros_like(logw))
+    wn = torch.softmax(logw, -1) * ok.float()
+    ess = (1.0 / (wn ** 2).sum(-1).clamp_min(1e-30)) * ok.squeeze(-1).float() / K
+    return -(wn.detach() * logp_route).sum(-1), ess.detach()
 
 
 def ac_loss(pi: torch.Tensor, V: torch.Tensor, acts: torch.Tensor, states: torch.Tensor, reward: torch.Tensor,
@@ -332,4 +379,12 @@ def ac_loss(pi: torch.Tensor, V: torch.Tensor, acts: torch.Tensor, states: torch
     actor = -(adv * lp * valid.float()).sum(-1)
     critic = 0.5 * (((v[..., :T] - target) ** 2) * valid.float()).sum(-1)
     ret = (r * valid.float()).sum(-1)
+    with torch.no_grad():   # critic diagnostics, as per-episode sums (the trainer aggregates them per run)
+        vm = valid.float()
+        G = torch.flip(torch.cumsum(torch.flip(r * vm, [-1]), -1), [-1])               # MC return-to-go
+        res = G - v[..., :T]
+        sm = lambda x: (x * vm).sum((1, 2, 3))
+        diag = {"n": sm(torch.ones_like(G)), "sG": sm(G), "sG2": sm(G ** 2), "sR": sm(res), "sR2": sm(res ** 2),
+                "sTD": sm(delta.abs())}
+    ac_loss.diag = diag
     return (actor + critic).mean(-1), (-ret.mean(-1)).detach()
