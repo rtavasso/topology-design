@@ -460,5 +460,21 @@
 "value_head": true,
 "gae": 0.9,
 "critic_warmup": 200
+},
+{
+"name": "rfpilot_EXALd0_lr0.003_s100",
+"arm": "EXALd0",
+"seed": 100,
+"lr": 0.003,
+"deferral": 0,
+"ans_pool": 0,
+"model": "router",
+"kind": "state",
+"state_input": "full",
+"lam": 0.02,
+"steps": 5000,
+"eval_every": 2500,
+"per_run_init": true,
+"estimator": "exal"
 }
 ]

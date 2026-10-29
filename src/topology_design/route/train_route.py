@@ -223,12 +223,13 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
         ok_min, on_flag, set_oth = program_stats(acts, states, steps, s, fb["q_ans"], osteps, mp, oa, ostates)
         # the stochastic-system reading: K routes sampled from pi per query (review 2, finding 3)
         gen = torch.Generator(device=dev).manual_seed(12345)
-        samp_ok, samp_route, samp_steps = [], [], []
+        samp_ok, samp_route, samp_steps, samp_min = [], [], [], []
         for _ in range(tc["samples"]):
             s_s, st_s, a_s, _ = committed(pi, mp, fb["q_start"], T, sample=True, generator=gen)
             samp_ok.append((s_s == fb["q_ans"]).float()); samp_route.append(route_ok(a_s, st_s, oa, osteps).float())
             samp_steps.append(st_s.float())
-        samp_ok, samp_route, samp_steps = (torch.stack(x, 0).mean(0) for x in (samp_ok, samp_route, samp_steps))
+            samp_min.append(((s_s == fb["q_ans"]) & (st_s == osteps)).float())   # sampled shortest-correct (determinism)
+        samp_ok, samp_route, samp_steps, samp_min = (torch.stack(x, 0).mean(0) for x in (samp_ok, samp_route, samp_steps, samp_min))
         ans = fb["q_ans"] - dc.n_keys
         ok_ans = (s == fb["q_ans"])
         ok_marg = (q.argmax(-1) == ans)
@@ -258,6 +259,7 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
             rec = {"n": int(sel.sum()), "route_acc": float(ok_route[sl][sel].float().mean()),
                    "min_acc": float(ok_min[sl][sel].float().mean()),
                    "samp_acc": float(samp_ok[sl][sel].mean()), "samp_route_acc": float(samp_route[sl][sel].mean()),
+                   "samp_min_acc": float(samp_min[sl][sel].mean()),
                    "samp_steps": float(samp_steps[sl][sel].mean()),
                    "cf_count2_prev": float(ha / ca) if ca else None, "cf_pending_set": float(hb / cb) if cb else None,
                    "acc": float(ok_ans[sl][sel].float().mean()), "marg_acc": float(ok_marg[sl][sel].float().mean()),
@@ -279,6 +281,7 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
                     rec[f"acc_{lab}"] = float(ok_ans[sl][sel][mask].float().mean())
                     rec[f"marg_acc_{lab}"] = float(ok_marg[sl][sel][mask].float().mean())
                     rec[f"p_correct_marg_{lab}"] = float(q[sl][sel][mask].gather(-1, ans[sl][sel][mask].unsqueeze(-1)).mean())
+                    rec[f"samp_min_acc_{lab}"] = float(samp_min[sl][sel][mask].mean())
                     rec[f"samp_acc_{lab}"] = float(samp_ok[sl][sel][mask].mean()); rec[f"samp_steps_{lab}"] = float(samp_steps[sl][sel][mask].mean())
                     rec[f"e_steps_{lab}"] = float(es[sl][sel][mask].mean()); rec[f"oracle_steps_{lab}"] = float(osteps[sl][sel][mask].float().mean())
             d = dist[sl][sel]; ph = p_halt[sl][sel]; en = ent[sl][sel]
@@ -323,6 +326,20 @@ def per_run_init_(m: StackedRouter, seeds, rc, dc):
                 p[r].copy_(p1[0].to(p.device))
 
 
+@torch.no_grad()
+def distinct_routes_P(a_k, q_word, R):
+    """Per run: the mean number of distinct sampled routes among a query's K, over queries whose word has a P (identical
+    samples zero the leave-one-out signals and give ESS / K = 1; review 4, S8)."""
+    B, Q, K, T = a_k.shape
+    code = torch.zeros(B, Q, K, dtype=torch.long, device=a_k.device)
+    for t in range(T):
+        code = code * 5 + (a_k[..., t] + 1)                                   # 14 steps x base 5 fits in int64
+    srt = code.sort(-1).values
+    n = 1 + (srt[..., 1:] != srt[..., :-1]).sum(-1).float()                   # (B, Q)
+    hasP = (q_word == 1).any(-1).float()
+    return (n * hasP).view(R, -1).sum(1) / hasP.view(R, -1).sum(1).clamp_min(1)
+
+
 def answer_only_readout(Rd, dc):
     """The readout (NS, A) with the answer-only likelihood: 0 at keys and dead (EX-AL; design review 3, B2)."""
     sym = torch.arange(Rd.shape[0], device=Rd.device) // PER_SYM
@@ -350,6 +367,7 @@ def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None, step=10**9)
         return per_run, per_run, None
     if est in SAMPLED:
         sym, st_k, a_k, x_k = sample_per_run(pi, mp, fb["q_start"], rc.T, tc["K"], gens, R)
+        dv = {"distinct_P": distinct_routes_P(a_k, fb["q_word"], R)}          # sample collapse (review 4, S8)
         if est in ("tb", "pfis"):                          # canonical routes: cut at the first arrival (code review 3, bug 1)
             a_c, mv, arr = E.canonical_routes(a_k, x_k, dc)
             lpr = E.route_logprob(pi, a_c, x_k)
@@ -358,11 +376,11 @@ def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None, step=10**9)
             lp0 = E.route_logprob(E.flat_prior(mp, dc), a_c, x_k)
             if est == "tb":
                 sur, obj = E.tb_loss(lLy, mv, lpr, lp0, rc.lam)
-                return (sur + halt_q).view(R, -1).mean(1), obj.view(R, -1).mean(1), None
+                return (sur + halt_q).view(R, -1).mean(1), obj.view(R, -1).mean(1), dv
             sur, ess = E.pfis_loss(lLy, mv, lpr, lp0, rc.lam)
             okq = (ess > 0).float().view(R, -1)
             return (sur.view(R, -1).sum(1) / okq.sum(1).clamp_min(1)) + halt_q.view(R, -1).mean(1), ess.view(R, -1).mean(1), \
-                {"ess": ess.view(R, -1).mean(1), "any_ans": okq.mean(1)}
+                {"ess": ess.view(R, -1).mean(1), "any_ans": okq.mean(1), **dv}
         lpr = E.route_logprob(pi, a_k, x_k)
         if est == "si":
             ok, idx = E.best_correct_sample(sym, fb["q_ans"], lpr.detach(), st_k, rc.lam)
@@ -370,7 +388,7 @@ def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None, step=10**9)
             a_t = torch.where(ok.unsqueeze(-1), a_t, torch.full_like(a_t, -1))
             per_q = teacher_loss(pi, a_t, E.replay(mp, fb["q_start"], a_t))
             sur = per_q.view(R, -1).sum(1) / ok.view(R, -1).sum(1).clamp_min(1).float()
-            return sur, sur.detach(), None
+            return sur, sur.detach(), dv
         if est == "ac":
             lpy = E.readout_logp(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)
             sur, obj = E.ac_loss(pi, V, a_k, x_k, lpy.exp(), rc.lam, gae=tc["gae"],
@@ -378,12 +396,12 @@ def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None, step=10**9)
             d = {k: v.view(R, -1).sum(1) for k, v in E.ac_loss.diag.items()}
             n = d["n"].clamp_min(1)
             var = lambda s1, s2: s2 / n - (s1 / n) ** 2
-            diag = {"td_abs": d["sTD"] / n, "ev": 1 - var(d["sR"], d["sR2"]) / var(d["sG"], d["sG2"]).clamp_min(1e-12)}
+            diag = {"td_abs": d["sTD"] / n, "ev": 1 - var(d["sR"], d["sR2"]) / var(d["sG"], d["sG2"]).clamp_min(1e-12), **dv}
             return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), diag
         lpy = E.readout_logp(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)
         fn = {"iw": E.iw_loss, "ell": E.rf_loss, "rf": E.rf_loss, "rl": E.rl_loss}[est]
         sur, obj = fn(lpy, st_k, lpr, rc.lam)
-        return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), None
+        return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), dv
     # ei
     found, a_b, _ = E.beam_search(pi.detach(), mp, fb["q_start"], fb["q_ans"], rc.T, tc["W"], dc, eps_mix=tc["ei_eps"], lam=rc.lam)
     a_t = torch.where(found.unsqueeze(-1), a_b, torch.full_like(a_b, -1))

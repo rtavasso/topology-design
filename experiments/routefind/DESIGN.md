@@ -104,7 +104,10 @@ Checks, at 2 seeds each (derived, or observed on CPU in revision 2):
 **Canonical routes** (code review 3, bug 1). TB16 and PF-IS16 score each sampled route cut at its first arrival at an answer or dead state, which absorb.
 - **Why the cut.** Without it, no-op moves at an answer score log π₀ = log 10⁻¹² and dominate TB's loss (41 % of routes at init).
 - **The cut route ends there with no action**, as at the forced halt at T: π₀ halts at an answer or dead with probability 1. A first version kept a log π(HALT | arrival) term. TB16 could shrink it freely, which made routes into dead look under-weighted. The CPU run collapsed into PREV-to-dead (§9).
-- **Halting at the arrival is taught by a separate local term,** −log π(HALT | arrival state). This is the prior knowledge π₀ encodes; RL16 and IW16 learn halting at answers from the step cost instead.
+- **Why no HALT term is the correct objective, not a tuning choice** (review 4): under the router, the probability of the cut route is the probability of its prefix, because everything after the arrival sums to 1. So TB16 is still the reverse KL to the fixed posterior over routes as the executor reads them.
+- **Halting at the arrival is taught by a separate local term,** −log π(HALT | arrival state). This is the prior knowledge π₀ encodes. RL16 and IW16 learn halting at answers from the step cost instead.
+  - Without the term, PF-IS16 pushes π(HALT | answer) to 0.002 within 50 steps, and its committed routes could never count as shortest.
+  - At init its gradient is about as large as PF-IS16's own (norm 21–24 vs 23–28) and pushes HALT up at keys too (review 4, S5). This is reported as a difference between the families (§7 endpoints).
 
 **The critic warm-up.** The actor-critic arms train only the critic for their first 200 steps (policy evaluation before improvement); the actor switches on at step 200.
 
@@ -224,7 +227,7 @@ The pooled argmaxes of the posterior targets do not move.
 
 | cell | EX | EX-AL | PF | IW16 | PF-IS16 | TB16 | RL16 | ACMC16 | AC16 | EI16 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| δ = 1 | 3 | 2 | 2 (check) | 5 | 5 | 5 | 5 | 3 | 5 | 5 |
+| δ = 1 | 3 | 2 | 2 (check) | 5 | 5 | 5 | 5 | 5 | 5 | 5 |
 | δ = 0 | 2 | **3** | 2 (check) | 2 | 3 | 3 | 3 | — | 3 | 2 |
 | δ = 1, answer pool 4 (the dose) | 2 | — | — | 3 | 3 | 3 | 3 | — | 3 | 3 |
 
@@ -233,18 +236,19 @@ Plus the checks: SI16, ELL16, AC16T0 (δ = 1), EI16B (δ = 0), 2 seeds each.
 **The dose** (revised, review 3 S2). Each episode's chains end in one of 4 answers drawn per episode from all 16 (`ans_pool = 4`). The readout and the likelihood keep 16 answers, so their constants do not change. Only the coincidence rate of wrong routes rises: decoys and the all-H program land on the label with probability 1/4 instead of 1/16.
 
 **Budget.**
-- **Size:** 91 runs × **5,000 steps** × batch 64.
+- **Size:** 93 runs × **5,000 steps** × batch 64.
 - **Schedule:** the cosine schedule is at 15 % of the peak lr by 80 % of training (review 3, S6), so the step count was raised from 4,000. Success counts the criterion within 3× EX's median in this grid, on the same schedule; rung-1 EX runs (6,000-step schedule) are a reference only.
 - **Seeding:** every run has its own init and sampling seed (`per_run_init`).
-- **Cost:** ≈ 11.4 T4-hours at the EX rate (0.09 s per run-step), ≈ 5.7 h wall. Sampled and exact-posterior arms cost more per step; the pilot measures it.
+- **Cost:** ≈ 11.6 T4-hours at the EX rate (0.09 s per run-step), ≈ 5.8 h wall. Sampled and exact-posterior arms cost more per step; the pilot measures it.
 
 **Seeds.** 5 / 3 / 2 per cell is below AGENTS rule 4. It is defensible only for count predictions on near-bimodal outcomes. Paired speed comparisons are exploratory.
 
 **Pilot (G3).**
 - The sweep: the seven candidates × lr {3e-4, 1e-3, 3e-3} on δ = 1.
-- The controls: EX-AL, PF-IS16, TB16, RL16 and AC16 on δ = 0 at lr 1e-3 (L26).
+- The controls: EX-AL, PF-IS16, TB16, RL16 and AC16 on δ = 0 at lr 1e-3 (L26), plus EX-AL on δ = 0 at 3e-3, so that P2(a) does not rest on one lr (review 4, S7).
 - Seed: **100**, not a main-grid seed (review 3, S5).
-- Size: 26 runs ≈ 3.2 T4-hours at the EX rate.
+- Size: 27 runs ≈ 3.4 T4-hours at the EX rate.
+- The main grid's lr values are placeholders (1e-3) until the pilot rule is applied; `make_grids.py`'s `LR` is set from the pilot before the main grid is generated.
 - **Rule:** per signal, the lr with the highest held-out shortest-correct accuracy at 5k steps on δ = 1. It applies to every cell of that signal.
 - **Ties** go to the lr with the higher mean committed shortest-correct accuracy over the last 1,000 steps, then to 1e-3. A signal that fails at every lr is reported as such.
 - EX, EX-AL and PF keep 1e-3.
@@ -255,15 +259,16 @@ Plus the checks: SI16, ELL16, AC16T0 (δ = 1), EI16B (δ = 0), 2 seeds each.
 |---|---|---|---|
 | **P1** | **The sampled current-policy posterior (IW16), δ = 1.** Success in **≥ 3/5** seeds, in program E. One revision-2 CPU seed collapsed into "SET everywhere": identical samples give zero leave-one-out advantages. | ≤ 1/5. 2/5 is inconclusive and reported as such. | optimization |
 | **P2** | **Where F29's basin comes from (δ = 0).** The CPU sanity runs (§9) point one way: at 7.5 % of a main run's episodes, EX and EX-AL both stall in all-H while PF has started learning L. Hence:<br>(a) **EX-AL learns in ≤ 1/3**: the answer-only likelihood alone does not prevent the basin.<br>(b) **PF-IS16 learns in ≥ 2/3**, in L: a sampled fixed target is not trapped either. | (a) EX-AL ≥ 2/3: the readout dilution was the cause; self-consistency with the right likelihood escapes.<br>(b) PF-IS16 ≤ 1/3 while PF learns: sampling cannot find the fixed target's support where the policy is stuck. | mechanism (F29, causal) |
-| **P3** | **KL direction (PF-IS16 vs TB16), δ = 1.** PF-IS16 succeeds in **at least 2 more of 5 seeds** than TB16, or, if both succeed equally often, reaches criterion earlier in ≥ 4 of 5 pairs. On CPU (§9), PF-IS16 shows the first sign of L at 1,300 steps, as exact PF did. TB16 shows none, and its gradient clips on ≈ 95 % of steps: the reverse-KL residuals are large and noisy. | TB16 succeeds in at least as many seeds as PF-IS16 and reaches criterion no later. Then the reverse KL with its entropy term is at least as good a sampled route to the fixed posterior. | optimization |
-| **P4** | **Contextual value (RL16, ACMC16, AC16), δ = 1.** **No advantage from the learned value at this horizon:** the fraction of seeds that learn for AC16 (of 5) and ACMC16 (of 3) is each within 0.25 of RL16's (of 5), and their paired criterion steps are within 25 % of RL16's. On CPU all three sit in all-H at 1,500 steps, and the query-blind critic explains ≈ 5 % of the return's variance (§9). A value that explains so little cannot credit a setup step better than the returns it is fit to. **Uninterpretable** if RL16 is at ceiling (criterion ≤ 1.5× EX) or at floor (all-H or halting at 5k in all pilot lrs). Then P4 moves to longer setup distances (§11) instead of being read. | AC16's or ACMC16's learned fraction exceeds RL16's by more than 0.25, or either reaches criterion ≥ 25 % earlier in ≥ 4 of 5 pairs. That is evidence that a learned contextual value credits setup steps. | mechanism (risk 4) |
-| **P5** | **Which program each signal lands in.**<br>δ = 1: EX, EX-AL and IW16 land in **E** in the majority of learned seeds (rung 1's EX learned E; their targets average toward the current policy's E-favouring posterior).<br>PF-IS16 and the PF check: **open**. Their derived fixed point is E (§5.2), but on CPU exact PF and PF-IS16 head for L first (§9).<br>EI16: its learned program **matches its init beam program** (E if the init beam's `set_late` < 0.5) in **≥ 4/5** learned seeds. Imitation reinforces whichever shortest route the beam hands it first; the init beam MAP is E on 0.10–0.71 of P-words, depending on the seed.<br>δ = 0: every learned run is **L** (expressivity, §2). | Any learned δ = 0 run labeled E or other: a bug, or an unanticipated read. EI16 matching its init beam program in ≤ 2/4 learned seeds. | mechanism (inductive bias) |
-| **P6** | **The dose (answer pool 4), δ = 1 — exploratory, strict margins.** The reward and imitation signals RL16, AC16 and EI16 see the all-H coincidence rise four-fold and the beam's oracle share fall to 0.74 (§5.4). They are predicted to degrade: fewer learned seeds, or a paired criterion step later by **≥ 25 %** than the same signal at pool 0. The averaging signals IW16 and PF-IS16 are predicted **not** to degrade by that margin: their targets' argmaxes do not move (§5.2). | RL16, AC16 and EI16 all within 25 % at the dose, or IW16 / PF-IS16 degrading by more than 25 %. | optimization |
+| **P3** | **KL direction (PF-IS16 vs TB16), δ = 1.** PF-IS16 succeeds in **at least 2 more of 5 seeds** than TB16. If both succeed equally often, PF-IS16 reaches criterion earlier in every pair where both learn (≥ 2 such pairs). On CPU (§9), PF-IS16 shows the first sign of L at 1,300 steps, as exact PF did; TB16 shows none. Clipping does not separate them: both clip on most steps early (review 4). TB16's update is also shaped by its 10⁻⁶ reward floor (init gradient norm 74–91 vs 30–33 at 10⁻²). That is a confound of the TB arm, reported, not tuned. | TB16 succeeds in at least as many seeds as PF-IS16 (each ≥ 2/5), and no later where both learn. **Uninterpretable** if both succeed in ≤ 1/5. A one-seed gap is inconclusive. | optimization |
+| **P4** | **Contextual value (RL16, ACMC16, AC16), δ = 1; 5 seeds each.** **No advantage from the learned value at this horizon:** AC16 and ACMC16 each learn within ±1 seed of RL16, and their criterion steps, in pairs where both learn, are within 25 % of RL16's. On CPU all three sit in all-H at 1,500 steps, and the query-blind critic explains ≈ 5 % of the return's variance (§9). A value that explains so little cannot credit a setup step better than the returns it is fit to. **Uninterpretable** if RL16 is at ceiling (criterion ≤ 1.5× EX) or at floor (all-H or halting at 5k in all pilot lrs). Then P4 moves to longer setup distances (§11) instead of being read. | **Better:** AC16 or ACMC16 learns in ≥ 2 more seeds than RL16, or reaches criterion ≥ 25 % earlier in every pair where both learn (≥ 3 pairs). That is evidence that a learned contextual value credits setup steps.<br>**Worse:** AC16 or ACMC16 learns in ≥ 2 fewer seeds than RL16. That also refutes "no difference"; see the reading table. | mechanism (risk 4) |
+| **P5** | **Which program each signal lands in.**<br>δ = 1: EX and IW16 land in **E** in the majority of learned seeds (rung 1's EX learned E).<br>EX-AL, PF-IS16 and the PF check: **open**. EX-AL's step-0 target equals PF's (§5.1); PF's derived fixed point is E (§5.2), but on CPU exact PF and PF-IS16 head for L first (§9).<br>EI16: its learned program **matches its init beam program** (E if the init beam's `set_late` < 0.5) in every learned seed but at most one, when ≥ 3 seeds learn. Imitation reinforces whichever shortest route the beam hands it first; the init beam MAP is E on 0.10–0.71 of P-words, depending on the seed. With fewer than 3 learned seeds it is reported only.<br>δ = 0: every learned run is **L** (expressivity, §2). | Any learned δ = 0 run labeled E, mixed or other: a bug, or an unanticipated read. EI16 mismatching its init beam program in ≥ 2 learned seeds. EX or IW16 landing in L in the majority of its learned seeds (≥ 3 learned). | mechanism (inductive bias) |
+| **P6** | **The dose (answer pool 4), δ = 1 — exploratory, strict margins; arms that fail at pool 0 are excluded.** The reward and imitation signals RL16, AC16 and EI16 see the all-H coincidence rise four-fold and the beam's oracle share fall to 0.74 (§5.4). They are predicted to degrade: a learned fraction lower by ≥ 0.33 than at pool 0 (3 dose seeds vs 5), or a criterion step later by ≥ 25 % in every seed pair where both learn. PF-IS16, whose fixed-target argmaxes do not move (§5.2), is predicted **not** to degrade by those margins. IW16 is open: its posterior is the router's own, which is what P2 tests. | RL16, AC16 and EI16 all inside both margins at the dose, or PF-IS16 degrading beyond them. | optimization |
 
 **Endpoints reported without prediction.**
-- PP precedence for every learned run. Derived for PF only: it fails δ = 1 at the conjunction, where HOP wins and not PREV (§5.2), and passes δ = 0.
-- Determinism.
-- The critic's explained variance.
+- PP precedence for every learned run, on shortest-correct accuracy at pp8 (any program; oracle-route accuracy would fail L runs by construction). Derived for PF only: it fails δ = 1 at the conjunction, where HOP wins and not PREV (§5.2), and passes δ = 0.
+- Determinism: sampled shortest-correct accuracy (`samp_min_acc`).
+- The critic's explained variance; distinct sampled routes per P-word query for every sampled arm (ESS / K alone hides collapse: identical samples give 1).
+- Runs whose committed answer is right but which do not halt on arrival (p_halt at the answer < 0.5). These separate the families' halting signals: TB16 and PF-IS16 have a local halt loss, the reward arms only the step cost (§3).
 
 **Checks (reported, not predicted).**
 - PF reaches its derived fixed point (§5.2): committed oracle program, PP fails δ = 1 and passes δ = 0, sampled shortest-correct ≤ 0.5 at in4.
@@ -272,6 +277,8 @@ Plus the checks: SI16, ELL16, AC16T0 (δ = 1), EI16B (δ = 0), 2 seeds each.
 - AC16T0 collapses into halting at the start (§5.5).
 - EI16 learns δ = 0 in L (replicating revision 2's CPU seed).
 
+**A shared confound of the reward arms.** RL16, ACMC16 and AC16 are rewarded by the rung-1 readout, which pays 1/16 for halting at a key. That is the same dilution EX vs EX-AL tests, and it is what makes AC16T0's halting trap possible (§5.5). If P2(a) is refuted (EX-AL learns δ = 0), the reward arms' failures must be re-read with that in mind (review 4).
+
 **Reading the outcomes.**
 
 | outcome | reading (which risk it moves) |
@@ -279,18 +286,22 @@ Plus the checks: SI16, ELL16, AC16T0 (δ = 1), EI16B (δ = 0), 2 seeds each.
 | EX-AL stalls on δ = 0, PF and PF-IS16 learn (P2 as predicted) | F29's basin is built by self-consistency: the posterior under the router's own policy reinforces early stray mass. A fixed-prior (PFN-style) target, exact or sampled, does not trap itself. Risk 3 moves toward amortized-posterior training. |
 | EX-AL learns δ = 0 | The basin came from the readout's 1/16 credit for halting at a key. Self-consistent EM with an answer-only likelihood is enough. The fix is in the likelihood, not the prior. |
 | PF learns, PF-IS16 stalls on δ = 0 | The fixed target is right, but on-policy samples cannot reach its support from the stalled policy. Amortized inference needs exploration or search to supply targets. |
-| PF fails to reach its derived fixed point | The router cannot represent the pooled target within budget, or a bug. Investigate before reading anything else. |
+| PF does not learn (committed shortest-correct < 0.95 at in4 / in8) | The router cannot fit a fixed soft target within budget, or a bug. Investigate before reading the PF-based rows. |
+| PF learns, in L on δ = 1 | The one-lookup pooling derivation got the program wrong (§5.2): the router's function class pools differently, or the transient seen on CPU does not resolve within budget. The other rows are read normally. |
 | TB16 and PF-IS16 differ (P3) | The KL direction decides the program or the speed. A mode-seeking objective with an entropy bonus behaves unlike forward KL to the same posterior. |
 | IW16 collapses (P1 false) while PF-IS16 learns δ = 1 | The current-policy weights are the fragile part under sampling, not sampled learning as such. |
 | IW16 collapses and TB16 learns, but PF-IS16 does not | TB's entropy term rescues it; this does not show that the fixed posterior matters. |
 | ACMC16 beats RL16 | A learned state baseline reduces variance enough to matter, with no bootstrapping. |
 | AC16 beats ACMC16 | Bootstrapping through a learned contextual value credits setup steps faster than Monte-Carlo returns. This is the first evidence that "contextual layer value" needs a value function (risk 4). |
-| AC16 slower than ACMC16 or RL16 | At this horizon, TD(0)'s early halting push and bias cost more than its variance saves. Risk 4's question moves to longer setup distances. |
+| AC16 slower than ACMC16 or RL16 | At this horizon, TD(0.9)'s bias from a weak, query-blind critic costs more than its variance saves. Risk 4's question moves to longer setup distances and a query-aware critic. |
+| AC16 or ACMC16 clearly worse than RL16 (≥ 2 fewer seeds) | A critic explaining ≈ 5 % of the return's variance is a worse baseline than RL16's leave-one-out mean. "Contextual value" needs a critic that sees the query. |
 | RL16, ACMC16 and AC16 all fail | Reward-only signals cannot find a setup step within budget at this density. Risk 4 needs a denser signal (a posterior target) for the router. |
 | Signals split by program (P5) | Which program a learner gets is a property of its training signal. Later rungs must measure program identity, not only accuracy. |
 | PP precedence differs between signals | The generalization profile at unseen conjunctions is set by the training signal, not only by the representation. |
 | Reward and imitation signals degrade at the dose, averaging signals don't (P6) | Averaging is the robust signal when spurious routes abound. Min et al.'s hard-EM advantage needs consistent spurious programs, which a Markov router does not have here. |
 | The dose leaves everything unchanged, or improves a signal | Spurious density at this level is not a bottleneck. A denser reward (more label-reaching routes) can help exploration. |
+| Success only through EI16 | Search + imitation is the one non-enumerating signal that works here. Risk 3's answer is to supply the router's targets by search, not by sampled inference or reward. The rung-3 router needs a search-and-imitate loop and its cost. |
+| TB16 learns δ = 1 but fails δ = 0 | The reverse KL and its entropy term find the program when the stray rule is not an attractor, but not against the basin. |
 | No candidate succeeds on δ = 1 | "Learned from next-token loss" depends on exact inference. The program must fix this before scaling anything. |
 
 ## 8. Gates
@@ -410,7 +421,7 @@ Design review 3 ([review3_design.md](review/review3_design.md)):
 | S7 counts | P1's 2/5 is inconclusive. EI16's program is predicted per seed from its init beam program. P2 has falsifier counts. |
 | S8 missing rows | Added (§7). |
 | S9 set_late | Positive E / L / other classification on shortest-correct routes. |
-| S10 P3 / P4 | Set from the CPU runs (§7, §9); re-reviewed before the pilot (review 4). |
+| S10 P3 / P4 | Set from the CPU runs (§7, §9); re-reviewed before the pilot ([review4.md](review/review4.md), handled below). |
 | Minor | The 9.1 % ambiguous read is in §2. The ledger note on F29's "stray SET mass at init" is to be qualified (Entry 66). |
 
 Code review 3 ([review3_code.md](review/review3_code.md)):
@@ -424,3 +435,20 @@ Code review 3 ([review3_code.md](review/review3_code.md)):
 | S5 query-blind V | Caveat in §3. |
 | S6 no success count | `analyze.py` counts SUCCESS, program labels, PP and determinism per arm. |
 | Minor | The label boundary matches P5. Program identity is computed on shortest-correct routes only. The curve's "loss" is each signal's reported objective (TB: mean log-ratio; AC: negative return; PF-IS: ESS). Stale text fixed. |
+
+Review 4 ([review4.md](review/review4.md); verdict: launch the pilot, fix three items before the main grid):
+
+| item | handling |
+|---|---|
+| B1 P3 both-fail | A both-fail clause (uninterpretable); a one-seed gap is inconclusive; timing is compared only in pairs where both learn. |
+| B2 P4 at noise | ACMC16 has 5 seeds; ±1-seed band and ≥ 2-seed falsifiers; a "worse" falsifier and reading row added. |
+| B3 determinism not logged | `evaluate` records sampled shortest-correct accuracy (`samp_min_acc`, by P / no-P); analysis uses it (test). |
+| S1 P5 | EX-AL is open; EI16's line is "all but at most one, when ≥ 3 learn"; mixed is added to the δ = 0 falsifier. |
+| S2 PF check row | Split into "PF does not learn" (investigate) and "PF learns L" (read the rest normally). |
+| S3 P6 | IW16 is open; margins are fractions (≥ 0.33) or timing in every pair; arms failing at pool 0 are excluded. |
+| S4 PP on L runs | PP uses shortest-correct accuracy at pp8. |
+| S5 halting | The correct justification for the no-HALT form is in §3; "answer right but no halt" is counted per arm. |
+| S6 rows | "Success only through EI16" and "TB16 learns δ = 1 but fails δ = 0" added. |
+| S7 one lr on δ = 0 | EX-AL δ = 0 at 3e-3 added to the pilot. |
+| S8 ESS hides collapse | Distinct sampled routes per P-word query logged for every sampled arm (test). |
+| Minor | AC16's reading row updated to TD(0.9); TB16's reward floor is named as a P3 confound; main-grid lr values are marked as placeholders; the readout confound of the reward arms is stated before the reading table. |

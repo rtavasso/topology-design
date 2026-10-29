@@ -45,7 +45,7 @@ ARMS = {
 SAMPLED_CORE = ("IW16", "PFIS16", "TB16", "RL16", "ACMC16", "AC16", "EI16")   # the candidates (no state enumeration)
 LR = {a: 1e-3 for a in ARMS}                                    # set by the pilot rule (§6)
 CELLS = [  # (deferral, ans_pool, {arm: seeds}); ans_pool 0 = every episode draws from all 16 answers
-    (1, 0, {"EX": 3, "EXAL": 2, "PF": 2, "IW16": 5, "PFIS16": 5, "TB16": 5, "RL16": 5, "ACMC16": 3, "AC16": 5, "EI16": 5}),
+    (1, 0, {"EX": 3, "EXAL": 2, "PF": 2, "IW16": 5, "PFIS16": 5, "TB16": 5, "RL16": 5, "ACMC16": 5, "AC16": 5, "EI16": 5}),
     (0, 0, {"EX": 2, "EXAL": 3, "PF": 2, "IW16": 2, "PFIS16": 3, "TB16": 3, "RL16": 3, "AC16": 3, "EI16": 2}),
     (1, 4, {"EX": 2, "IW16": 3, "PFIS16": 3, "TB16": 3, "RL16": 3, "AC16": 3, "EI16": 3}),   # the dose
     (1, 0, {"SI16": 2, "ELL16": 2, "AC16T0": 2}),               # checks
@@ -71,6 +71,7 @@ def pilot():
             g.append(run(f"rfpilot_{arm}d1_lr{lr:g}_s{PILOT_SEED}", arm, 1, 0, PILOT_SEED, lr=lr))
     for arm in ("EXAL", "PFIS16", "TB16", "RL16", "AC16"):     # the δ0 controls in the pilot (L26)
         g.append(run(f"rfpilot_{arm}d0_lr0.001_s{PILOT_SEED}", arm, 0, 0, PILOT_SEED, lr=1e-3))
+    g.append(run(f"rfpilot_EXALd0_lr0.003_s{PILOT_SEED}", "EXAL", 0, 0, PILOT_SEED, lr=3e-3))   # P2 beyond one lr (review 4, S7)
     return g
 
 

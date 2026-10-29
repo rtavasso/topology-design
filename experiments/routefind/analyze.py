@@ -103,7 +103,7 @@ def main():
                          ("set_late_P", "Program identity on P-words (shortest-correct routes): fraction of SETs at the P-leaving state (L = 1, E = 0)"),
                          ("set_other_P", "Program identity on P-words: fraction of SETs neither early nor late"),
                          ("route_acc", "Route accuracy (committed = the oracle's program)"), ("route_acc_P", "Oracle-route accuracy on P-words"),
-                         ("acc", "Answer accuracy (committed)"), ("samp_acc_P", "Sampled-route accuracy on P-words"),
+                         ("acc", "Answer accuracy (committed)"), ("samp_acc_P", "Sampled-route answer accuracy on P-words"), ("samp_min_acc_P", "Sampled shortest-correct accuracy on P-words (determinism)"),
                          ("q_steps", "Committed steps"),
                          ("cf_count2_prev", "Probe (a): count 2 -> PREV"), ("cf_pending_set", "Probe (b): flagged ∧ pending -> SET")):
         A.table(groups, out, field, title, strata=STRATA)
@@ -194,8 +194,10 @@ def main():
             counts(arm, lambda r: success(r, clock), f"{arm} SUCCESS (learned and criterion ≤ 3× EX = {3 * clock:.0f} steps)")
         for lab in ("E", "L", "mix", "other"):
             counts(arm, lambda r: learned(r) and prog_label(r) == lab, f"{arm} learned with program {lab}")
-        counts(arm, lambda r: learned(r) and (A.final(r).get("pp8", {}).get("route_acc") or 0) >= 0.95, f"{arm} learned and passes pp8 (PP precedence)")
-        counts(arm, lambda r: learned(r) and (A.final(r).get("in8", {}).get("samp_acc_P") or 0) >= 0.95, f"{arm} learned and deterministic (sampled acc. on P-words ≥ 0.95)")
+        counts(arm, lambda r: learned(r) and (A.final(r).get("pp8", {}).get("min_acc") or 0) >= 0.95, f"{arm} learned and passes pp8 (PP precedence; shortest-correct, any program)")
+        counts(arm, lambda r: learned(r) and (A.final(r).get("in8", {}).get("samp_min_acc_P") or 0) >= 0.95, f"{arm} learned and deterministic (sampled shortest-correct on P-words ≥ 0.95)")
+        counts(arm, lambda r: (A.final(r).get("in8", {}).get("acc_P") or 0) >= 0.9 and (A.final(r).get("in8", {}).get("min_acc_P") or 0) < 0.5
+               and (A.final(r).get("in8", {}).get("p_halt_d0") or 0) < 0.5, f"{arm} answer right but does not halt on arrival (p_halt at the answer < 0.5)")
     for a, b_ in (("EXALd0", "EXd0"), ("PFd0", "EXALd0"), ("PFIS16d1", "IW16d1"), ("PFIS16d0", "EXALd0"), ("TB16d1", "PFIS16d1"),
                   ("ACMC16d1", "RL16d1"), ("AC16d1", "ACMC16d1"), ("AC16d1", "RL16d1"), ("AC16d0", "RL16d0"),
                   ("EI16d1p4", "IW16d1p4"), ("PFIS16d1p4", "PFIS16d1")):

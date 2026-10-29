@@ -1307,6 +1307,27 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 - A learned value beating RL16 by more than a quarter of seeds.
 - Every candidate stuck in all-H at 5k: rung 2 fails, and "learned from next-token loss" needs exact inference.
 
+## Entry 67 (29 Oct 2026): rung 2 revision 4 re-reviewed (review 4); pilot ready
+
+**Review 4** ([review4.md](../experiments/routefind/review/review4.md)): launch the pilot; three items to fix before the main grid. Verified independently:
+- `canonical_routes` on six hand cases;
+- the no-HALT cut route is the correct objective (the router's probability of a cut route is its prefix's);
+- PF-IS16's gradient at large K matches exact PF's (cosine 0.996–0.999);
+- the grids match §6.
+
+**Fixed** (DESIGN §15):
+- P3 gets a both-fail clause and a one-seed inconclusive band;
+- P4 gets 5 ACMC16 seeds, ±1-seed bands and a "worse" falsifier;
+- sampled shortest-correct accuracy is logged (determinism was not recoverable);
+- PP is read on shortest-correct accuracy (L runs failed by construction);
+- EX-AL's program is open in P5;
+- the PF check row is split;
+- IW16 is open in P6, with fraction margins;
+- distinct sampled routes per query are logged (ESS hides collapse);
+- EX-AL δ = 0 at 3e-3 is added to the pilot (27 runs; main 93).
+
+**Noted for the ledger by the reviewer.** The reward arms (RL16, ACMC16, AC16) share the rung-1 readout's 1/16 credit for halting at a key, the same dilution P2 tests and the cause of AC16T0's halting trap. A refuted P2(a) would change how their failures read.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

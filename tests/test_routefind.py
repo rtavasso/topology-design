@@ -298,8 +298,9 @@ def test_trainer_runs_the_revision_4_signals(est):
     recs = run_stack([{**base, "seed": 0}, {**base, "seed": 1}], dev="cpu", log=lambda s: None)
     c = recs[0]["curve"][-1]
     assert math.isfinite(c["loss"]) and "set_other" in c
-    if est in ("ac", "pfis"):
-        assert set(c["diag"]) == ({"td_abs", "ev"} if est == "ac" else {"ess", "any_ans"})
+    assert "samp_min_acc" in recs[0]["evals"][-1]["eval"]["in4"]
+    if est in ("ac", "pfis", "tb"):
+        assert set(c["diag"]) == {"ac": {"td_abs", "ev", "distinct_P"}, "pfis": {"ess", "any_ans", "distinct_P"}, "tb": {"distinct_P"}}[est]
 
 
 def test_value_head_is_zero_at_init_detached_and_leaves_the_policy_init_unchanged():
@@ -406,3 +407,13 @@ def test_critic_warmup_switches_the_actor_off():
     loss, _ = ac_loss(pi, V, acts, states, torch.tensor([[[1.0]]]), 0.1, gae=0.0, actor_scale=0.0)
     gpi, gV = torch.autograd.grad(loss.sum(), (pi, V))
     assert float(gpi.abs().sum()) == 0.0 and float(gV.abs().sum()) > 0.0
+
+
+def test_distinct_routes_counts_unique_sampled_routes_on_P_words():
+    from topology_design.route.train_route import distinct_routes_P
+    a = torch.tensor([[[[HOP, HALT, -1], [HOP, HALT, -1], [SET, HOP, HALT], [HOP, HOP, HALT]],
+                       [[HOP, HALT, -1], [HOP, HALT, -1], [HOP, HALT, -1], [HOP, HALT, -1]]]])     # (1, 2, 4, 3)
+    w = torch.tensor([[[0, 1, 0], [0, 0, 0]]])                                                     # only query 0 has a P
+    assert distinct_routes_P(a, w, 1).tolist() == [3.0]
+    w2 = torch.tensor([[[0, 1, 0], [0, 1, 0]]])
+    assert distinct_routes_P(a, w2, 1).tolist() == [2.0]
