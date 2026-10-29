@@ -42,7 +42,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")
 INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "tests/test_priors.py", "experiments/fleet",
            "pyproject.toml"]
 PTR_INCLUDE = ["tests/test_ptr.py", "experiments/ptr/run_ptr.py", "experiments/ptr/gate.py"]
-ROUTE_INCLUDE = ["tests/test_route.py", "tests/test_ptr.py", "experiments/route/run_route.py"]
+ROUTE_INCLUDE = ["tests/test_route.py", "tests/test_routefind.py", "tests/test_ptr.py", "experiments/route/run_route.py"]
 VALIDATE_EXTRA = ["experiments/paths/results_data/compact.json.gz"]
 
 

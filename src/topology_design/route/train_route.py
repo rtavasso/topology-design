@@ -25,11 +25,14 @@ from .exec import (marginal, committed, oracle, route_ok, readout, maps, remaini
                    HOP, PREV, SET, HALT)
 from .pool import EpisodePool, stack_batches, strata_episodes, to_dict, STRATA
 from .router import StackedRouter, RouterConfig
+from . import estimators as E
 
 DATA_KEYS = {f.name for f in fields(RouteConfig)}
 ROUTER_KEYS = {f.name for f in fields(RouterConfig)}
 TRAIN_DEFAULTS = dict(steps=6000, batch=64, lr=1e-3, warmup=500, seed=0, eval_every=2000, T_eval=64, eval_n=250,
-                      pool_n=60000, wd=0.01, grad_clip=1.0, teacher=False, crit_n=256, crit_every=100, eval_chunk=50, samples=4)
+                      pool_n=60000, wd=0.01, grad_clip=1.0, teacher=False, crit_n=256, crit_every=100, eval_chunk=50, samples=4,
+                      estimator="exact", K=16, W=16, ei_eps=0.1)
+ESTIMATORS = ("exact", "teacher", "iw", "rf", "ei")      # rung 2 (experiments/routefind/DESIGN.md): route-finding estimators
 PER_RUN_KEYS = ("seed", "lr")
 ACTION_NAMES = {HOP: "HOP", PREV: "PREV", SET: "SET", HALT: "HALT"}
 
@@ -113,6 +116,8 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
     oa, osteps, ostates = oracle(mp, fb["q_start"], rc.T, dc)
     ok = route_ok(acts, steps, oa, osteps).float()
     ok_ans = (s_fin == fb["q_ans"]).float()
+    q, es, _, _ = marginal(pi, mp, fb["q_start"], rc.T, readout(dc, rc.eps, dev))     # the exact objective (every estimator)
+    nll = -torch.log(q.gather(-1, (fb["q_ans"] - dc.n_keys).unsqueeze(-1)).squeeze(-1) + 1e-9) + rc.lam * es
     depth = deepest_P(fb["q_word"], fb["q_k"])
     B = b["pair_key"].shape[1]
     out = []
@@ -132,6 +137,7 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
         h, c = action_accuracy(pir, oa[sl], ostates[sl])
         ha, ca, hb, cb = counterfactual_probes(pir, oa[sl], ostates[sl])
         out.append({"acc_by_k": acc, "ans_acc_by_k": ans_acc, "acc_by_Pdepth": by_depth, "acc": float(okr.mean()),
+                    "crit_obj": float(nll[sl].mean()),
                     "act_acc": {ACTION_NAMES[a]: float(h[a] / c[a]) for a in range(4) if c[a] > 0},
                     "cf_count2_prev": float(ha / ca) if ca else None, "cf_pending_set": float(hb / cb) if cb else None})
     return out
@@ -249,25 +255,57 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
     log(f"pools, strata and criterion sets generated in {time.time() - t0:.0f}s")
     Rd = readout(dc, rc.eps, dev)
     recs = [{"cfg": {k: v for k, v in c.items() if k not in ("name", "arm")}, "name": c.get("name"), "arm": c.get("arm"),
-             "data": dc.dict(), "router": rc.dict(), "train": {**tc, "lr": float(lrs[r]), "seed": seeds[r], "stack_size": R},
+             "data": dc.dict(), "router": rc.dict(), "train": {**tc, "lr": float(lrs[r]), "seed": seeds[r], "stack_size": R,
+                                                               "rollouts_per_query": {"iw": tc["K"], "rf": tc["K"], "ei": tc["W"]}.get(
+                                                                   "teacher" if tc["teacher"] else tc["estimator"], 0)},
              "n_params": n_params, "curve": [], "evals": [], "device": dev} for r, c in enumerate(cfgs)]
     run_loss = torch.zeros(R, device=dev, dtype=torch.float32)
     hits = torch.zeros(R, dc.kmax + 1, device=dev, dtype=torch.float32); cnt = torch.zeros_like(hits)
+    est = "teacher" if tc["teacher"] else tc["estimator"]
+    assert est in ESTIMATORS, est
+    gen = torch.Generator(device=dev).manual_seed(1000003 * seeds[0] + sum(seeds) + 17)
+    s_hit = torch.zeros(R, dc.kmax + 1, device=dev, dtype=torch.float32); s_or = torch.zeros_like(s_hit); s_cnt = torch.zeros_like(s_hit)
     for s in range(tc["steps"]):
         b = stack_batches([p.sample(tc["batch"]) for p in pools])
         fb = flat(b)
         mp = maps(fb["pair_key"], fb["pair_val"], fb["pair_prev"], fb["pair_flag"], dc)
         pi = policy(m, b, rc.T)
-        if tc["teacher"]:
+        if est == "teacher":
             oa, osteps, ostates = oracle(mp, fb["q_start"], rc.T, dc)
             per_q = teacher_loss(pi, oa, ostates)
-        else:
+            per_run = per_q.view(R, -1).mean(1); surrogate = per_run
+        elif est == "exact":
             q, es, _, _ = marginal(pi, mp, fb["q_start"], rc.T, Rd)
             ans = fb["q_ans"] - dc.n_keys
             per_q = -torch.log(q.gather(-1, ans.unsqueeze(-1)).squeeze(-1) + 1e-9) + rc.lam * es
-        per_run = per_q.view(R, -1).mean(1)
+            per_run = per_q.view(R, -1).mean(1); surrogate = per_run
+        elif est in ("iw", "rf"):
+            sym, st_k, a_k, x_k = E.sample_routes(pi, mp, fb["q_start"], rc.T, tc["K"], generator=gen)
+            lpr = E.route_logprob(pi, a_k, x_k)
+            lpy = E.readout_logp(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)
+            sur, obj = (E.iw_loss if est == "iw" else E.rf_loss)(lpy, st_k, lpr, rc.lam)
+            surrogate = sur.view(R, -1).mean(1); per_run = obj.view(R, -1).mean(1)
+            with torch.no_grad():
+                oa, osteps, _ = oracle(mp, fb["q_start"], rc.T, dc)
+                hit = (sym == fb["q_ans"].unsqueeze(-1)).any(-1)
+                hit_or = torch.stack([route_ok(a_k[:, :, j], st_k[:, :, j], oa, osteps) for j in range(tc["K"])], -1).any(-1)
+        else:                                                                         # ei
+            found, a_b, st_b = E.beam_search(pi.detach(), mp, fb["q_start"], fb["q_ans"], rc.T, tc["W"], dc,
+                                             eps_mix=tc["ei_eps"], lam=rc.lam)
+            a_t = torch.where(found.unsqueeze(-1), a_b, torch.full_like(a_b, -1))
+            per_q = teacher_loss(pi, a_t, E.replay(mp, fb["q_start"], a_t))
+            n_found = found.view(R, -1).sum(1).clamp_min(1).float()
+            surrogate = per_q.view(R, -1).sum(1) / n_found; per_run = surrogate
+            with torch.no_grad():
+                oa, osteps, _ = oracle(mp, fb["q_start"], rc.T, dc)
+                hit = found; hit_or = found & route_ok(a_b, st_b, oa, osteps)
+        if est in ("iw", "rf", "ei"):
+            with torch.no_grad():
+                kk_ = fb["q_k"].view(R, -1)
+                s_hit.scatter_add_(1, kk_, hit.view(R, -1).float()); s_or.scatter_add_(1, kk_, hit_or.view(R, -1).float())
+                s_cnt.scatter_add_(1, kk_, torch.ones_like(kk_, dtype=torch.float32))
         opt.zero_grad()
-        per_run.sum().backward()
+        surrogate.sum().backward()
         gn = clip_grad_norm_per_run(m.parameters(), tc["grad_clip"])
         opt.step(scale=sched(s))
         run_loss += per_run.detach().to(run_loss.dtype)
@@ -285,8 +323,14 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
                                          "acc_by_k": cr[r]["acc_by_k"], "ans_acc_by_k": cr[r]["ans_acc_by_k"],
                                          "acc_by_Pdepth": cr[r]["acc_by_Pdepth"], "acc": cr[r]["acc"], "act_acc": cr[r]["act_acc"],
                                          "cf_count2_prev": cr[r]["cf_count2_prev"], "cf_pending_set": cr[r]["cf_pending_set"],
+                                         "crit_obj": cr[r]["crit_obj"],
                                          "train_acc_by_k": {int(k): float(h[r, k] / c[r, k]) for k in range(c.shape[1]) if c[r, k] > 0}})
-            run_loss.zero_(); hits.zero_(); cnt.zero_()
+                if est in ("iw", "rf", "ei"):                # search / sampling success on the training batches, by k
+                    sh, so, sc = s_hit[r].tolist(), s_or[r].tolist(), s_cnt[r].tolist()
+                    recs[r]["curve"][-1]["search_hit_by_k"] = {k: sh[k] / sc[k] for k in range(1, dc.kmax + 1) if sc[k] > 0}
+                    recs[r]["curve"][-1]["search_oracle_by_k"] = {k: so[k] / sc[k] for k in range(1, dc.kmax + 1) if sc[k] > 0}
+                    recs[r]["curve"][-1]["search_hit"] = sum(sh) / max(sum(sc), 1); recs[r]["curve"][-1]["search_oracle"] = sum(so) / max(sum(sc), 1)
+            run_loss.zero_(); hits.zero_(); cnt.zero_(); s_hit.zero_(); s_or.zero_(); s_cnt.zero_()
         if (s + 1) % tc["eval_every"] == 0 or s + 1 == tc["steps"]:
             m.eval()
             ev = evaluate(m, dc, rc, tc, strata, dev)

@@ -161,7 +161,7 @@ elif job["job"] == "route":
         for f in os.listdir("prior"):
             shutil.copy(os.path.join("prior", f), out)
         print(f"resumed with {len(os.listdir(out))} prior results", flush=True)
-    rc = run("tests", [sys.executable, "-m", "pytest", "-q", "-x", "tests/test_route.py"])
+    rc = run("tests", [sys.executable, "-m", "pytest", "-q", "-x", "tests/test_route.py", "tests/test_routefind.py"])
     if rc != 0:
         print("TESTS FAILED: grid not run", flush=True)
         sys.exit(1)
