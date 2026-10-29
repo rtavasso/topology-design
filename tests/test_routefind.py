@@ -331,13 +331,20 @@ def test_canonical_routes_cut_at_the_first_arrival_and_tb_ignores_no_op_moves():
     # clean: HOP, HOP(->answer), HALT ; looped: HOP, HOP(->answer), HOP (no-op at the answer), SET (no-op), HALT
     acts = torch.tensor([[[[HOP, HOP, HALT, -1, -1, -1], [HOP, HOP, HOP, SET, HALT, -1]]]])
     states = torch.tensor([[[[k0, k1, ans, ans, ans, ans, ans], [k0, k1, ans, ans, ans, ans, ans]]]])
-    a_c, mv = canonical_routes(acts, states, cfg)
+    a_c, mv, arr = canonical_routes(acts, states, cfg)
     assert torch.equal(a_c[0, 0, 0], a_c[0, 0, 1]) and mv.tolist() == [[[2, 2]]]
+    assert a_c[0, 0, 0].tolist() == [HOP, HOP, -1, -1, -1, -1] and arr.tolist() == [[[ans, ans]]]   # no HALT term on arrival
+    # a route that halts on a key keeps its HALT and has no arrival
+    a2, mv2, arr2 = canonical_routes(torch.tensor([[[[HOP, HALT, -1]]]]), torch.tensor([[[[k0, k1, k1, k1]]]]), cfg)
+    assert a2.tolist() == [[[[HOP, HALT, -1]]]] and arr2.tolist() == [[[-1]]] and mv2.tolist() == [[[1]]]
     NS = cfg.n_sym * PER_SYM
     pi = torch.full((1, NS, 4), 0.25)
     pi0 = torch.full((1, NS, 4), 0.25); pi0[0, cfg.n_keys * PER_SYM:] = torch.tensor([0.0, 0.0, 0.0, 1.0])
     lpr, lp0 = route_logprob(pi, a_c, states), route_logprob(pi0, a_c, states)
     assert torch.isfinite(lp0).all() and float(lp0[0, 0, 0]) == pytest.approx(2 * math.log(0.25))
+    from topology_design.route.estimators import arrival_halt_loss
+    pi_h = pi.clone(); pi_h[0, ans] = torch.tensor([0.1, 0.1, 0.1, 0.7])
+    assert float(arrival_halt_loss(pi_h, arr)) == pytest.approx(-math.log(0.7), rel=1e-5)
     loss, _ = tb_loss(torch.zeros(1, 1, 2), mv, lpr, lp0, 0.02)
     assert float(loss) == pytest.approx(0.0, abs=1e-10)                      # the two samples are the same canonical route
 

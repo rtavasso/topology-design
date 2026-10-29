@@ -351,16 +351,17 @@ def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None, step=10**9)
     if est in SAMPLED:
         sym, st_k, a_k, x_k = sample_per_run(pi, mp, fb["q_start"], rc.T, tc["K"], gens, R)
         if est in ("tb", "pfis"):                          # canonical routes: cut at the first arrival (code review 3, bug 1)
-            a_c, mv = E.canonical_routes(a_k, x_k, dc)
+            a_c, mv, arr = E.canonical_routes(a_k, x_k, dc)
             lpr = E.route_logprob(pi, a_c, x_k)
+            halt_q = E.arrival_halt_loss(pi, arr)                # (B, Q): HALT at the arrival, taught locally
             lLy = torch.log(E.answer_likelihood(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)).float()
             lp0 = E.route_logprob(E.flat_prior(mp, dc), a_c, x_k)
             if est == "tb":
                 sur, obj = E.tb_loss(lLy, mv, lpr, lp0, rc.lam)
-                return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), None
+                return (sur + halt_q).view(R, -1).mean(1), obj.view(R, -1).mean(1), None
             sur, ess = E.pfis_loss(lLy, mv, lpr, lp0, rc.lam)
             okq = (ess > 0).float().view(R, -1)
-            return (sur.view(R, -1).sum(1) / okq.sum(1).clamp_min(1)), ess.view(R, -1).mean(1), \
+            return (sur.view(R, -1).sum(1) / okq.sum(1).clamp_min(1)) + halt_q.view(R, -1).mean(1), ess.view(R, -1).mean(1), \
                 {"ess": ess.view(R, -1).mean(1), "any_ans": okq.mean(1)}
         lpr = E.route_logprob(pi, a_k, x_k)
         if est == "si":

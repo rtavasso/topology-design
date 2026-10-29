@@ -299,20 +299,32 @@ def pf_loss(pi: torch.Tensor, counts: torch.Tensor) -> torch.Tensor:
 def canonical_routes(acts: torch.Tensor, states: torch.Tensor, cfg: RouteConfig):
     """Cut sampled routes at their first arrival at an answer or dead state (code review 3, bug 1). Answers and dead
     absorb, so the end symbol is unchanged, but a sampled route may keep "moving" there (no-op moves) before halting,
-    where the flat prior pi0 has zero mass. The canonical route halts on arrival: actions after the arrival -> HALT
-    then -1; an arrival exactly at T keeps the forced halt (no HALT term). Returns (actions, moves) of the canonical
-    routes; the states are unchanged up to the arrival."""
+    where the flat prior pi0 has zero mass. The canonical route ENDS on arrival with no action there (as the forced halt
+    at T: pi0 halts at an answer or dead with probability 1, so the cut route carries no HALT term). Including a
+    log pi(HALT | arrival) term instead lets trajectory balance shrink it freely, which makes routes into dead look
+    under-weighted and drives the router there (revision-4 CPU run: TB16 collapsed into PREV-to-dead). Halting at the
+    arrival is taught by a separate local term (arrival_halt_loss). A route that halts on a key keeps its HALT.
+    Returns (actions, moves, arrival state (or -1 when the route ends on a key or at T on a key))."""
     T = acts.shape[-1]
-    sym = states // PER_SYM
-    term = sym >= cfg.n_keys                                                           # (..., T + 1): answer or dead
-    t_arr = torch.where(term.any(-1), term.float().argmax(-1), torch.full(term.shape[:-1], T + 1, device=acts.device))
-    t_end = torch.minimum(t_arr, (acts >= 0).sum(-1))                                  # halted earlier on a key
+    term = (states // PER_SYM) >= cfg.n_keys                                           # (..., T + 1): answer or dead
+    arrived = term.any(-1)            # a route that halts on a key stays there, so it never arrives
+    t_arr = torch.where(arrived, term.float().argmax(-1), torch.full(term.shape[:-1], T + 1, device=acts.device))
     tt = torch.arange(T, device=acts.device).view(*([1] * (acts.dim() - 1)), T)
-    a = torch.where(tt < t_end.unsqueeze(-1), acts, torch.full_like(acts, -1))
-    halt_at = (tt == t_end.unsqueeze(-1)) & (t_end < T).unsqueeze(-1)
-    a = torch.where(halt_at, torch.full_like(acts, HALT), a)
+    a = torch.where(tt < t_arr.unsqueeze(-1), acts, torch.full_like(acts, -1))
     moves = ((a >= 0) & (a != HALT)).sum(-1)
-    return a, moves
+    arr_state = torch.where(arrived, states.gather(-1, t_arr.clamp_max(T).unsqueeze(-1)).squeeze(-1), torch.full_like(t_arr, -1))
+    return a, moves, arr_state
+
+
+def arrival_halt_loss(pi: torch.Tensor, arr_state: torch.Tensor) -> torch.Tensor:
+    """-log pi(HALT | the answer or dead state a sampled route arrived at), averaged over the routes that arrived (per
+    query): the prior knowledge that computation stops at an answer, which pi0 encodes (HALT with probability 1), taught
+    locally because the canonical route carries no action there."""
+    B = pi.shape[0]
+    ok = arr_state >= 0
+    bidx = torch.arange(B, device=pi.device).view(B, *([1] * (arr_state.dim() - 1))).expand_as(arr_state)
+    lp = torch.log(pi[bidx, arr_state.clamp_min(0), HALT].float() + 1e-12)
+    return -(lp * ok.float()).sum(-1) / ok.float().sum(-1).clamp_min(1)
 
 
 def tb_loss(lpy_route: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, logp0_route: torch.Tensor,
