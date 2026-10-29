@@ -68,8 +68,9 @@ def derived_rows(r):
         ins = {}
         for k, v in fin.items():
             if isinstance(v, dict) and LR_PRIMARY in v.get("kl_exit", {}):
-                ins[k] = {**{kk: vv for kk, vv in v.items() if kk != "kl_exit"}, "acc": v["kl_exit"][LR_PRIMARY]["acc"],
-                          "q_steps": v["kl_exit"][LR_PRIMARY]["q_steps"]}
+                # the exit's own accuracy and steps; the P / no-P split and the per-loop readings belong to the
+                # forced-loop evaluation and are not carried over (they would describe the diverged T_eval block)
+                ins[k] = {"n": v.get("n"), "acc": v["kl_exit"][LR_PRIMARY]["acc"], "q_steps": v["kl_exit"][LR_PRIMARY]["q_steps"]}
         twin = dict(r); twin["evals"] = [{"eval": ins}]
         rows.append((lf_label(group_key(r), "LR"), twin))
     if any("acc_at_k" in v for v in fin.values() if isinstance(v, dict)):

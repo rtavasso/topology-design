@@ -1189,6 +1189,27 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 
 **Decision.** D101: the main grid runs unchanged (the preregistered cell); the always-SET basin is read from the first-deviation and steps columns wherever route accuracy is 0 with answer accuracy 1.
 
+## Entry 63 (28 Oct 2026): rung 1 ran — the deferred rule is learned, the control is not; the ladder's generalization bound; rung 1 closed
+
+**Runs.** 51 (`grids/main.json`), one Kaggle session, 3.7 h; [route/RESULTS.md](../experiments/route/RESULTS.md); records in `experiments/route/results_data/main/`; the deferral-0 diagnostic in `experiments/route/diag_deferral0.py` and `results_data/diag/`.
+
+**Preregistered verdicts (DESIGN.md §10, revision 2).** All hold at full seed counts: P1 (10/10; SET flips at 600 vs RM-T's 500), P2 (1.00 at k = 32, steps = oracle), P3a (count probe 1.00, 10/10), P3b (precedence probe 0.03; PP 0.00 with first deviation SET>PREV 2,411/2,497), P4 (RM flat at 1.00 across P depth; the neural arms at chance everywhere), P5 (LF at chance on P-words at every reading, 10/10; LF-d0 identical), P7 (RM-idx 0.843 / 0.850 vs the derived 0.84 / 0.85), P8 (p(HALT) 1.00 / 0.00 / 0.00), P9 (RM-s committed 0 / marginal 1.00 / p(target) 0.77 / sampled 0.77 / +1.2 actions). Findings F28–F34.
+
+**The control that failed.** RM-d0 (the local trigger: SET then PREV at the same symbol) never learns the P-rule in 6,000 steps, 5/5 seeds, loss plateau 0.47. The design's row for this ("a bug or a λ artefact; stop and inspect") fired. The inspection (CPU, logits at the four decision states every 50 steps, both deferrals; a planted-init run) found neither: the planted deferral-0 program is a stable optimum; from a random init both routers learn in fifty steps, from the stray-SET mass, the state-only rule "set here ⇒ HOP, carried count ⇒ PREV" — the oracle's rule under the deferred trigger and the opposite of what the local trigger needs at the set-here state. Under the local trigger SET and PREV then wait for each other. **F29: setup credit arrives through the explicit state.** The intuition that the local trigger is the easy case was wrong for a reason the state makes exact: its two actions share a symbol. L26.
+
+**What rung 1 says, in the ladder's terms.**
+- Q1 (order-dependent chains with a setup step from next-token loss): yes with exact circuits and an exact E-step, at near-trace speed, *when the setup's payoff is a state feature* (F28, F29).
+- Q2 (generalization to new lengths and orders vs the learned carriers): the state-routed learner generalizes exactly to the closure of its per-state decisions under the state encoding's geometry — length and depth by construction, an unseen count value by linearity, an unseen conjunction of conditions not at all (F30); the looped block and the static stack do not acquire the second circuit (F32). The explicit state's value is a deterministic program at oracle cost, not Bayes accuracy (F31); the step cost selects the shorter of two exact programs (F33).
+- The novelty position (Entry 61, the 28 Oct discussion of Mixture-of-Recursions): a sharpening of NPI / NRAM / Neural Program Lattices / CRL with four modest additions (setup credit measured against traces and shown to flow through the state; the three-readings result; the step-cost selection; the exact generalization bound with probes); not a stand-alone result. Rung 2 carries the novelty.
+
+**Decisions.**
+- **D102.** Rung 1 is closed with its record. D99 (the planted-gate block) and D100 (the PP dose–response) stay recorded, not scheduled; neither outranks rung 2 under the researcher's rule (Entry 60).
+- **D103.** Constraints rung 2 inherits: (i) the state the router reads must make the decisions a task needs *determined* — ordinal and compositional encodings for quantities the rule depends on, and a library whose semantics do not put a setup action and its payoff at the same state unless the state records the setup; (ii) a neural state must keep the geometry that carried the count extrapolation (a direction, not a category), which is the first thing to measure once the state is neural; (iii) endpoints must include steps, route determinism and sampled-run reliability, never answer accuracy alone (F31); (iv) the step cost is part of the objective, not a regularizer to drop (F33); (v) a control arm runs in the pilot (L26).
+
+**Rejected alternatives.** Re-running RM-d0 with a curriculum, a different init or longer training to "fix" the control: it would answer how to break one basin on one toy, not a ladder question; recorded as a follow-up with D99 / D100. Reading RM-d0's failure as evidence against the exact marginal: RM-d1 and RM-T succeed with the same objective and architecture; the failure is specific to where the setup's payoff lives.
+
+**Expected falsifiers of the carry-over (D103).** A neural state at rung 2 that extrapolates an unseen count value without an ordinal encoding (then (ii) was unnecessary); a local-trigger variant that learns under a richer state that records the setup (then F29's "through the state" reading is confirmed in the other direction — the cheapest test, ≈ 0.3 T4-hours, if rung 2's design needs it).
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
