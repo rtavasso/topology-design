@@ -30,6 +30,32 @@ The researcher's end goal, in his words:
 
 > "A real learner shouldn't need to walk the loss landscape, it should be able to see the minima on the horizon by reasoning over the structure of the data it has learned, which generalizes to unseen examples. All of the experiments I am interested in are related to that end-goal. But we must make small steps towards that vision to understand what is happening and why."
 
+### Current orientation (29 Oct 2026): the architecture thesis — read this first
+
+The researcher's framing (history Entry 65), which the rungs serve:
+
+- **Depth buys capability but cannot be trained as unique layers.** A model with a million unique layers is infeasible: no signal reaches most of them, and no token needs most of them.
+- **The basis claim.** What those layers would compute is a serial composition of a small basis of primitive layer functions. A layer is a high-dimensional function that can be approximated by a basis expansion, like a Taylor or Fourier series whose terms are primitives. So a router over m primitives can give the expressivity of a very deep unique-layer model at tractable cost.
+- **Per-token elasticity.** The router allocates computation per token: a token that needs to go back through the context can, and the rest do not pay for a static graph.
+- **What the router is.** It is like a PFN: amortized inference that assigns, per token and per step, which primitive to apply next. Routing is query–key–value assignment over layers, and also learning the **contextual value of each layer** given the input sequence and the token's current computational state.
+- **Composition is a search process.** Even if some primitives commute as functions, the route is chosen adaptively from intermediate states, so composition cannot be treated as commuted. Commutation only shrinks the search, from sequences toward multisets.
+
+**Derived reading (Claude, agreed in discussion; Entry 65):**
+- The layer update is a state-indexed basis expansion of a residual vector field, x_{t+1} = x_t + Σᵢ cᵢ(context, x_t) φᵢ(x_t). The router supplies the coefficients from the state, not from the depth index, so the field is autonomous; that is why rung 1's Markov router generalized in depth (F30).
+- Composition over a series is worth exactly the non-commutativity of the primitives (Magnus / BCH), and adaptivity over a fixed program is worth the value of intermediate information (rung 1's state-blind gap: 0.84 → 1.00, F34).
+- "Contextual layer value" is a value function Q(context, state, primitive), defined by a Bellman recursion over the downstream policy. Myopic signals (one-step loss reduction, matching pursuit on the loss gradient, confidence) assign zero value to setup steps (D74, SET).
+
+**Risks to the thesis, ordered (what the rungs exist to retire):**
+1. **The basis claim itself.** Untested: the fidelity of a trained deep model approximated by a router over m primitives, as a curve in m (Entry 51's distillation test).
+2. **Learnability of generic, reusable primitives.** The program's strongest negatives are F22–F23 (joint training damages the block) and F32 (a second gated circuit is not learned).
+3. **A router training signal that generalizes without exact inference.** Sampled vs search vs value vs amortized-posterior signals (rung 2).
+4. **Contextual value of computation.** Value functions with bootstrapping vs myopic signals, which decides setup steps and elasticity.
+5. **Pooling as the efficiency mechanism.** One decision learned at every depth (D100).
+6. **Depth extrapolation of allocation** (F24's confirmation, D93).
+7. **Interference of primitives in a shared stream** (Entry 51's basis frontier).
+
+**Experiment-design rule (L27).** Each rung retires one of these risks, and its core must be cells whose outcome we cannot derive. Derived or already-observed outcomes are checks, at minimal seeds. The value of a rung is measured by the decision it gates in the list above.
+
 - **The original question:** what structure do network topologies promote during learning, and can wiring support the generalizing solution and keep the memorizing shortcut from interfering?
 - **How the frame has moved (22 Oct):** from "which wiring" towards "how learning is organized":
   - the gradient as a single-path, averaging learner;
@@ -535,3 +561,4 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | L24 | Rung-0 revision 3 (Entry 58): the new headline arm's head read raw log features spanning 18 units with a bias at −2; under AdamW the whole step budget moves a parameter by ≈ 1.1, so every working policy was unreachable, and the arm would have failed in a way that mimicked the mechanism under test. Caught by the design review's arithmetic, not by the tests (the planted head passed because its weights were set by hand). | Before an arm runs, check that a sufficient solution lies within what the optimizer can reach from the init in the step budget (Σ lr for Adam-type optimizers); standardize a policy head's inputs as the state head's are; and put the planted solution's parameters within that reach, so the planted test also tests reachability. |
 | L25 | Rung-1 revision 1 (Entry 61): "new orders never seen in training" were defined on the data's surface (PP runs, alternation), but the router's receptive field was the matched pair, for which every stratum was in-distribution; the independent reviewer's 1,800-step CPU run passed the headline predictions at 7 % of the budget before any GPU step. | Define out-of-distribution relative to what the model's state and receptive field actually see, not the data's surface; before preregistering a generalization prediction, run the cheapest configuration of the thesis arm on CPU and check that the prediction is not already true there. |
 | L26 | Rung-1 main grid (Entry 63): the arm designed as the easy control (the local trigger) was the one that failed, and the failure mode — the init phase teaches a state-only rule that happens to be the oracle's for one trigger placement and the opposite for the other — was invisible to the design, both reviews and the pilot, which did not run the control. | A control arm that "passes trivially" is a prediction like any other: run it in the pilot, and before predicting which of two configurations is easier for an optimizer, write down what the first hundred steps teach from the init's stray mass and check whether it agrees with the target rule. |
+| L27 | Rungs 0–2 (Entries 59–64): the preregistered cores kept turning out foregone or derivable (rung 1 revision 1 passed at 7 % of budget on CPU; rung 2 revision 1's headline was decided by a CPU seed), while the findings came from unplanned failures and side cells (F22–F23, F29, F33, program B). | Build each rung's core from cells whose outcome cannot be derived or cheaply observed, tied to a named risk in the Direction section; run every derivable cell on CPU first and demote it to a check at minimal seeds. |

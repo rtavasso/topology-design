@@ -1224,6 +1224,27 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 
 **Decision.** D104: spurious-route density as a dose (fewer answers, heavier length tails) is the first follow-up of rung 2, not run in this grid, for budget.
 
+## Entry 65 (29 Oct 2026): the architecture thesis restated; the rungs re-oriented (discussion)
+
+**Premise (researcher, in his words, condensed).** Computational value is important for the elasticity of a model, but learning a million different layers at train time is infeasible. The layers of a very deep model are each learning a function that could be composed serially from basis functions, so an effective model with millions of unique layers can be obtained tractably from primitive layer functions. The router also allocates computation per token: a token that needs to attend back to the context can, without every token paying for one static graph. A layer is a high-dimensional function approximable like a Taylor or Fourier series whose terms are primitives. The router is like a PFN. Layers may commute, but their composition is a search process and cannot be treated as commuted. Routing is query and value assignment, and also learning the contextual value of a layer given the input sequence and the token's current layer.
+
+**Discussion (Claude).**
+- *Series vs composition.* A series is a linear span of m terms; composition of m primitives k deep reaches up to m^k functions (depth separation: Telgarsky 2016; compositional sparsity: Poggio et al. 2017; Kolmogorov–Arnold). The residual stream joins the two: each step adds a router-weighted sum of primitives, and depth composes the steps. Neural-ODE work already expands weights *in depth* in a basis (Massaroli et al. 2020; Queiruga et al. 2021). The thesis indexes the coefficients by *state*, which makes the field autonomous — rung 1's Markov result.
+- *Commutation (researcher's correction, accepted).* The Magnus/BCH argument concerns a fixed route. The router's route is adaptive on intermediate states, so order matters even for commuting primitives. Commutation shrinks the search (the beam's state merging). The value of adaptivity is the state-blind gap rung 1 measured (F34).
+- *Router signal (literature).*
+  - Differentiable gates: soft MoE; Rosenbaum et al. 2019 and Mittal et al. 2022 on collapse and failed specialization.
+  - EM over module choices: Kirsch et al. 2018; Neural Program Lattices.
+  - Search-generated labels: expert iteration; Dr.LLM.
+  - A matching-pursuit / functional-gradient oracle: dense and state-based, but blind to setup steps.
+  - Local confidence for depth: CALM, LayerSkip, Mixture-of-Depths.
+  - Value of computation: Russell & Wefald; Hay et al. 2012.
+  - PFN-style amortized inference: Müller et al. 2022; DreamCoder's recognition model.
+- *Pushback.* Contextual layer value is a Bellman quantity: setup steps have zero immediate value. A PFN generalizes within its prior's support, which is the same closure as F30. Posterior (which primitive is on the true route) and value (which is worth applying under cost) diverge under cost and ambiguity (the pilot's two basins, F33).
+
+**Decisions.**
+- **D105.** The framing is recorded at the head of the ledger's Direction section, with the ordered risk list and the experiment-design rule (L27). Future rungs are justified by the risk they retire.
+- **D106 (proposed, not yet decided).** Rung 2 is re-scoped from "estimators" to "the router's training signal". The core is the cells whose outcome we cannot derive: current-policy vs fixed-prior posterior targets, each exact and sampled; reward; search. Spurious density is a second axis. Derivable cells become checks. The distillation curve (risk 1) is the leading candidate for the rung after.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
