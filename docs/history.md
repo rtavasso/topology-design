@@ -1210,6 +1210,20 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 
 **Expected falsifiers of the carry-over (D103).** A neural state at rung 2 that extrapolates an unseen count value without an ordinal encoding (then (ii) was unnecessary); a local-trigger variant that learns under a richer state that records the setup (then F29's "through the state" reading is confirmed in the other direction — the cheapest test, ≈ 0.3 T4-hours, if rung 2's design needs it).
 
+## Entry 64 (29 Oct 2026): rung 2 designed — finding routes without the exact E-step; reviewed; revised
+
+**Premise (researcher, 28–29 Oct).** Stay symbolic (neural carriers confound the mechanism); design rung 2, review it with two independent agents (design, code), implement the fixes.
+
+**Design** ([routefind/DESIGN.md](../experiments/routefind/DESIGN.md)). Same router, task and data as rung 1; only the training procedure changes, to procedures that see only the routes they sample or search, each scored exactly: the K-sample importance-weighted bound (IW16, VIMCO), the expected log-likelihood (ELL16, the K = 1 bound), REINFORCE on p(y | r) (RL16), sample-then-imitate (SI16), beam expert iteration / hard EM (EI16), and EI16B, expert iteration started inside the exact marginal's δ = 0 basin. Success: a non-exact procedure reaches the exact router's rule on the deferred trigger within 4× its episodes. Code: `route/estimators.py`; the estimator switch, per-run init and sampling seeds, warm start and held-out search statistics in `train_route.py`; `tests/test_routefind.py` (16 tests, including exact unbiasedness at K = 2 by enumerating all route pairs).
+
+**Reviews** ([design](../experiments/routefind/review/review1_design.md), [code](../experiments/routefind/review/review1_code.md)). Code: correct (unbiasedness against full enumeration; the beam against brute force on 40 more cases; the exact and teacher paths byte-identical to rung 1; cost at or below the exact marginal). Both reviewers independently found the blocking flaw: revision 1's derived beam numbers at "init" were computed at an exactly uniform policy, where every prefix ties and the answer is set by sort order. At the real initialized routers, the beam's oracle share on short P-words is seed-dependent (0.10–0.87) under both deferrals, so the predicted δ = 0 / δ = 1 contrast does not exist. The design reviewer also showed that (i) expert iteration from scratch on δ = 0 is already decided (the CPU sanity run learns it; the expected hard-EM result), and (ii) the expected log-likelihood is not "the RL objective": its per-route reward prefers halting to guessing and points into a halt-at-the-flag basin. Both were confirmed in the derivation.
+
+**Revision 2.** §5 re-derived at real init; the headline that can fail is now EI16B (search inside the basin; derived to fail, because the beam's MAP correct route at the basin policy is never the oracle's); RL16 and SI16 added; ELL16 relabeled with the halting prediction; EI4 and IW4 cut; teacher forcing on δ = 0 added as the speed reference; collision-free grid names; every review item mapped in DESIGN §13.
+
+**CPU sanity (L25), observed before preregistration.** EI16 on δ = 0 learns (held-out 0.97 at 6 % of the budget; the beam's kept route is the oracle's on 0.95–1.00 throughout; the stray rule never forms). IW16 on δ = 1 collapses by step 300 into "SET at every state, never halt" — identical samples give zero leave-one-out advantages — so P1 is stated as open.
+
+**Decision.** D104: spurious-route density as a dose (fewer answers, heavier length tails) is the first follow-up of rung 2, not run in this grid, for budget.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

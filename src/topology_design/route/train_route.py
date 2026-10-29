@@ -31,8 +31,10 @@ DATA_KEYS = {f.name for f in fields(RouteConfig)}
 ROUTER_KEYS = {f.name for f in fields(RouterConfig)}
 TRAIN_DEFAULTS = dict(steps=6000, batch=64, lr=1e-3, warmup=500, seed=0, eval_every=2000, T_eval=64, eval_n=250,
                       pool_n=60000, wd=0.01, grad_clip=1.0, teacher=False, crit_n=256, crit_every=100, eval_chunk=50, samples=4,
-                      estimator="exact", K=16, W=16, ei_eps=0.1)
-ESTIMATORS = ("exact", "teacher", "iw", "rf", "ei")      # rung 2 (experiments/routefind/DESIGN.md): route-finding estimators
+                      estimator="exact", K=16, W=16, ei_eps=0.1, warm_steps=0, per_run_init=False)
+# rung 2 (experiments/routefind/DESIGN.md): route-finding estimators; "rf" is an alias of "ell"
+ESTIMATORS = ("exact", "teacher", "iw", "ell", "rf", "rl", "si", "ei")
+SAMPLED = ("iw", "ell", "rf", "rl", "si")
 PER_RUN_KEYS = ("seed", "lr")
 ACTION_NAMES = {HOP: "HOP", PREV: "PREV", SET: "SET", HALT: "HALT"}
 
@@ -238,13 +240,115 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
     return res
 
 
+def _slice_mp(mp: dict, sl: slice) -> dict:
+    return {k: v[sl] for k, v in mp.items()}
+
+
+def sample_per_run(pi, mp, q_start, T, K, gens, R):
+    """K routes per query, each run's slice drawn from its own generator (a run's samples do not depend on its stack)."""
+    Bt = q_start.shape[0]; B = Bt // R
+    outs = [E.sample_routes(pi[r * B:(r + 1) * B], _slice_mp(mp, slice(r * B, (r + 1) * B)), q_start[r * B:(r + 1) * B], T, K,
+                            generator=gens[r]) for r in range(R)]
+    return tuple(torch.cat([o[i] for o in outs], 0) for i in range(4))
+
+
+def per_run_init_(m: StackedRouter, seeds, rc, dc):
+    """Re-initialize run r's parameter slice from its own seed (code review 1, finding 6): a run's init then does not
+    depend on which runs share its stack. Buffers (the frozen symbol bases) are seeded by emb_seed and are shared."""
+    for r, sd in enumerate(seeds):
+        torch.manual_seed(1000003 * sd + 7)
+        one = StackedRouter(1, rc, dc)
+        with torch.no_grad():
+            for (n, p), (n1, p1) in zip(m.named_parameters(), one.named_parameters()):
+                assert n == n1 and p.shape[0] == m.R and p1.shape[0] == 1, n
+                p[r].copy_(p1[0].to(p.device))
+
+
+def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd):
+    """(surrogate per run [backward through it], reported objective per run) for one training batch."""
+    if est == "teacher":
+        oa, osteps, ostates = oracle(mp, fb["q_start"], rc.T, dc)
+        per_run = teacher_loss(pi, oa, ostates).view(R, -1).mean(1)
+        return per_run, per_run
+    if est == "exact":
+        q, es, _, _ = marginal(pi, mp, fb["q_start"], rc.T, Rd)
+        ans = fb["q_ans"] - dc.n_keys
+        per_run = (-torch.log(q.gather(-1, ans.unsqueeze(-1)).squeeze(-1) + 1e-9) + rc.lam * es).view(R, -1).mean(1)
+        return per_run, per_run
+    if est in SAMPLED:
+        sym, st_k, a_k, x_k = sample_per_run(pi, mp, fb["q_start"], rc.T, tc["K"], gens, R)
+        lpr = E.route_logprob(pi, a_k, x_k)
+        if est == "si":
+            ok, idx = E.best_correct_sample(sym, fb["q_ans"], lpr.detach(), st_k, rc.lam)
+            a_t = a_k.gather(2, idx.view(*idx.shape, 1, 1).expand(*idx.shape, 1, a_k.shape[-1])).squeeze(2)
+            a_t = torch.where(ok.unsqueeze(-1), a_t, torch.full_like(a_t, -1))
+            per_q = teacher_loss(pi, a_t, E.replay(mp, fb["q_start"], a_t))
+            sur = per_q.view(R, -1).sum(1) / ok.view(R, -1).sum(1).clamp_min(1).float()
+            return sur, sur.detach()
+        lpy = E.readout_logp(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)
+        fn = {"iw": E.iw_loss, "ell": E.rf_loss, "rf": E.rf_loss, "rl": E.rl_loss}[est]
+        sur, obj = fn(lpy, st_k, lpr, rc.lam)
+        return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1)
+    # ei
+    found, a_b, _ = E.beam_search(pi.detach(), mp, fb["q_start"], fb["q_ans"], rc.T, tc["W"], dc, eps_mix=tc["ei_eps"], lam=rc.lam)
+    a_t = torch.where(found.unsqueeze(-1), a_b, torch.full_like(a_b, -1))
+    per_q = teacher_loss(pi, a_t, E.replay(mp, fb["q_start"], a_t))
+    sur = per_q.view(R, -1).sum(1) / found.view(R, -1).sum(1).clamp_min(1).float()
+    return sur, sur.detach()
+
+
+@torch.no_grad()
+def search_stats(m, dc, rc, tc, crit, est, R, dev):
+    """What the estimator sees, on the held-out criterion set (fixed sampling seed, so the training stream is not
+    perturbed): per run and k, over all words and over words WITH a P, the fraction of queries on which the samples /
+    the beam reach the label ("hit"), contain the oracle route ("oracle_any", sampled arms), and on which the route
+    that imitation would use is the oracle's ("oracle_kept": EI's beam route, SI's best correct sample)."""
+    if est not in SAMPLED + ("ei",):
+        return None
+    b = stack_batches([crit[r] for r in range(R)]); fb = flat(b)
+    mp = maps(fb["pair_key"], fb["pair_val"], fb["pair_prev"], fb["pair_flag"], dc)
+    pi = policy(m, b, rc.T, chunk=tc["eval_chunk"])
+    oa, osteps, _ = oracle(mp, fb["q_start"], rc.T, dc)
+    if est == "ei":
+        found, a_b, st_b = E.beam_search(pi, mp, fb["q_start"], fb["q_ans"], rc.T, tc["W"], dc, eps_mix=tc["ei_eps"], lam=rc.lam)
+        hit, orc_any, orc_kept = found, None, found & route_ok(a_b, st_b, oa, osteps)
+    else:
+        gens = [torch.Generator(device=dev).manual_seed(4242 + r) for r in range(R)]
+        sym, st_k, a_k, x_k = sample_per_run(pi, mp, fb["q_start"], rc.T, tc["K"], gens, R)
+        hit = (sym == fb["q_ans"].unsqueeze(-1)).any(-1)
+        oks = torch.stack([route_ok(a_k[:, :, j], st_k[:, :, j], oa, osteps) for j in range(tc["K"])], -1)
+        orc_any = oks.any(-1)
+        ok, idx = E.best_correct_sample(sym, fb["q_ans"], E.route_logprob(pi, a_k, x_k), st_k, rc.lam)
+        orc_kept = ok & oks.gather(-1, idx.unsqueeze(-1)).squeeze(-1)
+    hasP = (fb["q_word"] == 1).any(-1)
+    B = b["pair_key"].shape[1]
+    out = []
+    for r in range(R):
+        sl = slice(r * B, (r + 1) * B)
+        kk = fb["q_k"][sl]; hp = hasP[sl]
+        rec = {}
+        for name, x in (("hit", hit), ("oracle_any", orc_any), ("oracle_kept", orc_kept)):
+            if x is None:
+                continue
+            xr = x[sl].float()
+            rec[name] = float(xr.mean())
+            rec[name + "_P"] = float(xr[hp].mean()) if hp.any() else None
+            rec[name + "_by_k"] = {k: float(xr[kk == k].mean()) for k in range(1, dc.kmax + 1) if (kk == k).any()}
+            rec[name + "_P_by_k"] = {k: float(xr[(kk == k) & hp].mean()) for k in range(1, dc.kmax + 1) if ((kk == k) & hp).any()}
+        out.append(rec)
+    return out
+
+
 def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
     R = len(cfgs)
     dc, rc, tc = split_cfg({k: v for k, v in cfgs[0].items() if k not in PER_RUN_KEYS})
     seeds = [int(c.get("seed", 0)) for c in cfgs]
     lrs = torch.tensor([float(c.get("lr", tc["lr"])) for c in cfgs], device=dev)
     torch.manual_seed(1000003 * seeds[0] + sum(seeds))
-    m = StackedRouter(R, rc, dc).to(dev)
+    m = StackedRouter(R, rc, dc)
+    if tc["per_run_init"]:
+        per_run_init_(m, seeds, rc, dc)
+    m = m.to(dev)
     n_params = sum(p.numel() for p in m.parameters() if p.requires_grad) // R
     opt = StackedAdamW(m.parameters(), lrs, betas=(0.9, 0.95), weight_decay=tc["wd"])
     sched = lambda s: min(1.0, (s + 1) / tc["warmup"]) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / tc["steps"])))
@@ -254,59 +358,32 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
     crit = [to_dict(generate(dc, tc["crit_n"], np.random.default_rng(s * 7919 + 999)), dev) for s in seeds]
     log(f"pools, strata and criterion sets generated in {time.time() - t0:.0f}s")
     Rd = readout(dc, rc.eps, dev)
-    recs = [{"cfg": {k: v for k, v in c.items() if k not in ("name", "arm")}, "name": c.get("name"), "arm": c.get("arm"),
-             "data": dc.dict(), "router": rc.dict(), "train": {**tc, "lr": float(lrs[r]), "seed": seeds[r], "stack_size": R,
-                                                               "rollouts_per_query": {"iw": tc["K"], "rf": tc["K"], "ei": tc["W"]}.get(
-                                                                   "teacher" if tc["teacher"] else tc["estimator"], 0)},
-             "n_params": n_params, "curve": [], "evals": [], "device": dev} for r, c in enumerate(cfgs)]
-    run_loss = torch.zeros(R, device=dev, dtype=torch.float32)
-    hits = torch.zeros(R, dc.kmax + 1, device=dev, dtype=torch.float32); cnt = torch.zeros_like(hits)
     est = "teacher" if tc["teacher"] else tc["estimator"]
     assert est in ESTIMATORS, est
-    gen = torch.Generator(device=dev).manual_seed(1000003 * seeds[0] + sum(seeds) + 17)
-    s_hit = torch.zeros(R, dc.kmax + 1, device=dev, dtype=torch.float32); s_or = torch.zeros_like(s_hit); s_cnt = torch.zeros_like(s_hit)
+    rpq = tc["K"] if est in SAMPLED else (tc["W"] if est == "ei" else 0)
+    recs = [{"cfg": {k: v for k, v in c.items() if k not in ("name", "arm")}, "name": c.get("name"), "arm": c.get("arm"),
+             "data": dc.dict(), "router": rc.dict(),
+             "train": {**tc, "lr": float(lrs[r]), "seed": seeds[r], "stack_size": R, "stack_seeds": seeds, "rollouts_per_query": rpq},
+             "n_params": n_params, "curve": [], "evals": [], "device": dev} for r, c in enumerate(cfgs)]
+    st0 = search_stats(m, dc, rc, tc, crit, est, R, dev)                     # what the estimator sees at init (step 0)
+    if st0 is not None:
+        for r in range(R):
+            recs[r]["search_init"] = st0[r]
+    gens = [torch.Generator(device=dev).manual_seed(1000003 * sd + 17) for sd in seeds]
+    run_loss = torch.zeros(R, device=dev, dtype=torch.float32)
+    clip_hits = torch.zeros(R, device=dev, dtype=torch.float32)
+    hits = torch.zeros(R, dc.kmax + 1, device=dev, dtype=torch.float32); cnt = torch.zeros_like(hits)
     for s in range(tc["steps"]):
         b = stack_batches([p.sample(tc["batch"]) for p in pools])
         fb = flat(b)
         mp = maps(fb["pair_key"], fb["pair_val"], fb["pair_prev"], fb["pair_flag"], dc)
         pi = policy(m, b, rc.T)
-        if est == "teacher":
-            oa, osteps, ostates = oracle(mp, fb["q_start"], rc.T, dc)
-            per_q = teacher_loss(pi, oa, ostates)
-            per_run = per_q.view(R, -1).mean(1); surrogate = per_run
-        elif est == "exact":
-            q, es, _, _ = marginal(pi, mp, fb["q_start"], rc.T, Rd)
-            ans = fb["q_ans"] - dc.n_keys
-            per_q = -torch.log(q.gather(-1, ans.unsqueeze(-1)).squeeze(-1) + 1e-9) + rc.lam * es
-            per_run = per_q.view(R, -1).mean(1); surrogate = per_run
-        elif est in ("iw", "rf"):
-            sym, st_k, a_k, x_k = E.sample_routes(pi, mp, fb["q_start"], rc.T, tc["K"], generator=gen)
-            lpr = E.route_logprob(pi, a_k, x_k)
-            lpy = E.readout_logp(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)
-            sur, obj = (E.iw_loss if est == "iw" else E.rf_loss)(lpy, st_k, lpr, rc.lam)
-            surrogate = sur.view(R, -1).mean(1); per_run = obj.view(R, -1).mean(1)
-            with torch.no_grad():
-                oa, osteps, _ = oracle(mp, fb["q_start"], rc.T, dc)
-                hit = (sym == fb["q_ans"].unsqueeze(-1)).any(-1)
-                hit_or = torch.stack([route_ok(a_k[:, :, j], st_k[:, :, j], oa, osteps) for j in range(tc["K"])], -1).any(-1)
-        else:                                                                         # ei
-            found, a_b, st_b = E.beam_search(pi.detach(), mp, fb["q_start"], fb["q_ans"], rc.T, tc["W"], dc,
-                                             eps_mix=tc["ei_eps"], lam=rc.lam)
-            a_t = torch.where(found.unsqueeze(-1), a_b, torch.full_like(a_b, -1))
-            per_q = teacher_loss(pi, a_t, E.replay(mp, fb["q_start"], a_t))
-            n_found = found.view(R, -1).sum(1).clamp_min(1).float()
-            surrogate = per_q.view(R, -1).sum(1) / n_found; per_run = surrogate
-            with torch.no_grad():
-                oa, osteps, _ = oracle(mp, fb["q_start"], rc.T, dc)
-                hit = found; hit_or = found & route_ok(a_b, st_b, oa, osteps)
-        if est in ("iw", "rf", "ei"):
-            with torch.no_grad():
-                kk_ = fb["q_k"].view(R, -1)
-                s_hit.scatter_add_(1, kk_, hit.view(R, -1).float()); s_or.scatter_add_(1, kk_, hit_or.view(R, -1).float())
-                s_cnt.scatter_add_(1, kk_, torch.ones_like(kk_, dtype=torch.float32))
+        est_now = "exact" if s < tc["warm_steps"] else est                   # warm start inside the exact marginal's basin
+        surrogate, per_run = estimator_loss(est_now, pi, mp, fb, R, tc, rc, dc, gens, Rd)
         opt.zero_grad()
         surrogate.sum().backward()
         gn = clip_grad_norm_per_run(m.parameters(), tc["grad_clip"])
+        clip_hits += (gn > tc["grad_clip"]).to(clip_hits.dtype)
         opt.step(scale=sched(s))
         run_loss += per_run.detach().to(run_loss.dtype)
         with torch.no_grad():   # committed-route accuracy on the training batch, by k (memorization reference)
@@ -316,21 +393,19 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
             kk = fb["q_k"].view(R, -1)
             hits.scatter_add_(1, kk, ok); cnt.scatter_add_(1, kk, torch.ones_like(ok))
         if (s + 1) % tc["crit_every"] == 0:
-            m.eval(); cr = criterion(m, dc, rc, tc, crit, dev); m.train()
+            m.eval(); cr = criterion(m, dc, rc, tc, crit, dev); ss = search_stats(m, dc, rc, tc, crit, est, R, dev); m.train()
             rl = (run_loss / tc["crit_every"]).tolist(); h, c = hits.cpu().numpy(), cnt.cpu().numpy(); gl = gn.tolist()
+            cf = (clip_hits / tc["crit_every"]).tolist()
             for r in range(R):
-                recs[r]["curve"].append({"step": s + 1, "loss": rl[r], "grad_norm": float(gl[r]),
+                recs[r]["curve"].append({"step": s + 1, "loss": rl[r], "grad_norm": float(gl[r]), "clip_frac": cf[r],
                                          "acc_by_k": cr[r]["acc_by_k"], "ans_acc_by_k": cr[r]["ans_acc_by_k"],
                                          "acc_by_Pdepth": cr[r]["acc_by_Pdepth"], "acc": cr[r]["acc"], "act_acc": cr[r]["act_acc"],
                                          "cf_count2_prev": cr[r]["cf_count2_prev"], "cf_pending_set": cr[r]["cf_pending_set"],
-                                         "crit_obj": cr[r]["crit_obj"],
+                                         "crit_obj": cr[r]["crit_obj"], "estimator_now": est_now,
                                          "train_acc_by_k": {int(k): float(h[r, k] / c[r, k]) for k in range(c.shape[1]) if c[r, k] > 0}})
-                if est in ("iw", "rf", "ei"):                # search / sampling success on the training batches, by k
-                    sh, so, sc = s_hit[r].tolist(), s_or[r].tolist(), s_cnt[r].tolist()
-                    recs[r]["curve"][-1]["search_hit_by_k"] = {k: sh[k] / sc[k] for k in range(1, dc.kmax + 1) if sc[k] > 0}
-                    recs[r]["curve"][-1]["search_oracle_by_k"] = {k: so[k] / sc[k] for k in range(1, dc.kmax + 1) if sc[k] > 0}
-                    recs[r]["curve"][-1]["search_hit"] = sum(sh) / max(sum(sc), 1); recs[r]["curve"][-1]["search_oracle"] = sum(so) / max(sum(sc), 1)
-            run_loss.zero_(); hits.zero_(); cnt.zero_(); s_hit.zero_(); s_or.zero_(); s_cnt.zero_()
+                if ss is not None:
+                    recs[r]["curve"][-1]["search"] = ss[r]
+            run_loss.zero_(); hits.zero_(); cnt.zero_(); clip_hits.zero_()
         if (s + 1) % tc["eval_every"] == 0 or s + 1 == tc["steps"]:
             m.eval()
             ev = evaluate(m, dc, rc, tc, strata, dev)

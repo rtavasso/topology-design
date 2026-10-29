@@ -10,8 +10,8 @@ import torch
 
 from topology_design.route.data import RouteConfig, generate
 from topology_design.route.exec import tables, marginal, readout, oracle, oracle_policy, route_ok, sid, PER_SYM, HOP, PREV, SET, HALT
-from topology_design.route.estimators import (sample_routes, route_logprob, readout_logp, iw_loss, rf_loss, beam_search,
-                                              replay)
+from topology_design.route.estimators import (sample_routes, route_logprob, readout_logp, iw_loss, rf_loss, rl_loss,
+                                              beam_search, replay, best_correct_sample)
 
 DC = RouteConfig()
 NS = DC.n_sym * PER_SYM
@@ -93,7 +93,8 @@ def test_beam_returns_the_oracle_route_under_the_oracle_policy_and_replay_agrees
 
 def test_beam_finds_the_map_correct_route_of_brute_force():
     """With W at least the number of states reachable within T, the beam's kept route maximizes log pi - lam * moves
-    among all routes of length <= T that end on the label (merging identical states loses nothing: pi is Markov)."""
+    among the routes of length <= T that end on the label in the PRUNED space (no no-op moves, no moves out of answers
+    or dead states, halting at the first arrival); merging identical states loses nothing: pi is Markov."""
     torch.manual_seed(4)
     tb = _small(4, B=3, k=2)
     T, lam = 4, 0.02
@@ -127,12 +128,81 @@ def test_beam_finds_the_map_correct_route_of_brute_force():
             assert got == pytest.approx(best, abs=1e-4)
 
 
-@pytest.mark.parametrize("est", ["iw", "rf", "ei"])
+@pytest.mark.parametrize("est", ["iw", "ell", "rl", "si", "ei"])
 def test_trainer_runs_every_estimator_and_records_search_stats(est):
     from topology_design.route.train_route import run_stack
     base = dict(steps=2, batch=4, pool_n=40, eval_n=2, eval_every=2, crit_n=6, crit_every=1, warmup=1, T_eval=20,
-                K=4, W=4, estimator=est)
+                K=4, W=4, estimator=est, per_run_init=True)
     recs = run_stack([{**base, "seed": 0}, {**base, "seed": 1}], dev="cpu", log=lambda s: None)
     c = recs[0]["curve"][-1]
-    assert {"search_hit", "search_oracle", "search_hit_by_k", "crit_obj"} <= set(c)
-    assert 0.0 <= c["search_oracle"] <= c["search_hit"] <= 1.0 and recs[0]["train"]["rollouts_per_query"] == 4
+    assert {"search", "crit_obj", "clip_frac", "estimator_now"} <= set(c) and "search_init" in recs[0]
+    st = c["search"]
+    assert 0.0 <= st["oracle_kept"] <= st["hit"] <= 1.0 and "hit_P_by_k" in st and recs[0]["train"]["rollouts_per_query"] == 4
+    assert recs[0]["train"]["stack_seeds"] == [0, 1]
+
+
+def test_per_run_init_and_sampling_do_not_depend_on_the_stack_and_warm_start_switches():
+    from topology_design.route.train_route import run_stack
+    base = dict(steps=2, batch=4, pool_n=40, eval_n=2, eval_every=2, crit_n=6, crit_every=1, warmup=1, T_eval=20,
+                K=4, estimator="iw", per_run_init=True)
+    a = run_stack([{**base, "seed": 0}], dev="cpu", log=lambda s: None)[0]
+    b = run_stack([{**base, "seed": 0}, {**base, "seed": 3}], dev="cpu", log=lambda s: None)[0]
+    assert a["search_init"] == b["search_init"]
+    assert a["curve"][-1]["loss"] == pytest.approx(b["curve"][-1]["loss"], rel=1e-4)
+    w = run_stack([{**base, "seed": 0, "warm_steps": 1}], dev="cpu", log=lambda s: None)[0]
+    assert [c["estimator_now"] for c in w["curve"]] == ["exact", "iw"]
+
+
+def _enumerate_routes(tb, T):
+    """Every route of length <= T from query 0 of episode 0: moves from {HOP, PREV, SET}, then HALT (none at T)."""
+    rows = []
+    for L in range(T + 1):
+        for mv in itertools.product([HOP, PREV, SET], repeat=L):
+            a = list(mv) + ([HALT] if L < T else [])
+            rows.append(a + [-1] * (T - len(a)))
+    acts = torch.tensor(rows).unsqueeze(0)                                               # (1, N, T)
+    qs = tb["q_start"][:1, :1].expand(1, acts.shape[1])
+    states = replay({k: v[:1] for k, v in tb.items() if k in ("hop", "prev", "set")}, qs, acts)
+    steps = torch.tensor([sum(1 for x in r if x in (HOP, PREV, SET)) for r in rows]).unsqueeze(0)
+    return acts, states, steps
+
+
+@pytest.mark.parametrize("name", ["iw", "ell", "rl"])
+def test_estimators_are_exactly_unbiased_at_K2_by_enumeration(name):
+    """E over all K = 2 route pairs of the surrogate's gradient equals the exact gradient of the stated objective:
+    iw: -E[log mean(p1, p2)] + lam E[steps]; ell: -E[log p] + lam E[steps]; rl: -E[p] + lam E[steps] (code review 1, 5)."""
+    torch.manual_seed(5)
+    tb = _small(5, B=1, k=2)
+    T, lam = 3, 0.05
+    theta = torch.nn.Parameter(torch.randn(1, NS, 4))
+    pi = torch.softmax(theta, -1)
+    acts, states, steps = _enumerate_routes(tb, T)
+    lpr = route_logprob(pi, acts, states)[0]                                             # (N,)
+    assert float(lpr.exp().sum()) == pytest.approx(1.0, abs=1e-5)
+    lpy = readout_logp(states[0, :, -1] // PER_SYM, tb["q_ans"][0, 0].expand(acts.shape[1]), DC, 0.02)
+    N = acts.shape[1]
+    i1, i2 = torch.meshgrid(torch.arange(N), torch.arange(N), indexing="ij")
+    i1, i2 = i1.reshape(-1), i2.reshape(-1)
+    pair = lambda x: torch.stack([x[i1], x[i2]], -1).unsqueeze(0)                         # (1, N*N, 2)
+    fn = {"iw": iw_loss, "ell": rf_loss, "rl": rl_loss}[name]
+    sur, _ = fn(pair(lpy), pair(steps[0].float()), pair(lpr), lam)
+    w = (lpr[i1] + lpr[i2]).exp().detach()
+    g_est, = torch.autograd.grad((w * sur[0]).sum(), theta, retain_graph=True)
+    pr = lpr.exp(); es = (pr * steps[0]).sum()
+    if name == "iw":
+        val = -((pr[i1] * pr[i2]) * (torch.logaddexp(lpy[i1], lpy[i2]) - math.log(2))).sum() + lam * es
+    elif name == "ell":
+        val = -(pr * lpy).sum() + lam * es
+    else:
+        val = -(pr * lpy.exp()).sum() + lam * es
+    g_exact, = torch.autograd.grad(val, theta)
+    assert torch.allclose(g_est, g_exact, atol=1e-5 * float(g_exact.abs().max()) + 1e-7)
+
+
+def test_best_correct_sample_picks_the_most_probable_correct_route():
+    sym = torch.tensor([[[50, 52, 50]]]); q_ans = torch.tensor([[50]])
+    lp = torch.tensor([[[-3.0, -0.1, -2.0]]]); steps = torch.tensor([[[2, 1, 2]]])
+    ok, idx = best_correct_sample(sym, q_ans, lp, steps, 0.02)
+    assert bool(ok[0, 0]) and int(idx[0, 0]) == 2
+    ok2, _ = best_correct_sample(sym, torch.tensor([[60]]), lp, steps, 0.02)
+    assert not bool(ok2[0, 0])

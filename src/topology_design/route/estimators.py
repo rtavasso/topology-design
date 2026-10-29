@@ -6,8 +6,13 @@ exactly by the executor and the readout (the label is used only through p(y | ro
 
   iw  — the K-sample importance-weighted bound  log (1/K) sum_k p(y | r_k)  (r_k ~ pi), with VIMCO leave-one-out
         control variates (Mnih & Rezende 2016): a sampled estimate of the exact objective; as K -> inf it is it.
-  rf  — REINFORCE on the expected log-likelihood  E_pi[log p(y | r)]  with RLOO baselines: the "RL" objective,
-        a Jensen lower bound of the marginal that rewards each route on its own (mode-seeking).
+  ell — the expected log-likelihood E_pi[log p(y | r)] (the K = 1 importance-weighted bound, an ELBO with the prior
+        as posterior), estimated with K samples and RLOO baselines; "rf" is an alias. Its per-route reward prefers
+        halting (log 1/16) to guessing (log eps/15), unlike the marginal (review 1, B3).
+  rl  — REINFORCE with reward p(y | r) - lam * steps and RLOO: its expectation is q(y) - lam E[steps], so it
+        maximizes sum q rather than sum log q (the "RL" side of Guu et al. 2017's RL-vs-MML comparison).
+  si  — sample-then-imitate (STaR / ReST-EM style): K samples, the most probable sample that reaches the label kept,
+        the router trained by teacher forcing on it (hard EM over samples instead of a beam).
   ei  — expert iteration (hard EM): a beam search under the current router (mixed with uniform, eps) over product
         states, the most probable route that reaches the label kept, the router trained by teacher forcing on it.
 
@@ -87,6 +92,25 @@ def iw_loss(lp: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, lam
 
 
 # ---------- rf: REINFORCE on the expected log-likelihood (RLOO) ----------
+def rl_loss(lp: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, lam: float):
+    """Reward R_k = p(y | r_k) - lam * steps_k (expectation q(y) - lam E[steps]); RLOO surrogate of -grad E[R]."""
+    K = lp.shape[-1]
+    assert K >= 2
+    R = lp.float().exp() - lam * steps.float()
+    adv = (R - _loo_mean(R)).detach()
+    return -(adv * logp_route).mean(-1), (-R.mean(-1)).detach()
+
+
+@torch.no_grad()
+def best_correct_sample(sym, q_ans, logp_route, steps, lam):
+    """For sample-then-imitate: per query the index of the sample that reaches the label with the highest
+    log pi - lam * steps, and whether any does. sym, logp_route, steps (B, Q, K)."""
+    score = torch.where(sym == q_ans.unsqueeze(-1), logp_route.double() - lam * steps.double(),
+                        torch.full(sym.shape, float("-inf"), dtype=torch.float64, device=sym.device))
+    best = score.max(-1)
+    return torch.isfinite(best.values), best.indices
+
+
 def rf_loss(lp: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, lam: float):
     """Reward R_k = log p(y | r_k) - lam * steps_k; surrogate whose gradient is the RLOO estimator of -grad E[R]."""
     K = lp.shape[-1]
@@ -104,8 +128,10 @@ def beam_search(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, q_ans: torch.
     expanded by HOP / PREV / SET, routes that reach the same state are merged (the most probable prefix kept; pi is
     Markov, so the merge loses nothing for the continuation), and the W most probable states are kept. Every kept
     state is also completed by HALT; the forced halt at T completes the rest. Among the completions that reach the
-    label the one kept maximizes log pi~(r) - lam * moves (the MAP route under the current router and the step cost:
-    hard EM over the beam). Not "the shortest correct route": with 16 answers a wide search reaches the label by
+    label the one kept maximizes log pi~(r) - lam * moves: the MAP route under the current router and the step cost
+    over the PRUNED route space (no no-op moves, halting at the first arrival at an answer — code review 1, finding
+    7: in the unpruned space a route that loops at the answer and is forced to halt at T can score higher under a
+    random policy); hard EM over the beam. Not "the shortest correct route": with 16 answers a wide search reaches the label by
     spurious routes through decoys for almost every query, and the shortest of them is usually not the oracle's.
     Moves out of answers or dead states, into dead states, and no-op moves are pruned.
     Returns found (B, Q) [a completion reaches the label], actions (B, Q, T) of the kept route with HALT included and
@@ -116,7 +142,7 @@ def beam_search(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, q_ans: torch.
     st = sid(q_start, torch.zeros_like(q_start), torch.zeros_like(q_start)).unsqueeze(-1).expand(B, Q, W).clone()
     lp = torch.full((B, Q, W), float("-inf"), device=dev); lp[..., 0] = 0.0
     hist = torch.full((B, Q, W, T), -1, dtype=torch.long, device=dev)
-    best_key = torch.full((B, Q), float("-inf"), device=dev)
+    best_key = torch.full((B, Q), float("-inf"), device=dev, dtype=torch.float64)
     best_acts = torch.full((B, Q, T), -1, dtype=torch.long, device=dev)
     best_steps = torch.zeros(B, Q, dtype=torch.long, device=dev)
     ar = torch.arange(B, device=dev).view(B, 1, 1)
@@ -138,9 +164,10 @@ def beam_search(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, q_ans: torch.
         best_steps = torch.where(upd, torch.full_like(best_steps, t), best_steps)
 
     def keys(lp_c, x, t):
-        right = (sym_of(x) == q_ans.unsqueeze(-1)).float()
-        k = right * 1e6 + (lp_c - lam * t).clamp(min=-999.0)
-        return torch.where(torch.isfinite(lp_c), k, torch.full_like(k, float("-inf")))
+        """log pi~ - lam * moves for completions that reach the label, -inf otherwise (float64: no quantization)."""
+        right = sym_of(x) == q_ans.unsqueeze(-1)
+        k = lp_c.double() - lam * t
+        return torch.where(right & torch.isfinite(lp_c), k, torch.full_like(k, float("-inf")))
 
     for t in range(T):
         l = logpi[ar, st]                                                              # (B, Q, W, 4)
@@ -162,7 +189,7 @@ def beam_search(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, q_ans: torch.
         hist = hist.gather(2, parent.unsqueeze(-1).expand(B, Q, W, T)).clone()
         hist[..., t] = a
     complete(keys(lp, st, T), hist, T)                                                 # the forced halt at T
-    found = best_key >= 1e6 - 1e5
+    found = torch.isfinite(best_key)
     return found, best_acts, best_steps
 
 
