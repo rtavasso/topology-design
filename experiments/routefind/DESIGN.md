@@ -1,6 +1,6 @@
-# Rung 2: the router's training signal (revision 3)
+# Rung 2: the router's training signal (revision 4)
 
-**Status:** design, 29 Oct 2026. Revision 3 re-scopes rung 2 after the direction discussion of Entry 65 (D105–D106). It keeps the implementation and the review handling of revisions 1–2 (`e886574`, `43726e7`; [review1_design.md](review/review1_design.md), [review1_code.md](review/review1_code.md); §14). For an independent design and code review before the pilot.
+**Status:** design, 29 Oct 2026. Revision 4 applies design review 3 and code review 3 ([review3_design.md](review/review3_design.md), [review3_code.md](review/review3_code.md); handling in §15) to revision 3 (`f34b73d`). Revision 3 re-scoped rung 2 after the direction discussion of Entry 65 (D105–D106). It keeps the implementation and the review handling of revisions 1–2 (`e886574`, `43726e7`; §14). Code: `77ca591` and later.
 
 **Direction:** the ledger's "Current orientation" (Entry 65). The router is amortized inference plus a contextual value of each layer. Rung 2 retires **risk 3** (a router training signal that generalizes without exact inference) and opens **risk 4** (contextual value of computation). The design rule is L27: the core is the cells whose outcome cannot be derived; derivable cells are checks at minimal seeds.
 
@@ -10,222 +10,393 @@
 
 ## 1. The question
 
-**Q5′.** Which training signal teaches a router *the contextual value of a layer* — which primitive to apply next, given the sequence and the token's current computational state — in a way that generalizes, when the exact route posterior under the router's own policy is not available?
+**Q5′.** Which training signal teaches a router *the contextual value of a layer* — which primitive to apply next, given the sequence and the token's current computational state — in a way that generalizes, when the exact route posterior is not available?
 
-The signals form a 2 × 2 and two singles (§3):
-- **Whose posterior.** The posterior under the router's *current policy* (EM; rung 1's exact marginal) vs under a *fixed prior* over routes (amortized inference, the PFN signal).
-- **How it is computed.** Exactly, or from sampled routes.
-- **Reward,** Monte-Carlo vs bootstrapped through a learned value V(x).
-- **Search + imitation.**
+**Two kinds of arm.**
+- **Exact references** enumerate the 390 product states: EX (rung 1's exact current-policy marginal), EX-AL (the same with the answer-only likelihood) and PF (the exact fixed-prior posterior). They are not candidates for risk 3. They locate F29's basin.
+- **Candidates** see only the routes they sample or search: IW16, PF-IS16, TB16, RL16, ACMC16, AC16 and EI16.
+
+**The contrasts** (§3 defines each signal):
+
+| contrast | arms | what differs | why it is open |
+|---|---|---|---|
+| likelihood | EX vs EX-AL (δ = 0) | the readout of a halt at a key: 1/16 vs 0 | EX-AL's step-0 target equals PF's to 1 % (§5.1); whether it escapes F29's basin is a question about dynamics |
+| whose posterior, exact | EX-AL vs PF (δ = 0) | the router's own policy vs a fixed prior as the prior over routes | PF's end state is derived (§5.2); whether a self-consistent posterior with the same likelihood gets there is not |
+| whose posterior, sampled | IW16 vs PF-IS16 | importance weights p(y \| r) vs π₀(r) e^{−λ·steps} L_y(r) / π(r), and the likelihood | sampling, collapse modes |
+| KL direction | PF-IS16 vs TB16 | forward vs reverse KL to the same fixed posterior | mode-covering vs mode-seeking; TB's entropy term counters IW16's collapse mode |
+| contextual value | RL16 vs ACMC16 vs AC16 | route-level baselines vs a learned state value V(x) as baseline vs bootstrapping through V(x) | setup steps have zero immediate value (F28, D74) |
+| search + imitation | EI16 | hard EM on the beam's MAP correct route | which program the beam hands it |
 
 **Why these, from what rung 1 left.**
-- F29: the exact current-policy marginal builds a self-reinforcing basin under the local trigger. A fixed-prior target cannot reinforce itself, so whether it escapes is the causal test of F29's mechanism.
-- F28 / D74: setup steps have zero immediate value, so a value signal can credit them only by bootstrapping. Whether a learned value does so where Monte-Carlo returns don't is the first test of "contextual layer value".
-- Two equally short programs exist (§2). Which one a signal lands in is a measurement of its inductive bias.
-- Real routing has many wrong-but-right routes; the toy at 16 answers has few where the mass sits. The spurious-density dose is where the signals should separate rather than all succeeding.
+- F29: the exact current-policy marginal stalls under the local trigger. Review 3 showed that EX's step-0 target already points the right way in every state class (§5.1), so the basin forms in the training dynamics. The likelihood contrast and the exact "whose posterior" contrast separate the two candidate causes:
+  - the readout dilution (a halt at a key explains any label at 1/16);
+  - self-consistency (the posterior is taken under the router's own policy, so early stray mass reinforces itself).
+- F28 / D74: setup steps have zero immediate value. Monte-Carlo returns do credit them; what differs is variance and bias. RL16 → ACMC16 → AC16 separates a learned state baseline from bootstrapping.
+- Two equally short programs exist (§2). Which one a signal lands in measures its inductive bias.
+- Real routing has many wrong-but-right routes. The answer-pool dose (§6) raises the coincidence rate of every wrong route, with the readout held fixed.
 
-**Success, stated before running.** Rung 2 succeeds if a signal that never computes the router's own exact posterior reaches a shortest correct program on the deferred trigger: shortest-correct-route accuracy ≥ 0.95 on P-words at in4 and in8, deterministic, within 4× EX's episodes. It fails if none does. The δ = 0 and spurious-density cells are read for *which* signals survive, not for success.
+**Success, stated before running (revised, review 3 B3).** Rung 2 succeeds if at least one **candidate** reaches, in a majority of its seeds on δ = 1:
+- shortest-correct **committed** route accuracy ≥ 0.95 on P-words at in4 and in8;
+- the held-out criterion within **3× EX's median criterion step** in this grid.
 
-**Not asked here.** Neural primitives or states (risk 2, and risk 1 — the basis claim — is the next rung's candidate, D106); MCTS or a learned value used for search (B6); curricula; D99, D100.
+It fails if no candidate does. Determinism (sampled-route accuracy) is reported separately. A router that matches a soft posterior is stochastic by derivation: PF's fixed point samples shortest-correct routes on 0.00–0.42 of P-words (§5.2). The δ = 0 and dose cells are read for *which* signals survive.
+
+**Not asked here.** Neural primitives or states (risk 2; risk 1, the basis claim, is the next rung's candidate, D106). MCTS or search guided by a learned value (B6). Curricula. D99, D100.
 
 ## 2. Task, model, executor, and the two programs
 
-Unchanged from rung 1 revision 2 ([route/DESIGN.md](../route/DESIGN.md) §§2–4): 48 keys, 16 answers (4 in the dose), decoys at P-steps, the flag deferred (δ = 1) or local (δ = 0), the product state (symbol, pending c ∈ {0,1,2}, set-here h), actions HOP / PREV / SET / HALT, the Markov router (one cross-attention layer from the state token over the pair tokens, no attention among pairs), readout ε = 0.02, step cost λ = 0.02, T_train = 14, the strata and probes, held-out criterion set (D97).
+Unchanged from rung 1 revision 2 ([route/DESIGN.md](../route/DESIGN.md) §§2–4):
+- 48 keys, 16 answers, decoys at P-steps, the flag deferred (δ = 1) or local (δ = 0);
+- the product state (symbol, pending c ∈ {0,1,2}, set-here h) and the actions HOP / PREV / SET / HALT;
+- the Markov router: one cross-attention layer from the state token over the pair tokens, no attention among pairs;
+- readout ε = 0.02, step cost λ = 0.02, T_train = 14;
+- the strata and probes, and the held-out criterion set (D97).
 
 **Two shortest correct programs per trigger.** PREV needs only a pending count, so a P-step can be prepared in two places:
 - **E** ("early"): SET one state *before* the P-leaving state, carry the count across a hop, PREV.
 - **L** ("late"): SET *at* the P-leaving state, PREV at once.
 
-The oracle is E under δ = 1 and L under δ = 0. Hand-built policies for both reach every label in the oracle's number of moves. **Expressivity with one lookup per decision:**
+The oracle is E under δ = 1 and L under δ = 0. Hand-built policies for both reach every label in the oracle's number of moves (checked by code review 3).
+
+**Expressivity with one lookup per decision:**
 
 | | needs to read | δ = 1 | δ = 0 |
 |---|---|---|---|
-| E | at the predecessor: is the P-step leaving my *successor*? | own pair's flag — one hop, **expressible** | the flag of the pair my value points to — two hops, **not expressible** |
-| L | at the P-leaving state: is my own exit a P-step? | the flag of the pair whose value is my key — one value-slot match, **expressible** | own pair's flag — one hop, **expressible** |
+| E | at the predecessor: is the P-step leaving my *successor*? | own pair's flag (one hop): **expressible** | the flag of the pair my value points to (two hops): **not expressible** |
+| L | at the P-leaving state: is my own exit a P-step? | the flag of the pair whose value is my key (one value-slot match): **expressible** | own pair's flag (one hop): **expressible** |
 
-So under δ = 1 a signal can land in E or L; under δ = 0 only L is reachable. Program identity is measured as `set_late` (the fraction of a route's SETs taken at the P-leaving state: L = 1, E = 0). Success is judged on shortest-correct-route accuracy; oracle-route accuracy is reported beside it.
+- Under δ = 1 a signal can land in E or L; under δ = 0 only L is reachable.
+- Under δ = 1, 9.1 % of P-leaving states have an ambiguous value-slot read (two pairs point to them; review 3). This is a possible bias toward E.
+
+**Program identity** (revised, review 3 S9). Each SET of a **shortest correct** committed route is classified positively:
+- **late:** at a P-leaving symbol;
+- **early:** the route's next non-SET action is a HOP onto a P-leaving symbol;
+- **other:** neither.
+
+A run's program on P-words at in8 is labeled L (`set_late` ≥ 0.75), E (≤ 0.25), mixed, or other (`set_other` > 0.25). Routes that are not shortest-correct are not classified.
 
 ## 3. The training signals (`route/estimators.py`, `route/train_route.py`)
 
-| arm | whose posterior / signal | computed | gradient | per query |
-|---|---|---|---|---|
-| **EX** | current-policy posterior p_π(r \| y) (EM; rung 1's RM) | exact | E_{p_π(r\|y)}[∇log π(r)] = ∇log q | all states |
-| **IW16** | current-policy posterior | 16 samples | VIMCO | K = 16 |
-| **PF** | **fixed-prior posterior** p₀(r \| y) ∝ π₀(r) e^{−λ·steps} L_y(r): flat prior (uniform at keys, HALT at answers), answer likelihood (1 − ε on the label, ε/15 on another answer, 0 on a key) | exact (forward–backward) | E_{p₀(r\|y)}[∇log π(r)]: the same M-step with the posterior under the fixed prior | all states |
-| **TB16** | fixed-prior posterior, as a GFlowNet target: reward R(r) = π₀(r) e^{−λ·steps} max(L_y, 10⁻⁶) | 16 on-policy samples | trajectory balance with log Z estimated per query as the sample mean (VarGrad) | K = 16 |
-| **RL16** | reward p(y \| r) − λ·steps, Monte-Carlo returns | 16 samples | REINFORCE, RLOO baselines | K = 16 |
-| **AC16** | the same reward, **bootstrapped through the router's learned contextual value V(x)** (a value head on the router's trunk; no label input) | 16 samples | actor-critic, TD(0) advantages, critic regressed on TD targets | K = 16 |
-| **EI16** | search + imitation: beam MAP correct route (revision 2, hard EM) | beam W = 16 | teacher forcing on the found route | W = 16 |
+Notation:
+- π₀ is the flat prior: uniform at keys, HALT at answers and dead.
+- L_y is the answer-only likelihood: 1 − ε on the label, ε/15 on another answer, 0 on a key or dead.
+- The rung-1 readout instead gives 1/16 to a halt anywhere other than an answer.
+
+| arm | signal | per query |
+|---|---|---|
+| **EX** | exact current-policy marginal, rung-1 readout: −log q(y) + λ E[steps]; gradient E_{p_π(r\|y)}[∇log π] (EM) | all states (reference) |
+| **EX-AL** | the same with L_y in place of the readout | all states (reference) |
+| **PF** | exact fixed-prior posterior p₀(r \| y) ∝ π₀(r) e^{−λ·steps} L_y(r), by forward–backward; loss −Σ counts · log π, gradient E_{p₀(r\|y)}[∇log π]: the PFN signal | all states (reference) |
+| **IW16** | the K-sample bound on log q(y), rung-1 readout, VIMCO (current-policy posterior, sampled) | 16 samples |
+| **PF-IS16** | PF's forward KL from on-policy samples: self-normalized importance weights w_k ∝ π₀(r_k) e^{−λ·steps_k} L_y(r_k) / π(r_k), loss −Σ w̃_k log π(r_k) | 16 samples |
+| **TB16** | trajectory balance toward the same fixed posterior, log Z as the per-query sample mean (VarGrad). On-policy this is the **reverse** KL(π ‖ p₀(·\|y)): entropy-regularized REINFORCE on log R (Richter et al. 2020); not "PF sampled" | 16 samples |
+| **RL16** | REINFORCE, reward p(y \| r) − λ·steps (rung-1 readout), RLOO baselines | 16 samples |
+| **ACMC16** | actor-critic with the router's learned state value V(x) as baseline: Monte-Carlo returns (gae = 1), the same reward | 16 samples |
+| **AC16** | the same, **bootstrapped**: TD(0) advantages (gae = 0) | 16 samples |
+| **EI16** | beam MAP correct route (hard EM), teacher forcing on it | beam W = 16 |
 
 Checks, at 2 seeds each (derived, or observed on CPU in revision 2):
 - **EI16B:** EI16 started after 1,000 EX steps inside EX's δ = 0 basin; derived to fail.
 - **SI16:** sample-then-imitate; derived to see no oracle route on P-words at init.
 - **ELL16:** the K = 1 bound; observed failing.
-- **IW16 on δ = 0:** derived to see no oracle route.
 
-A matching-pursuit / one-step-value router is not run. Its failure is by construction: the readout after SET equals the readout after HOP to a key (1/16), so one-step value never prefers SET.
+**Canonical routes** (code review 3, bug 1). TB16 and PF-IS16 score each sampled route cut at its first arrival at an answer or dead state, which absorb. The cut route halts there. Without it, no-op moves at an answer score log π₀ = log 10⁻¹² and dominate TB's loss (41 % of routes at init).
 
-**Why the answer likelihood for PF / TB.** With the rung-1 readout (1/16 on any non-answer), the flat-prior posterior is dominated by "halt at once and guess" (1/4 × 1/16 per query beats every real computation). A route explains an answer only if it outputs one. Teacher forcing on the oracle (rung 1's RM-T) is the full-information limit of PF: the posterior given the generating process.
+**The value head** (code review 3, bug 2; design review 3, B4):
+- **Architecture:** a two-layer MLP on the router's trunk features, through a stop-gradient. The critic's loss trains only the head, so AC differs from RL16 only in the advantage.
+- **Init:** its output layer is zero, so V = 0 at init. It is built after the policy head, so at a seed the policy parameters equal RL16's (test).
+- **Inputs:** V(x) sees the pair tokens and the state, never the label or the query.
+- **Caveat:** V is per episode and per state, blind to which query is being routed. 25 % of P-step decoys land on another query's oracle route, where TD(0) bootstraps a stray route's value from the owner's correct route (code review 3, item 5).
+
+**Why the answer-only likelihood for PF, PF-IS16, TB16 and EX-AL.** With the rung-1 readout, the flat-prior posterior is dominated by "halt at once and guess": 1/4 × 1/16 per query beats every real computation. Teacher forcing on the oracle (rung 1's RM-T) is the full-information limit of PF: the posterior given the generating process.
 
 **Checked before measuring (G1; tests in `tests/test_routefind.py`).**
-- **The fixed-prior posterior.** Forward–backward over (state, step) equals brute-force enumeration of every route for both deferrals: Z to 10⁻⁹ relative, action counts to 10⁻¹².
-- **PF's gradient.** It equals E_{p₀(r|y)}[∇log π(r)] by enumeration.
-- **Trajectory balance.** Its loss is zero exactly when the log-ratios agree.
-- **The actor-critic.** On a hand-built route its TD(0) critic targets and Monte-Carlo advantages match hand computation.
+- **The fixed-prior posterior.** Forward–backward equals brute-force enumeration of every route for both deferrals: Z to 10⁻⁹ relative, counts to 10⁻¹². Code review 3 confirmed it independently, to 3·10⁻¹⁵, with 4 answers as well.
+- **PF's gradient.** It equals E_{p₀(r|y)}[∇log π] by enumeration.
+- **TB16.**
+  - The loss is zero exactly when the log-ratios agree.
+  - A looped route and a cleanly halting route give the same canonical route and the same residual.
+- **PF-IS16.** Its gradient is the self-normalized weights; the effective sample size is reported, and queries with no answer reached give no gradient.
+- **The actor-critic.**
+  - TD(0) critic targets and Monte-Carlo advantages match hand computation, with nothing bootstrapped past the end.
+  - The value head is zero at init, takes no gradient into the trunk, and leaves the policy init unchanged.
+- **Program classification.** Hand-built E, L and other routes are classified 0 / 1 / other; a route that is not shortest is not classified.
+- **The answer pool.** It limits each episode to its distinct answers, and leaves the default data stream unchanged.
 - **The revision-2 tests.** Exact K = 2 unbiasedness of IW, ELL and RL by enumeration, and the beam against brute force, still pass.
 
 ## 4. Endpoints
 
-As in revision 2 (§4 there): shortest-correct-route accuracy and program identity by stratum and on the held-out curve; oracle-route accuracy; committed, marginal and sampled readings; the counterfactual probes; first deviation; episodes and rollouts to criterion (on shortest-correct accuracy, confirmed); `crit_obj` (the exact current-policy objective on the held-out set); gradient-clip binding; what each sampled or searched signal sees, at init and every 100 steps, on P-words by k. New:
-- AC16's value head is recorded through its effect on the policy (flip times, program).
-- PF's and TB's targets are characterized in §5.
+As in revision 2 (§4 there):
+- shortest-correct-route accuracy and program identity, by stratum and on the held-out curve;
+- oracle-route accuracy;
+- committed, marginal and sampled readings;
+- the counterfactual probes;
+- the first deviation;
+- episodes and rollouts to criterion (on shortest-correct accuracy, confirmed);
+- `crit_obj` (the exact current-policy objective on the held-out set);
+- gradient-clip binding;
+- what each sampled or searched signal sees, at init and every 100 steps, on P-words by k.
+
+New in revision 4:
+- **Program identity, positively classified** on shortest-correct routes (§2).
+- **PP precedence** (pp4 / pp8 route accuracy) for every learned run. This is an endpoint, not a check (review 3, S3): the precedence at the unseen conjunction is set by training dynamics (F30), which differ by signal.
+- **Determinism:** sampled shortest-correct accuracy on P-words, reported apart from success.
+- **The critic:** mean |TD error| and explained variance of the Monte-Carlo return.
+- **PF-IS16:** effective sample size / K, and the fraction of queries whose samples reach any answer.
+- **EI16's init beam program** per seed: the `set_late` of the beam's MAP correct routes at step 0.
 
 ## 5. Derived before measuring
 
-**What the fixed-prior posterior contains** (`derive/signals.py`, 1,800 training queries per cell; P-words by chain length k):
+### 5.1 The step-0 gradient (review 3, B2; reproduced)
 
-| k | posterior mass on E / L / other routes to the label / wrong answer (δ = 1, 16 answers) | same, 4 answers | on all-H words, mass on the oracle route (16 / 4 answers) |
+The descent direction at a uniform policy, summed per one-lookup feature class (`exgrad.py`, `exal.py` in review 3's scratch; 100 episodes, δ = 0):
+
+| class (own flag, c, h) | EX (rung-1 readout) | EX-AL | PF |
 |---|---|---|---|
-| 3 | 0.23 / 0.23 / 0.53 / 0.00 | 0.18 / 0.18 / 0.64 / 0.01 | 0.40 / 0.36 |
-| 5 | 0.07 / 0.07 / 0.84 / 0.02 | 0.04 / 0.04 / 0.88 / 0.04 | 0.16 / 0.10 |
-| 8 | 0.00 / 0.00 / 0.86 / 0.13 | 0.00 / 0.00 / 0.89 / 0.11 | 0.02 / 0.01 |
+| unflagged, (0, 0) | HOP +189, SET **+0.7** | HOP +359, SET **+55** | HOP +367, SET **+54** |
+| flagged, (0, 0) | SET +1.4 | SET +17.3 | SET +17.3 |
+| flagged, (1, 0) | PREV +1.2 | PREV +13.3 | PREV +13.5 |
 
-What "other routes" contains:
-- Mostly near-oracle routes with redundant SETs: the flat prior gives each extra SET 1/4. On a one-step all-H word the oracle holds 0.75 and SET-padded variants hold the remaining 0.25.
-- On longer words, decoy routes that happen to end on the label.
+What this shows:
+- **EX-AL and PF agree to within 1 % per class.** At step 0 the router's policy is the flat prior, so "whose posterior" contributes nothing yet.
+- **The whole step-0 difference between EX and PF is the likelihood.** It gives about 12× more signal at flagged states, and a stray-SET push at unflagged states of +55 vs +0.7.
+- **EX's own step-0 direction is correct in every class.** Pooled by class, its target's argmax is the oracle (`derive/pooled.py`, "EXflat": committed route 1.00 on every P-stratum).
 
-The target at E's SET states is split: under δ = 1, P(SET) = 0.60, P(HOP) = 0.40 (stable across k), and 0.58 / 0.42 at 4 answers. Under δ = 0 it is 0.89 / 0.11, falling with k to 0.78 at k = 8.
+So F29's basin is built by the dynamics, not present in the initial target. The two contrasts of §1 ask which ingredient of the dynamics builds it.
 
-A per-episode argmax of the target reproduces the shortest correct route on k = 3 / 5 / 8 P-words with frequency 0.94 / 0.75 / 0.11, and on all-H words at k = 1 / 4 / 8 with frequency 1.00 / 0.88 / 0.33. Whether a router that pools the target across episodes by state features does better on long chains is not derivable.
+### 5.2 PF's fixed point (review 3, B1; `derive/pooled.py`, 150 episodes per cell)
 
-**What each sampled or searched signal sees** (`derive/search.py`, the real initialized routers, seeds 0–4; P-words, k = 3):
+A router that fits a fixed target by cross-entropy converges to the target pooled over the features it can distinguish. Pooled by the one-lookup classes (answer / key / dead, own flag, value-slot flag, c, h):
 
-| | δ = 1, 16 ans. | δ = 1, 4 ans. | δ = 0, 16 ans. |
+| cell | decisive class targets | committed route of the fixed point (P-words in3 / in4 / in5 / in8; all-H) | pp4 / 6 / 8 | sampled shortest-correct (P-words in3 / in4 / in5 / in8) |
+|---|---|---|---|---|
+| δ = 1 | own-flagged (0, 0): SET 0.60 / HOP 0.40; pred-flagged (0, 0): SET 0.83; pred-flagged c ≥ 1: PREV 0.63–0.68 | **1.00 everywhere: program E** | 0.03 / 0.00 / 0.00 | 0.42 / 0.26 / 0.29 / 0.00 |
+| δ = 0 | own-flagged (0, 0): SET 0.83; own-flagged c ≥ 1: PREV 0.64–0.69 | **1.00 everywhere: program L** | **1.00 / 1.00 / 1.00** | 0.46 / 0.33 / 0.36 / 0.00 |
+| δ = 1, answer pool 4 | the same argmaxes | **1.00: E** | 0.05 / 0.01 / 0.01 | 0.18 / 0.18 / 0.18 / 0.05 |
+| δ = 0, answer pool 4 | the same argmaxes | **1.00: L** | 1.00 | 0.21 / 0.18 / 0.36 / 0.05 |
+
+PF's end state is therefore derived: the oracle's program, PP failing under δ = 1 and passing under δ = 0, and stochastic. **PF is a 2-seed check per deferral.** What it tests is whether a fixed-target router reaches its derived fixed point within budget.
+
+A per-episode argmax (no pooling) is worse on long chains: shortest-correct 0.94 / 0.75 / 0.11 at k = 3 / 5 / 8 (`derive/signals.py`). So the derivation holds only if the router pools across episodes.
+
+### 5.3 What the fixed-prior posterior contains (`derive/signals.py`, 1,800 queries per cell; δ = 1, P-words by k)
+
+| k | mass on E / L / other routes to the label / wrong answer | same, answer pool 4 | all-H words: mass on the oracle route (pool 0 / 4) |
+|---|---|---|---|
+| 3 | 0.23 / 0.23 / 0.53 / 0.00 | 0.17 / 0.17 / 0.65 / 0.00 | 0.40 / 0.36 |
+| 5 | 0.07 / 0.07 / 0.84 / 0.02 | 0.04 / 0.04 / 0.91 / 0.01 | 0.16 / 0.13 |
+| 8 | 0.00 / 0.00 / 0.86 / 0.13 | 0.00 / 0.00 / 0.99 / 0.01 | 0.02 / 0.00 |
+
+- "Other" is mostly near-oracle routes with redundant SETs (the flat prior gives each extra SET 1/4), plus decoy routes that end on the label.
+- The target at E's SET states splits SET 0.60 / HOP 0.40 under δ = 1, at both pools.
+- With a prior step cost of 1.5 nats per move the split shrinks to 0.54 / 0.46 (review 3). Part of PF's preference for E is therefore a prior artefact.
+
+### 5.4 What each sampled or searched signal sees (`derive/search.py`; the real initialized routers, seeds 0–4; P-words, k = 3)
+
+| | δ = 1 | δ = 1, pool 4 | δ = 0 |
 |---|---|---|---|
 | 16 samples contain the oracle route, at init | 0.00 | 0.00–0.03 | 0.00–0.02 |
 | at the stray policy | 1.00 | 1.00 | 0.03 |
-| beam MAP correct route = oracle, at init | 0.10–0.71 | 0.32–0.71 | 0.26–0.87 |
-| at the stray policy | 1.00 | **0.77** | 0.00 |
-| 16 samples reach the label, at init | 0.10–0.32 | 0.13–0.52 | 0.10–0.35 |
+| beam MAP correct route = oracle, at init | 0.10–0.71 | 0.10–0.65 | 0.26–0.87 |
+| at the stray policy | 1.00 | **0.74** | 0.00 |
+| 16 samples reach the label, at init | 0.10–0.32 | 0.10–0.61 | 0.10–0.35 |
 
-The dose's main effect is on imitation and on the posterior targets. Spurious correct routes outscore the oracle in the beam on about a quarter of P-words at the stray policy (0.77 vs 1.00), and the posterior's oracle share falls (k = 3: 0.23 → 0.18).
+The dose matters for imitation:
+- Spurious correct routes outscore the oracle in the beam on a quarter of P-words at the stray policy.
+- The all-H program's coincidence rate on P-words rises from 1/16 to 1/4. This is the one spurious *program* a Markov router can hold; decoy-specific routes pool out (§5.2).
 
-**The expected gradient at init** (design review 1, B3): IW's equals EX's in every state category; the K = 1 bound's points toward halting. AC16 starts from a zero critic, so its first updates are RL16's. The two differ as soon as V(x) is non-zero.
+The pooled argmaxes of the posterior targets do not move.
+
+### 5.5 How the value arms start (code review 3, S3)
+
+With V = 0, TD(0) gives every non-final action the advantage −λ, whatever the outcome; only the final action sees the reward. A halt at a key earns +1/16. So **AC16 starts with a push toward halting**, like ELL16, and its first updates are not RL16's. ACMC16 starts as REINFORCE with a zero baseline. The two diverge from RL16 as V(x) learns.
 
 ## 6. Arms and grid (`make_grids.py`: `rf_pilot.json`, `rf_main.json`)
 
-| cell | EX | IW16 | PF | TB16 | RL16 | AC16 | EI16 |
-|---|---|---|---|---|---|---|---|
-| δ = 1, 16 answers | 3 | 5 | 5 | 5 | 5 | 5 | 5 |
-| δ = 0, 16 answers | 2 | — (check, 2) | 3 | 3 | — | 3 | 3 |
-| δ = 1, 4 answers (the dose, D104) | 3 | 3 | 3 | 3 | 3 | 3 | 3 |
+| cell | EX | EX-AL | PF | IW16 | PF-IS16 | TB16 | RL16 | ACMC16 | AC16 | EI16 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| δ = 1 | 3 | 2 | 2 (check) | 5 | 5 | 5 | 5 | 3 | 5 | 5 |
+| δ = 0 | 2 | **3** | 2 (check) | 2 | 3 | 3 | 3 | — | 3 | 2 |
+| δ = 1, answer pool 4 (the dose) | 2 | — | — | 3 | 3 | 3 | 3 | — | 3 | 3 |
 
-Plus the checks: SI16, ELL16 (δ = 1), EI16B, IW16 (δ = 0), 2 seeds each.
-- **Size:** 76 runs × 4,000 steps × batch 64.
-- **Budget margin:** EX reaches criterion by 600–1,200 steps, so the 4× success criterion fits inside 4,000.
+Plus the checks: SI16, ELL16 (δ = 1), EI16B (δ = 0), 2 seeds each.
+
+**The dose** (revised, review 3 S2). Each episode's chains end in one of 4 answers drawn per episode from all 16 (`ans_pool = 4`). The readout and the likelihood keep 16 answers, so their constants do not change. Only the coincidence rate of wrong routes rises: decoys and the all-H program land on the label with probability 1/4 instead of 1/16.
+
+**Budget.**
+- **Size:** 89 runs × **5,000 steps** × batch 64.
+- **Schedule:** the cosine schedule is at 15 % of the peak lr by 80 % of training (review 3, S6), so the step count was raised from 4,000. Success counts the criterion within 3× EX's median in this grid, on the same schedule; rung-1 EX runs (6,000-step schedule) are a reference only.
 - **Seeding:** every run has its own init and sampling seed (`per_run_init`).
-- **Cost:** ≈ 0.09 s per run-step, so ≈ 7.6 T4-hours, ≈ 3.8 h wall.
+- **Cost:** ≈ 11 T4-hours at the EX rate (0.09 s per run-step), ≈ 5.6 h wall. Sampled and exact-posterior arms cost more per step; the pilot measures it.
 
-**Seeds.** 5 / 3 / 2 per cell is below AGENTS rule 4. It is defensible only for count predictions on near-bimodal outcomes, which every prediction here is. Paired speed comparisons are exploratory.
+**Seeds.** 5 / 3 / 2 per cell is below AGENTS rule 4. It is defensible only for count predictions on near-bimodal outcomes. Paired speed comparisons are exploratory.
 
 **Pilot (G3).**
-- The sweep: IW16, PF, TB16, RL16, AC16, EI16 × lr {3e-4, 1e-3, 3e-3} on δ = 1 (seed 0, 4,000 steps).
-- The controls: PF, TB16, AC16 on δ = 0 at lr 1e-3 (L26).
-- Size: 21 runs ≈ 2.1 T4-hours.
-- Rule: per signal, the lr with the highest held-out shortest-correct accuracy at 4k steps on δ = 1, ties → 1e-3. It applies to every cell of that signal. EX keeps 1e-3.
+- The sweep: the seven candidates × lr {3e-4, 1e-3, 3e-3} on δ = 1.
+- The controls: EX-AL, PF-IS16, TB16, RL16 and AC16 on δ = 0 at lr 1e-3 (L26).
+- Seed: **100**, not a main-grid seed (review 3, S5).
+- Size: 26 runs ≈ 3.2 T4-hours at the EX rate.
+- **Rule:** per signal, the lr with the highest held-out shortest-correct accuracy at 5k steps on δ = 1. It applies to every cell of that signal.
+- **Ties** go to the lr with the higher mean committed shortest-correct accuracy over the last 1,000 steps, then to 1e-3. A signal that fails at every lr is reported as such.
+- EX, EX-AL and PF keep 1e-3.
 
 ## 7. Predictions (core cells only; thresholds fixed here; per-seed counts)
 
 | # | prediction | falsifier | type |
 |---|---|---|---|
-| **P1** | **Sampled current-policy posterior, δ = 1 (open).** IW16 reaches a shortest correct program in **≥ 3/5** seeds within 4× EX, in program E (it averages like EX). One revision-2 CPU seed collapsed into "SET everywhere": identical samples give zero leave-one-out advantages. | ≤ 1/5: the sampled current-policy posterior does not find the program within budget. | optimization |
-| **P2** | **The fixed-prior posterior (PFN signal), exact.** On δ = 1, PF reaches a shortest correct program in **≥ 3/5** seeds, in program **E** (the target's argmax at E's SET states is SET, 0.60, and both programs are expressible). On δ = 0 — where EX's self-consistent posterior stalled in 5/5 (F29) — PF learns in **≥ 2/3**, in program **L** (the only expressible one): its target cannot reinforce the router's own basin. | PF failing δ = 0 (≤ 1/3) while learning δ = 1: the basin is not EM's self-consistency (F29's mechanism refuted); the stray rule is reachable from a fixed target too. PF failing δ = 1: a soft target split 0.60 / 0.40 across two programs, plus SET-padding mass, does not train a deterministic router. | mechanism (F29, causal) |
-| **P3** | **The fixed-prior posterior, sampled (TB16) — open.** Direction and confidence are set after the CPU sanity run (§9) and before the pilot. | — | optimization |
-| **P4** | **Contextual value: bootstrapped vs Monte-Carlo (AC16 vs RL16) — open.** Set after §9, before the pilot. | — | mechanism (risk 4) |
-| **P5** | **Which program each signal lands in (δ = 1).** EX, IW16 and PF land in **E** in the majority of learned seeds. EI16 lands in **L** in the majority (revision 2's CPU seed): imitation reinforces whichever shortest route the beam keeps, and L's one value-slot read is as available as E's. Every learned run on δ = 0 is L (expressivity, §2). | Any learned δ = 0 run with `set_late` ≤ 0.5 (an E program the router should not express: a bug, or an unanticipated read). EI16 in E in ≥ 4/5. | mechanism (inductive bias) |
-| **P6** | **Spurious density (4 answers) — which signals survive.** Directional, following Min et al. 2019 (hard EM beats MML when spurious solutions abound) against Guu et al. 2017 (MML beats RL): **EI16 ≥ IW16** in learned seeds at 4 answers, and **PF and TB16 degrade most** relative to 16 answers (their targets spread over spurious routes, §5). | IW16 > EI16 at 4 answers (MML beats hard EM even here); PF unchanged by the dose. | optimization |
+| **P1** | **The sampled current-policy posterior (IW16), δ = 1.** Success in **≥ 3/5** seeds, in program E. One revision-2 CPU seed collapsed into "SET everywhere": identical samples give zero leave-one-out advantages. | ≤ 1/5. 2/5 is inconclusive and reported as such. | optimization |
+| **P2** | **Where F29's basin comes from (δ = 0).** The CPU sanity runs (§9) point one way: at 7.5 % of a main run's episodes, EX and EX-AL both stall in all-H while PF has started learning L. Hence:<br>(a) **EX-AL learns in ≤ 1/3**: the answer-only likelihood alone does not prevent the basin.<br>(b) **PF-IS16 learns in ≥ 2/3**, in L: a sampled fixed target is not trapped either. | (a) EX-AL ≥ 2/3: the readout dilution was the cause; self-consistency with the right likelihood escapes.<br>(b) PF-IS16 ≤ 1/3 while PF learns: sampling cannot find the fixed target's support where the policy is stuck. | mechanism (F29, causal) |
+| **P3** | **KL direction (PF-IS16 vs TB16), δ = 1** — set in §9 from the CPU runs, before the pilot. | — | optimization |
+| **P4** | **Contextual value (RL16, ACMC16, AC16), δ = 1** — set in §9, before the pilot. P4 is **uninterpretable** if RL16 is at ceiling (criterion ≤ 1.5× EX) or at floor (all-H or halting at 5k) in the pilot. Then it moves to longer setup distances (§11) instead of being read. | — | mechanism (risk 4) |
+| **P5** | **Which program each signal lands in.**<br>δ = 1: EX, EX-AL, IW16 and PF-IS16 land in **E** in the majority of learned seeds; their targets average, and the pooled argmax is E (§5.2).<br>EI16: its learned program **matches its init beam program** (E if the init beam's `set_late` < 0.5) in **≥ 4/5** learned seeds. Imitation reinforces whichever shortest route the beam hands it first; the init beam MAP is E on 0.10–0.71 of P-words, depending on the seed.<br>δ = 0: every learned run is **L** (expressivity, §2). | Any learned δ = 0 run labeled E or other: a bug, or an unanticipated read. EI16 matching its init beam program in ≤ 2/4 learned seeds. | mechanism (inductive bias) |
+| **P6** | **The dose (answer pool 4), δ = 1 — exploratory, strict margins.** The reward and imitation signals RL16, AC16 and EI16 see the all-H coincidence rise four-fold and the beam's oracle share fall to 0.74 (§5.4). They are predicted to degrade: fewer learned seeds, or a paired criterion step later by **≥ 25 %** than the same signal at pool 0. The averaging signals IW16 and PF-IS16 are predicted **not** to degrade by that margin: their targets' argmaxes do not move (§5.2). | RL16, AC16 and EI16 all within 25 % at the dose, or IW16 / PF-IS16 degrading by more than 25 %. | optimization |
 
-**Checks (by construction or already observed; reported, not predicted).**
-- Every learned run on δ = 1 fails PP. E fails by precedence (F30). L fails because at a PP arrival no pair's value points to the state, so its value-slot read finds no flag; this is derived, not observed.
-- Every learned run on δ = 0 passes PP: all of L's reads are in support.
-- Learned runs are deterministic: sampled accuracy on P-words ≥ 0.95.
-- EI16B, SI16, ELL16 and IW16-δ0 fail.
-- EI16 learns δ = 0 (replication of revision 2's CPU seed).
+**Endpoints reported without prediction.**
+- PP precedence for every learned run. Derived for PF only: it fails δ = 1 at the conjunction, where HOP wins and not PREV (§5.2), and passes δ = 0.
+- Determinism.
+- The critic's explained variance.
+
+**Checks (reported, not predicted).**
+- PF reaches its derived fixed point (§5.2): committed oracle program, PP fails δ = 1 and passes δ = 0, sampled shortest-correct ≤ 0.5 at in4.
+- EX δ = 0 stalls (rung 1's 5/5).
+- EI16B, SI16 and ELL16 fail.
+- EI16 learns δ = 0 in L (replicating revision 2's CPU seed).
 
 **Reading the outcomes.**
 
 | outcome | reading (which risk it moves) |
 |---|---|
-| PF learns δ = 0 where EX did not (P2) | F29's basin is a property of self-consistent EM, not of the task. Amortizing a fixed-prior posterior (the PFN form) is a training signal that cannot trap itself. Risk 3 moves toward PFN-style training for the router. |
-| PF fails δ = 0 | The stray rule is an attractor of the task itself. Remedies must change the state or the library (D103 (i)), not the inference target. |
-| AC16 learns setup steps where RL16 does not (P4) | Bootstrapped contextual value credits setup steps that Monte-Carlo returns can't, within budget. This is the first evidence that "contextual layer value" needs a learned value function (risk 4). |
-| AC16 ≈ RL16 | At this horizon the value function adds nothing over returns. Risk 4's question moves to longer setup distances. |
-| TB16 ≈ PF | The fixed-prior target survives sampling: a scalable PFN-style signal. |
-| TB16 ≪ PF | On-policy sampling cannot find the target's support. Amortized inference needs exploration or search to supply targets. |
-| IW16 collapses (P1 false) while TB16 or PF learns | The current-policy posterior is the fragile part under sampling, not sampled learning as such. |
+| EX-AL stalls on δ = 0, PF and PF-IS16 learn (P2 as predicted) | F29's basin is built by self-consistency: the posterior under the router's own policy reinforces early stray mass. A fixed-prior (PFN-style) target, exact or sampled, does not trap itself. Risk 3 moves toward amortized-posterior training. |
+| EX-AL learns δ = 0 | The basin came from the readout's 1/16 credit for halting at a key. Self-consistent EM with an answer-only likelihood is enough. The fix is in the likelihood, not the prior. |
+| PF learns, PF-IS16 stalls on δ = 0 | The fixed target is right, but on-policy samples cannot reach its support from the stalled policy. Amortized inference needs exploration or search to supply targets. |
+| PF fails to reach its derived fixed point | The router cannot represent the pooled target within budget, or a bug. Investigate before reading anything else. |
+| TB16 and PF-IS16 differ (P3) | The KL direction decides the program or the speed. A mode-seeking objective with an entropy bonus behaves unlike forward KL to the same posterior. |
+| IW16 collapses (P1 false) while PF-IS16 learns δ = 1 | The current-policy weights are the fragile part under sampling, not sampled learning as such. |
+| IW16 collapses and TB16 learns, but PF-IS16 does not | TB's entropy term rescues it; this does not show that the fixed posterior matters. |
+| ACMC16 beats RL16 | A learned state baseline reduces variance enough to matter, with no bootstrapping. |
+| AC16 beats ACMC16 | Bootstrapping through a learned contextual value credits setup steps faster than Monte-Carlo returns. This is the first evidence that "contextual layer value" needs a value function (risk 4). |
+| AC16 slower than ACMC16 or RL16 | At this horizon, TD(0)'s early halting push and bias cost more than its variance saves. Risk 4's question moves to longer setup distances. |
+| RL16, ACMC16 and AC16 all fail | Reward-only signals cannot find a setup step within budget at this density. Risk 4 needs a denser signal (a posterior target) for the router. |
 | Signals split by program (P5) | Which program a learner gets is a property of its training signal. Later rungs must measure program identity, not only accuracy. |
-| EI16 ≥ IW16 at 4 answers (P6) | Search + imitation is the robust signal when spurious routes abound. |
-| IW16 > EI16 at 4 answers | Averaging is the robust signal, and imitation's MAP selection is the fragile one. |
-| Every non-exact signal fails δ = 1 | "Learned from next-token loss" depends on exact inference. The program must fix this before scaling anything. |
+| PP precedence differs between signals | The generalization profile at unseen conjunctions is set by the training signal, not only by the representation. |
+| Reward and imitation signals degrade at the dose, averaging signals don't (P6) | Averaging is the robust signal when spurious routes abound. Min et al.'s hard-EM advantage needs consistent spurious programs, which a Markov router does not have here. |
+| The dose leaves everything unchanged, or improves a signal | Spurious density at this level is not a bottleneck. A denser reward (more label-reaching routes) can help exploration. |
+| No candidate succeeds on δ = 1 | "Learned from next-token loss" depends on exact inference. The program must fix this before scaling anything. |
 
 ## 8. Gates
 
-- **G1 tests:** 21 rung-2 tests (§3), the 14 rung-1 tests and the full suite.
+- **G1 tests:** 31 rung-2 tests (§3), the 14 rung-1 tests and the full suite.
 - **G2 derive:** §5 (done).
 - **G3 pilot:** §6.
-- **G4 reviews:** an independent design and code review of this revision, before the pilot.
-- **CPU sanity (L25):** §9, before P3 and P4 are fixed.
+- **G4 reviews:**
+  - review 3 (design and code), handled in §15;
+  - a short re-review of P3, P4 and §9 before the pilot (review 3, S10).
+- **CPU sanity (L25):** §9.
 
-## 9. CPU sanity runs (batch 16, lr 1e-3, 1,500 steps ≈ 6 % of one run's episodes, seed 0)
+## 9. CPU sanity runs (batch 16, lr 1e-3, 1,500 steps ≈ 7.5 % of one main run's episodes, seed 0)
 
-From revision 2, already recorded:
-- EI16 learns δ = 0, in program L.
-- IW16 on δ = 1 collapses into "SET everywhere".
-- EI16 on δ = 1 lands in L.
-- ELL16 on δ = 1 settles on the all-H program.
+These are a sanity check and a direction for P2–P4, not data.
 
-Revision 3: PF on δ = 1 and δ = 0, TB16 and AC16 on δ = 1, running when this was written; entered below before the reviews.
+| run | outcome at 1,500 steps | revision |
+|---|---|---|
+| EI16 δ = 0 | learns, program L | 2 |
+| IW16 δ = 1 | collapses into "SET everywhere" | 2 |
+| EI16 δ = 1 | lands in L | 2 |
+| ELL16 δ = 1 | all-H | 2 |
+| PF δ = 1 | all-H until ≈ 900 steps, then moving toward **L** (set_late 0.78–1.0; teacher-forced PREV 0.29, SET 0.03; min_acc 0.84) | 3 |
+| PF δ = 0 | all-H until ≈ 1,000 steps, then moving toward **L** (set_late 0.87; PREV / SET 0.13; min_acc 0.83) | 3 |
+| EX δ = 0 | all-H throughout (SET ≤ 0.04) | 4 |
+| EX-AL δ = 0 | all-H throughout (SET 0.00) | 4 |
+| AC16, RL16, TB16, PF-IS16 δ = 1 | running | 4 |
+
+- **PF δ = 1 heads for L, not the E of its derived fixed point (§5.2).** Either the transient goes through L first, or the router's function class pools differently from the one-lookup classes. The PF check at 5k steps tells which.
+- **The revision-3 TB16 and AC16 runs were stopped:** the canonical-route bug and the non-zero critic made them invalid.
 
 ## 10. Fairness (AGENTS rule 4)
 
 - One model, one task, one data stream per seed; only the training signal differs.
-- lr tuned per signal in the pilot; best-vs-best with curves.
-- The same episode budget everywhere. Rollouts per query are reported; PF's and EX's exact recursions are not rollouts.
+- lr is tuned per signal in the pilot; comparisons are best vs best, with curves.
+- The same episode budget everywhere. Rollouts per query are reported; the exact recursions of EX, EX-AL and PF are not rollouts.
 - Clip binding is reported per arm.
-- The label enters every arm only through the answer likelihood or readout at the route's end. AC16's value head never sees the label.
+- The label enters every arm only through the readout or the likelihood at the route's end. The value head never sees the label or the query.
+- At a seed, the AC arms' policy init equals RL16's (§3).
 
 ## 11. What rung 2 does not answer
 
 - Neural primitives or states (risks 1 and 2).
 - Search guided by a learned value (B6).
-- Setup distances beyond one hop. Risk 4 at longer horizons is the follow-up if P4 is ambiguous.
+- Setup distances beyond one hop. Risk 4 at longer horizons is the follow-up if P4 is uninterpretable or AC16 ≈ ACMC16.
 - The basis claim, which is the next rung's candidate (D106).
 
 ## 12. Prior work
 
 - **Score-function estimators.** REINFORCE (Williams 1992); RLOO (Kool et al. 2019); VIMCO and multi-sample bounds (Mnih & Rezende 2016; Burda et al. 2016; Rainforth et al. 2018).
 - **Spurious programs.** Guu et al. 2017; Liang et al. 2017/2018 (NSM, MAPO); Min et al. 2019; MeRL; priority-queue training.
-- **Amortized posterior / PFN.** Müller et al. 2022 (PFNs); TabPFN; DreamCoder's recognition model; RL-as-inference (Levine 2018), in which the fixed-prior posterior is the optimum of KL-regularized RL with a log-likelihood reward.
-- **GFlowNets.** Bengio et al. 2021; trajectory balance (Malkin et al. 2022); VarGrad (Richter et al. 2020); sampling compositional objects in proportion to reward.
+- **Amortized posterior / PFN.** Müller et al. 2022 (PFNs); TabPFN; DreamCoder's recognition model; RL-as-inference (Levine 2018), in which the fixed-prior posterior is the optimum of KL-regularized RL with a log-likelihood reward; reweighted wake-sleep (Bornschein & Bengio 2015) for self-normalized importance-weighted forward KL.
+- **GFlowNets.** Bengio et al. 2021; trajectory balance (Malkin et al. 2022); VarGrad and the reverse-KL equivalence (Richter et al. 2020; Malkin et al. 2023, "GFlowNets and variational inference").
 - **Value of computation.** Russell & Wefald 1991; Hay et al. 2012.
 - **Actor-critic and TD.** Sutton 1988; GAE (Schulman et al. 2016).
 - **Search + imitation.** Expert iteration (Anthony et al. 2017); STaR, ReST-EM.
 - **Modular routing.** Rosenbaum et al. 2019; Mittal et al. 2022; Kirsch et al. 2018.
 
 New here, to our reading:
-- the exact current-policy and fixed-prior posteriors as references on the same seeds;
-- a basin, created by self-consistent EM, against which fixed-prior targets, value bootstrapping and search are tested;
+- exact current-policy and fixed-prior posteriors, and the likelihood split between them, as references on the same seeds;
+- a basin, built by training dynamics under exact EM, against which fixed-prior targets, value bootstrapping and search are tested;
 - program identity under an expressivity constraint that is known exactly;
-- a spurious-density dose.
+- a spurious-density dose with the readout held fixed.
 
 ## 13. History of this design
 
 - **Revision 1** (estimators; `e886574`).
 - **Revision 2** (both reviews applied; `a80b932`–`43726e7`).
-- **Revision 3** (re-scoped to training signals after Entry 65; adds PF, TB16, AC16 and the 4-answer dose; demotes EI16B, SI16, ELL16 and the sampled δ = 0 arms to checks; drops RT; 4,000 steps).
+- **Revision 3** (re-scoped to training signals after Entry 65; `f34b73d`).
+- **Revision 4** (review 3 applied).
+  - **Added:** EX-AL, PF-IS16, ACMC16, RL16 on δ = 0; positive program classification; PP as an endpoint.
+  - **Changed:** PF demoted to a check; TB16 relabeled; the dose replaced by an answer pool; success restricted to candidates; 5,000 steps; pilot seed 100.
 
 ## 14. Review handling carried over from revision 2
 
-All items of design review 1 and code review 1 remain handled as listed in revision 2's §13: real-init derivation; per-run seeds; P-word search statistics; float64 beam keys; collision-free grid names; exact K = 2 enumeration tests; confirmed criterion; the pruned-space MAP. Two items were updated by this revision:
-- **Program identity** is now SET placement relative to the P-leaving state (E / L), not "SET at a flagged state". The latter conflated program and trigger.
-- **Program B** of revision 2 is L under δ = 1.
+All items of design review 1 and code review 1 remain handled as listed in revision 2's §13:
+- real-init derivation;
+- per-run seeds;
+- P-word search statistics;
+- float64 beam keys;
+- collision-free grid names;
+- exact K = 2 enumeration tests;
+- confirmed criterion;
+- the pruned-space MAP.
+
+## 15. Review 3 handling
+
+Design review 3 ([review3_design.md](review/review3_design.md)):
+
+| item | handling |
+|---|---|
+| B1 PF derivable | Accepted. PF is a 2-seed check; the pooled table is in §5.2 (`derive/pooled.py`). P6's PF line is withdrawn. |
+| B2 P2 not causal | Accepted; reproduced (§5.1). EX-AL added; P2 restated as EX vs EX-AL (likelihood) and EX-AL vs PF / PF-IS16 (self-consistency). The "task is the attractor" reading is withdrawn. |
+| B3 success via enumeration | Accepted. Success is restricted to candidates, judged on the committed route; determinism is reported separately. |
+| B4 critic not zero | Fixed: zero output layer, built after the policy head (test). |
+| B5 TB16 ≠ PF sampled | Both fixes. TB16 is relabeled as reverse KL / entropy-regularized; PF-IS16 (forward KL, SNIS) is added. IW16 vs PF-IS16 also differs in the likelihood, which EX vs EX-AL measures exactly. |
+| S1 P4 misframed | ACMC16 (gae = 1) added; RL16 added on δ = 0. The critic reads a stop-gradient trunk. TD error and explained variance are logged. Uninterpretability conditions are stated in P4. |
+| S2 dose confounded | Replaced by a per-episode answer pool with the readout fixed. §5.3–5.4 re-derived. P6 directions are taken from them, with strict margins, as exploratory. |
+| S3 PP open | PP is an endpoint for every learned run. Only PF's is derived. |
+| S4 determinism by construction | Determinism is removed from success and reported, with PF's derived level. |
+| S5 pilot seed | Pilot seed 100. The tie rule is extended; failures at every lr are reported. |
+| S6 schedule | 5,000 steps. Success clock is 3× EX in this grid. |
+| S7 counts | P1's 2/5 is inconclusive. EI16's program is predicted per seed from its init beam program. P2 has falsifier counts. |
+| S8 missing rows | Added (§7). |
+| S9 set_late | Positive E / L / other classification on shortest-correct routes. |
+| S10 P3 / P4 | Set in §9 from the CPU runs, then a short re-review before the pilot. |
+| Minor | The 9.1 % ambiguous read is in §2. The ledger note on F29's "stray SET mass at init" is to be qualified (Entry 66). |
+
+Code review 3 ([review3_code.md](review/review3_code.md)):
+
+| item | handling |
+|---|---|
+| Bug 1 TB no-op moves | Canonical routes for TB16 and PF-IS16 (test). |
+| Bug 2 critic init and RNG | Fixed (test: same policy parameters at a seed, V = 0). |
+| S3 "starts as RL16" | Corrected (§5.5). |
+| S4 critic trains the trunk | Stop-gradient (test). |
+| S5 query-blind V | Caveat in §3. |
+| S6 no success count | `analyze.py` counts SUCCESS, program labels, PP and determinism per arm. |
+| Minor | The label boundary matches P5. Program identity is computed on shortest-correct routes only. The curve's "loss" is each signal's reported objective (TB: mean log-ratio; AC: negative return; PF-IS: ESS). Stale text fixed. |
