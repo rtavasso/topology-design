@@ -346,11 +346,13 @@ def pfis_loss(lpy_route: torch.Tensor, steps: torch.Tensor, logp_route: torch.Te
 
 
 def ac_loss(pi: torch.Tensor, V: torch.Tensor, acts: torch.Tensor, states: torch.Tensor, reward: torch.Tensor,
-            lam: float, gae: float = 0.0):
+            lam: float, gae: float = 0.0, actor_scale: float = 1.0):
     """Actor-critic with a learned contextual value V(x) (B, NS) — the router's own estimate of a state's value given
     the context, without the label. Reward: -lam per move, `reward` (B, Q, K) at the end (p(y | r), as RL16's), so
     RL16 vs AC16 isolates bootstrapping. TD(lambda=gae) advantages along K sampled routes; gae = 0 is TD(0) (pure
     bootstrapping), gae = 1 the Monte-Carlo return. Critic loss: squared error to the lambda-return (detached).
+    actor_scale = 0 during the critic's warm-up (policy evaluation before improvement: with V = 0, TD(0) charges every
+    move -lam and pays only the final action, so the router collapses into halting at once; revision-4 CPU run).
     Returns (actor loss + critic loss, per query; mean return per query detached)."""
     B = pi.shape[0]
     T = acts.shape[-1]
@@ -376,7 +378,7 @@ def ac_loss(pi: torch.Tensor, V: torch.Tensor, acts: torch.Tensor, states: torch
         adv[..., t] = run
     target = (adv + v[..., :T]).detach()
     lp = logpi[bidx.expand_as(st[..., :T]), st[..., :T]].gather(-1, acts.clamp_min(0).unsqueeze(-1)).squeeze(-1)
-    actor = -(adv * lp * valid.float()).sum(-1)
+    actor = -(adv * lp * valid.float()).sum(-1) * actor_scale
     critic = 0.5 * (((v[..., :T] - target) ** 2) * valid.float()).sum(-1)
     ret = (r * valid.float()).sum(-1)
     with torch.no_grad():   # critic diagnostics, as per-episode sums (the trainer aggregates them per run)

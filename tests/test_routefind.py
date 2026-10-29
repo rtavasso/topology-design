@@ -389,3 +389,13 @@ def test_answer_pool_limits_distinct_answers_and_leaves_the_default_stream_uncha
     sym = torch.arange(Rd.shape[0]) // PER_SYM
     assert float(Rd[sym < cfg.n_keys].abs().sum()) == 0.0 and float(Rd[sym == cfg.DEAD].abs().sum()) == 0.0
     assert torch.allclose(Rd[sym == cfg.n_keys + 2][0], readout(cfg, 0.02, "cpu")[(cfg.n_keys + 2) * PER_SYM])
+
+
+def test_critic_warmup_switches_the_actor_off():
+    NSs = 5
+    pi = torch.full((1, NSs, 4), 0.25, requires_grad=True)
+    V = torch.tensor([[0.3, 0.5, 0.7, 0.0, 0.0]], requires_grad=True)
+    acts = torch.tensor([[[[HOP, HOP, HALT, -1]]]]); states = torch.tensor([[[[0, 1, 2, 2, 2]]]])
+    loss, _ = ac_loss(pi, V, acts, states, torch.tensor([[[1.0]]]), 0.1, gae=0.0, actor_scale=0.0)
+    gpi, gV = torch.autograd.grad(loss.sum(), (pi, V))
+    assert float(gpi.abs().sum()) == 0.0 and float(gV.abs().sum()) > 0.0

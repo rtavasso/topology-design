@@ -220,7 +220,8 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 1.0
+"gae": 1.0,
+"critic_warmup": 200
 },
 {
 "name": "rfpilot_ACMC16d1_lr0.001_s100",
@@ -239,7 +240,8 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 1.0
+"gae": 1.0,
+"critic_warmup": 200
 },
 {
 "name": "rfpilot_ACMC16d1_lr0.003_s100",
@@ -258,7 +260,8 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 1.0
+"gae": 1.0,
+"critic_warmup": 200
 },
 {
 "name": "rfpilot_AC16d1_lr0.0003_s100",
@@ -277,7 +280,8 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0
+"gae": 0.0,
+"critic_warmup": 200
 },
 {
 "name": "rfpilot_AC16d1_lr0.001_s100",
@@ -296,7 +300,8 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0
+"gae": 0.0,
+"critic_warmup": 200
 },
 {
 "name": "rfpilot_AC16d1_lr0.003_s100",
@@ -315,7 +320,8 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0
+"gae": 0.0,
+"critic_warmup": 200
 },
 {
 "name": "rfpilot_EI16d1_lr0.0003_s100",
@@ -452,6 +458,7 @@
 "estimator": "ac",
 "K": 16,
 "value_head": true,
-"gae": 0.0
+"gae": 0.0,
+"critic_warmup": 200
 }
 ]

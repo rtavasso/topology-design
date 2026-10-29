@@ -31,7 +31,7 @@ DATA_KEYS = {f.name for f in fields(RouteConfig)}
 ROUTER_KEYS = {f.name for f in fields(RouterConfig)}
 TRAIN_DEFAULTS = dict(steps=6000, batch=64, lr=1e-3, warmup=500, seed=0, eval_every=2000, T_eval=64, eval_n=250,
                       pool_n=60000, wd=0.01, grad_clip=1.0, teacher=False, crit_n=256, crit_every=100, eval_chunk=50, samples=4,
-                      estimator="exact", K=16, W=16, ei_eps=0.1, warm_steps=0, per_run_init=False, gae=0.0)
+                      estimator="exact", K=16, W=16, ei_eps=0.1, warm_steps=0, per_run_init=False, gae=0.0, critic_warmup=0)
 # rung 2 (experiments/routefind/DESIGN.md): route-finding estimators; "rf" is an alias of "ell"
 ESTIMATORS = ("exact", "teacher", "iw", "ell", "rf", "rl", "si", "ei", "pf", "tb", "ac", "exal", "pfis")
 SAMPLED = ("iw", "ell", "rf", "rl", "si", "tb", "ac", "pfis")
@@ -329,7 +329,7 @@ def answer_only_readout(Rd, dc):
     return torch.where(((sym < dc.n_keys) | (sym == dc.DEAD)).unsqueeze(-1), torch.zeros_like(Rd), Rd)
 
 
-def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None):
+def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None, step=10**9):
     """(surrogate per run [backward through it], reported objective per run, diagnostics per run or None) for one
     training batch."""
     if est == "pf":
@@ -372,7 +372,8 @@ def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None):
             return sur, sur.detach(), None
         if est == "ac":
             lpy = E.readout_logp(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)
-            sur, obj = E.ac_loss(pi, V, a_k, x_k, lpy.exp(), rc.lam, gae=tc["gae"])
+            sur, obj = E.ac_loss(pi, V, a_k, x_k, lpy.exp(), rc.lam, gae=tc["gae"],
+                                 actor_scale=float(step >= tc["critic_warmup"]))
             d = {k: v.view(R, -1).sum(1) for k, v in E.ac_loss.diag.items()}
             n = d["n"].clamp_min(1)
             var = lambda s1, s2: s2 / n - (s1 / n) ** 2
@@ -485,7 +486,7 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
             pi = torch.softmax(lg, -1).reshape(R * fb["pair_key"].shape[0] // R, -1, 4); V = vv.reshape(pi.shape[0], -1)
         else:
             pi = policy(m, b, rc.T)
-        surrogate, per_run, diag = estimator_loss(est_now, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=V)
+        surrogate, per_run, diag = estimator_loss(est_now, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=V, step=s)
         if diag is not None:
             for k_, v_ in diag.items():
                 diag_acc[k_] = diag_acc.get(k_, torch.zeros(R, device=dev)) + v_.detach().float()

@@ -30,8 +30,9 @@ ARMS = {
     # reward: Monte-Carlo with route-level baselines (REINFORCE + RLOO), Monte-Carlo with the router's learned state
     # value as baseline, and bootstrapped through it (TD(0))
     "RL16": dict(estimator="rl", K=16),
-    "ACMC16": dict(estimator="ac", K=16, value_head=True, gae=1.0),
-    "AC16": dict(estimator="ac", K=16, value_head=True, gae=0.0),
+    # (both: 200 critic-only steps first, policy evaluation before improvement; DESIGN.md §9)
+    "ACMC16": dict(estimator="ac", K=16, value_head=True, gae=1.0, critic_warmup=200),
+    "AC16": dict(estimator="ac", K=16, value_head=True, gae=0.0, critic_warmup=200),
     # search + imitation
     "EI16": dict(estimator="ei", W=16),
     # checks (derivable or already observed on CPU)
