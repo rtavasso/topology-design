@@ -1328,6 +1328,30 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 
 **Noted for the ledger by the reviewer.** The reward arms (RL16, ACMC16, AC16) share the rung-1 readout's 1/16 credit for halting at a key, the same dilution P2 tests and the cause of AC16T0's halting trap. A refuted P2(a) would change how their failures read.
 
+## Entry 68 (30 Oct 2026): rung 2 pilot ran — reward arms collapse, fixed-prior targets learn both triggers, EX-AL finds a count-shifted program
+
+**Evidence.** 27 runs, seed 100, two T4s, ≈ 0.55 h wall per shard; [routefind/PILOT.md](../experiments/routefind/PILOT.md), [results_data/pilot/](../experiments/routefind/results_data/pilot/). One seed: nothing is a finding.
+
+**Outcomes on δ = 1.**
+- IW16 and EI16 reach a shortest correct program at lr 3e-4 and 1e-3 (criterion 1,600–1,800 and 800–1,300 steps), IW16 in E and EI16 in L, both deterministic, both failing PP (IW16 by F30's SET>PREV precedence; EI16 because L cannot read the flag at a PP arrival).
+- PF-IS16 reaches it at every lr (1,400–2,500), in L, stochastic at its optimum as derived (sampled shortest-correct 0.13), with 12–13 distinct routes per query throughout.
+- TB16 climbs to 0.97 / 0.84 (k = 8) and then flattens as the lr decays; its gradient is clipped on 65–85 % of steps.
+- RL16, ACMC16 and AC16 become deterministic within 200–400 steps at every lr (16 identical samples per query), freeze in all-H or in halting, and never move again.
+
+**Outcomes on δ = 0 (lr 1e-3).** PF-IS16 learns L at 1,100 steps and TB16 at 3,800, both passing PP. EX-AL reaches answer accuracy 1.00 on in4, in8, none8 and len32 with exactly one extra step on every word: a count-shifted program (SET once at the start; the oracle's decisions one count higher; PREV at c = 2), inferred from the endpoints. RL16 collapses into halting, AC16 into all-H.
+
+**Argument.**
+- The reward arms fail by exploration collapse, not credit assignment: once the samples are identical, the leave-one-out and critic advantages are zero. P4's preregistered floor condition is met; contextual value cannot be read without an exploration term.
+- The fixed-prior targets learn where the exact current-policy marginal stalls (F29), as P2(b) predicted, and keep their sample diversity because their optimum is a soft posterior.
+- EX-AL's count-shifted program is F29's mechanism from the other side: the init phase's labels are kept and the program is built around them in the spare count capacity. P2(a) holds as stated (not shortest), but its reading was binary where the outcome is not.
+
+**Decisions.**
+- lr 1e-3 for every signal (the pilot rule).
+- **D108:** the reward arms run as 2-seed δ = 1 checks; their δ = 0 and dose cells are dropped (93 → 72 runs, ≈ 9 T4-hours). The design's predictions are unchanged.
+- The first follow-up for risk 4 is an exploration term for the reward arms (entropy bonus or ε-mixing), after a CPU sanity run and review; not added to this grid.
+
+**Expected falsifiers at the main grid.** EX-AL δ = 0 seeds that reach the shortest program (then the likelihood alone suffices, P2(a) refuted); EX-AL seeds that stay in all-H (then the count-shifted program is a seed accident); PF-IS16 seeds that collapse like IW16 at 3e-3; TB16 reaching criterion on δ = 1 in a majority (P3 refuted); the PF check landing in E (the pooled fixed point stands and PF-IS16's L is a transient).
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

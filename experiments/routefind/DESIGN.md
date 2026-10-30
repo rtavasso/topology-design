@@ -452,3 +452,10 @@ Review 4 ([review4.md](review/review4.md); verdict: launch the pilot, fix three 
 | S7 one lr on δ = 0 | EX-AL δ = 0 at 3e-3 added to the pilot. |
 | S8 ESS hides collapse | Distinct sampled routes per P-word query logged for every sampled arm (test). |
 | Minor | AC16's reading row updated to TD(0.9); TB16's reward floor is named as a P3 confound; main-grid lr values are marked as placeholders; the readout confound of the reward arms is stated before the reading table. |
+
+## 16. Pilot outcome (30 Oct 2026; [PILOT.md](PILOT.md))
+
+Predictions in §7 are unchanged. The pilot set:
+- **lr 1e-3 for every signal** (PILOT.md §2).
+- **D108:** the reward arms RL16, ACMC16 and AC16 collapsed into a deterministic policy within 200–400 steps at every lr and both triggers (distinct sampled routes per query → 1; advantages identically zero). P4's uninterpretability condition is met, so P4 is not read in this rung, and these arms run as 2-seed checks on δ = 1 only. Main grid: 72 runs, ≈ 9 T4-hours.
+- Two readings to handle with care at the main grid: EX-AL δ = 0 reached a correct, count-shifted program one step longer than the oracle (P2(a) holds as stated, but its written reading is too coarse); EI16 learned L on a seed whose init beam program was E (P5).

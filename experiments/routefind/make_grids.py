@@ -43,11 +43,20 @@ ARMS = {
     "ELL16": dict(estimator="ell", K=16),
 }
 SAMPLED_CORE = ("IW16", "PFIS16", "TB16", "RL16", "ACMC16", "AC16", "EI16")   # the candidates (no state enumeration)
-LR = {a: 1e-3 for a in ARMS}                                    # set by the pilot rule (§6)
+# lr per signal, set by the pilot rule (DESIGN.md §6; PILOT.md §2): the lr with the highest held-out shortest-correct
+# accuracy at 5k on δ1, ties by the mean over the last 1,000 steps, then 1e-3. Pilot (seed 100): IW16 1e-3 (3e-4 and
+# 1e-3 learned, 1e-3 earlier; 3e-3 collapsed), PFIS16 1e-3 (all three learned; 1e-3 earliest), TB16 1e-3 (0.97 vs
+# 0.86 / 0.84, none at criterion), EI16 1e-3 (3e-4 and 1e-3 learned; 1e-3 earlier), RL16 / ACMC16 / AC16 1e-3 (every
+# lr at the floor; 3e-3 collapsed into halting or never halting).
+LR = {a: 1e-3 for a in ARMS}
 CELLS = [  # (deferral, ans_pool, {arm: seeds}); ans_pool 0 = every episode draws from all 16 answers
-    (1, 0, {"EX": 3, "EXAL": 2, "PF": 2, "IW16": 5, "PFIS16": 5, "TB16": 5, "RL16": 5, "ACMC16": 5, "AC16": 5, "EI16": 5}),
-    (0, 0, {"EX": 2, "EXAL": 3, "PF": 2, "IW16": 2, "PFIS16": 3, "TB16": 3, "RL16": 3, "AC16": 3, "EI16": 2}),
-    (1, 4, {"EX": 2, "IW16": 3, "PFIS16": 3, "TB16": 3, "RL16": 3, "AC16": 3, "EI16": 3}),   # the dose
+    # D108 (PILOT.md §4): the reward arms RL16 / ACMC16 / AC16 collapsed into a deterministic policy within 200-400
+    # steps at every pilot lr and both deferrals (distinct sampled routes per query -> 1, so their advantages are
+    # identically zero); P4's preregistered uninterpretability condition (RL16 at the floor) is met, so they run as
+    # 2-seed checks on δ1 only. Their δ0 and dose cells are dropped (−21 runs: 93 → 72).
+    (1, 0, {"EX": 3, "EXAL": 2, "PF": 2, "IW16": 5, "PFIS16": 5, "TB16": 5, "RL16": 2, "ACMC16": 2, "AC16": 2, "EI16": 5}),
+    (0, 0, {"EX": 2, "EXAL": 3, "PF": 2, "IW16": 2, "PFIS16": 3, "TB16": 3, "EI16": 2}),
+    (1, 4, {"EX": 2, "IW16": 3, "PFIS16": 3, "TB16": 3, "EI16": 3}),   # the dose
     (1, 0, {"SI16": 2, "ELL16": 2, "AC16T0": 2}),               # checks
     (0, 0, {"EI16B": 2}),
 ]
