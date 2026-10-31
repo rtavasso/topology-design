@@ -69,6 +69,18 @@ def prog_label(r):
     return "L" if p >= 0.75 else ("E" if p <= 0.25 else "mix")
 
 
+def plus_one(r):
+    """Program R ("reserve"), seen at the main grid (RESULTS.md §3): a correct, deterministic program that takes exactly one
+    more step than the oracle on EVERY word, including all-H words: SET once at the start, then the oracle's rule one count
+    higher (PREV at c = 2). Answer accuracy >= 0.95 at in4, in8 and none8 with committed steps = oracle + 1 (+-0.15) there."""
+    e = A.final(r)
+    ok = True
+    for st in ("in4", "in8", "none8"):
+        x = e.get(st, {})
+        ok &= (x.get("acc") or 0) >= 0.95 and abs((x.get("q_steps") or 0) - (x.get("oracle_steps") or 0) - 1.0) <= 0.15
+    return ok
+
+
 def success(r, ex_crit):
     """DESIGN.md §1 (revision 4): learned (shortest-correct committed route on P-words at in4 and in8 >= 0.95) AND the
     held-out criterion within 3x EX's median criterion step on the same deferral in this grid. Determinism is reported
@@ -110,7 +122,7 @@ def main():
 
     out("\n## Learning: held-out criterion (all k ≤ 8 at shortest-correct-route accuracy ≥ 0.95, confirmed by the next point), flips, episodes and rollouts to criterion, clipping\n")
     out("Learned and criterion are program-agnostic (any shortest correct route); 'E / L' counts learned runs by program (E: SET early and carry; L: SET late at the P-leaving state; the oracle is E under δ1, L under δ0); flips are teacher-forced at the oracle's states.\n")
-    out("| arm | n | learned | E / L / other-or-mixed | criterion step | oracle-route criterion | SET flip (oracle) | PREV flip | episodes to crit. (median) | rollouts to crit. (median) | final crit_obj | grad-clip binding (mean frac.) |")
+    out("| arm | n | learned | E / L / other-or-mixed / R(+1, not shortest) | criterion step | oracle-route criterion | SET flip (oracle) | PREV flip | episodes to crit. (median) | rollouts to crit. (median) | final crit_obj | grad-clip binding (mean frac.) |")
     out("|---|---|---|---|---|---|---|---|---|---|---|---|")
     ex_obj = {}
     for g, rs in sorted(groups.items()):
@@ -123,7 +135,8 @@ def main():
         clip = A.mean_se([np.mean([c.get("clip_frac", np.nan) for c in r["curve"]]) for r in rs])[0]
         lab = [prog_label(r) for r in rs if learned(r)]
         nE, nL, nX = lab.count("E"), lab.count("L"), len(lab) - lab.count("E") - lab.count("L")
-        out(f"| {g} | {len(rs)} | {sum(learned(r) for r in rs)}/{len(rs)} | {nE} / {nL} / {nX} | {A.fmt_t95(cs, budget)} | {A.fmt_t95([crit_step(r, 'acc_by_k') for r in rs], budget)} | "
+        nR = sum(1 for r in rs if not learned(r) and plus_one(r))
+        out(f"| {g} | {len(rs)} | {sum(learned(r) for r in rs)}/{len(rs)} | {nE} / {nL} / {nX} / {nR} | {A.fmt_t95(cs, budget)} | {A.fmt_t95([crit_step(r, 'acc_by_k') for r in rs], budget)} | "
             f"{A.fmt_t95([A.flip_of(r, 'SET') for r in rs], budget)} | {A.fmt_t95([A.flip_of(r, 'PREV') for r in rs], budget)} | "
             f"{'–' if med is None else int(med * batch)} | {'–' if med is None or not rpq else int(med * batch * QN * rpq)} | "
             f"{obj:.3f} | {clip:.2f} |")
@@ -195,6 +208,7 @@ def main():
         for lab in ("E", "L", "mix", "other"):
             counts(arm, lambda r: learned(r) and prog_label(r) == lab, f"{arm} learned with program {lab}")
         counts(arm, lambda r: learned(r) and (A.final(r).get("pp8", {}).get("min_acc") or 0) >= 0.95, f"{arm} learned and passes pp8 (PP precedence; shortest-correct, any program)")
+        counts(arm, lambda r: (not learned(r)) and plus_one(r), f"{arm} program R: correct and deterministic with exactly one extra step on every word (not shortest)")
         counts(arm, lambda r: learned(r) and (A.final(r).get("in8", {}).get("samp_min_acc_P") or 0) >= 0.95, f"{arm} learned and deterministic (sampled shortest-correct on P-words ≥ 0.95)")
         counts(arm, lambda r: (A.final(r).get("in8", {}).get("acc_P") or 0) >= 0.9 and (A.final(r).get("in8", {}).get("min_acc_P") or 0) < 0.5
                and (A.final(r).get("in8", {}).get("p_halt_d0") or 0) < 0.5, f"{arm} answer right but does not halt on arrival (p_halt at the answer < 0.5)")

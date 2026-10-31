@@ -1352,6 +1352,39 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 
 **Expected falsifiers at the main grid.** EX-AL δ = 0 seeds that reach the shortest program (then the likelihood alone suffices, P2(a) refuted); EX-AL seeds that stay in all-H (then the count-shifted program is a seed accident); PF-IS16 seeds that collapse like IW16 at 3e-3; TB16 reaching criterion on δ = 1 in a majority (P3 refuted); the PF check landing in E (the pooled fixed point stands and PF-IS16's L is a transient).
 
+## Entry 69 (30 Oct 2026): rung 2 ran — three non-enumerating signals learn the program; F29's basin is self-consistency; rung 2 closed
+
+**Premise.** "Check results": the main grid ran overnight on the full preregistered 93-run grid at `705e345` (the researcher's checkout predated the D108 cut; the cut was not applied, which is the cleaner record), lr 1e-3 everywhere per the pilot rule, 5.7 h wall on two T4s, no failures. [routefind/RESULTS.md](../experiments/routefind/RESULTS.md); data in [results_data/main/](../experiments/routefind/results_data/main/).
+
+**Evidence (counts per cell; details in RESULTS §1).**
+- δ = 1: EX 3/3 (800 steps, E); EX-AL 2/2 (800, E); PF 2/2 (1,050, **E**); IW16 4/5 (1,300, E; the fifth is program R); PF-IS16 5/5 (1,200, L-leaning mixtures); EI16 5/5 (900, L); TB16 0/5 (0.97–0.98 and rising at 5k); RL16, ACMC16, AC16 0/5 each (collapsed by step 200–400).
+- δ = 0: EX 0/2, EX-AL 0/3, IW16 0/2 (all-H); PF 2/2, PF-IS16 3/3, TB16 2/3, EI16 2/2 (L, passing PP); RL16 0/3 (halting), AC16 0/3.
+- Dose (answer pool 4): EX +19 %, IW16 +31 %, EI16 +44 %; PF-IS16 0/3 at criterion (0.91–0.94, mixed program); TB16, RL16, AC16 0/3.
+- Checks as derived: SI16, ELL16, EI16B 0/2; AC16T0 0/2 (halting).
+- PP: no δ = 1 learner passes (E by precedence, L by the read); every δ = 0 learner passes. Determinism: EM and imitation 1.00; posterior-matching 0.05–0.18.
+
+**Predictions.** P1 held (4/5, E). P2 held in both halves (EX-AL 0/3; PF-IS16 3/3 in L). P3 held (5/5 vs 0/5), TB16 slow rather than dead. P4 not read (reward arms at the floor, as preregistered). P5: E/L lines held, PF resolved to E (the pooled fixed point), PF-IS16 to L-leaning mixtures, **EI16's init-beam line refuted 10/10**. P6: EI16 clause held, **PF-IS16 clause refuted** (it degrades most).
+
+**Argument.**
+- Risk 3 is retired for the toy (F35): the router's signal does not need exact inference; sampled EM, a sampled fixed-prior posterior and search + imitation all work within 1.6× of the exact marginal.
+- F29's cause is identified by intervention (F36): with the likelihood held fixed (EX-AL vs PF share their step-0 gradient), every target computed under the router's own policy stalls on the local trigger and every fixed-prior or searched target learns it. The basin is self-consistency.
+- The signal decides the program (F37): current-policy posteriors and exact PF → E; imitation → L always; the sampled fixed-prior estimator → mixtures, because self-normalized weights with the router as proposal are partly current-policy.
+- A third correct program exists (F38, R): one SET at the start, decisions one count higher, built around the stray-phase labels in the spare count; found by IW16 (1/5) and by EX-AL on the pilot seed, not at the main seeds (L30).
+- Posterior matching gives a stochastic router whose argmax is a program (F39); reward-only signals die of exploration collapse before any credit question arises (F40); the dose hurts the fixed-prior target most (F41).
+
+**Decisions.**
+- **Rung 2 closed.** I29 closed; F35–F41; X27–X32; L30–L31.
+- **Risk 4 (contextual value) is blocked on exploration**, not on value estimation: the first follow-up, when the program returns to it, is an entropy or ε term for the reward arms, with a CPU sanity run and a review. Not run now.
+- **Metrics carried to rung 3:** program identity with R as a category, shortest-correct and answer accuracy both, committed and sampled readings both.
+- **Next rung** per the Direction's risk list: risk 1 (the basis claim) or risk 2 (learnable generic primitives), to be designed; D106's note stands.
+
+**Rejected.**
+- Reading TB16's 0/5 as failure (its curves say 3× slower; L31).
+- Reading EI16's L as a beam-init effect (10/10 L whatever the init beam returned).
+- Reading the dose as "spurious density" in Min et al.'s sense: for a Markov router the only consistent spurious program is all-H, and what the dose did was spread the fixed-prior posterior.
+
+**Expected falsifiers of the carry-over.** A neural-state rung in which a fixed-prior target also stalls on a local trigger (then F36's mechanism is specific to the explicit state); an exploration-fixed reward arm that still fails (then value signals have a credit problem, not only an exploration one); EI16 landing in E under a different beam merge rule (then the merge is the mechanism of X27).
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
