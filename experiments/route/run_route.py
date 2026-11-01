@@ -26,7 +26,7 @@ import torch  # noqa: E402
 
 from topology_design.route import train_route, train_neural  # noqa: E402
 
-PER_RUN_KEYS = ("seed", "lr")
+PER_RUN_KEYS = ("seed", "lr", "init_from")
 SEC = {"router": 0.09, "index": 0.02, "static": 0.012, "looped": 0.0113}   # per run-step, pilot-measured (static: per layer; looped: per loop)
 
 
@@ -59,7 +59,25 @@ def save(rec, path):
     os.replace(path + ".tmp", path)
 
 
+CKPT_DIR = [None]
+
+
+def resolve_init(chunk):
+    """init_from names a checkpoint by file name; it is looked up in the checkpoint directory (rung 3 phase 2)."""
+    out = []
+    for c in chunk:
+        c = dict(c)
+        if c.get("init_from"):
+            p = c["init_from"] if os.path.isabs(c["init_from"]) else os.path.join(CKPT_DIR[0], c["init_from"])
+            if not os.path.exists(p):
+                raise FileNotFoundError(f"{c['name']}: init_from checkpoint not found: {p}")
+            c["init_from"] = p
+        out.append(c)
+    return out
+
+
 def run_chunk(chunk, dev, path_of):
+    chunk = resolve_init(chunk)
     names = [c["name"] for c in chunk]
     logf = lambda s: print(f"[{names[0]}+{len(chunk)-1}] {s}", flush=True)
     trainer = train_route if chunk[0].get("model") == "router" else train_neural
@@ -83,6 +101,11 @@ def run_chunk(chunk, dev, path_of):
             return
         raise
     for c, rec in zip(chunk, recs):
+        if "state" in rec:                           # rung 3: the router's parameters go to <out>/ckpt/<name>.pt
+            ck = os.path.join(CKPT_DIR[0], c["name"] + ".pt")
+            os.makedirs(CKPT_DIR[0], exist_ok=True)
+            torch.save(rec.pop("state"), ck + ".tmp"); os.replace(ck + ".tmp", ck)
+            rec["ckpt"] = os.path.basename(ck)
         save(rec, path_of(c))
 
 
@@ -95,7 +118,9 @@ def main():
     ap.add_argument("--max-stack", type=int, default=10)
     ap.add_argument("--max-groups", type=int, default=None)
     ap.add_argument("--threads", type=int, default=None)
+    ap.add_argument("--ckpt-dir", default=None, help="where saved routers are written and init_from names are resolved (default <out>/ckpt)")
     args = ap.parse_args()
+    CKPT_DIR[0] = args.ckpt_dir or os.path.join(args.out, "ckpt")
     dev = ("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device
     if args.threads:
         torch.set_num_threads(args.threads)

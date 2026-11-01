@@ -161,17 +161,24 @@ elif job["job"] == "route":
         for f in os.listdir("prior"):
             shutil.copy(os.path.join("prior", f), out)
         print(f"resumed with {len(os.listdir(out))} prior results", flush=True)
-    rc = run("tests", [sys.executable, "-m", "pytest", "-q", "-x", "tests/test_route.py", "tests/test_routefind.py"])
+    tests = ["tests/test_route.py", "tests/test_routefind.py"] + (["tests/test_commit.py"] if os.path.exists("tests/test_commit.py") else [])
+    rc = run("tests", [sys.executable, "-m", "pytest", "-q", "-x"] + tests)
     if rc != 0:
         print("TESTS FAILED: grid not run", flush=True)
         sys.exit(1)
+    ck = os.path.join(W, "ckpt")                     # rung 3: uploaded checkpoints (stage 2) and saved routers (stage 1)
+    os.makedirs(ck, exist_ok=True)
+    if os.path.isdir("ckpt"):
+        for f in os.listdir("ckpt"):
+            shutil.copy(os.path.join("ckpt", f), ck)
+        print(f"{len(os.listdir(ck))} checkpoints mounted", flush=True)
     k = max(1, n_gpus()) * int(job.get("per_gpu", 1))
     g = max(1, n_gpus())
     procs = []
     for i in range(k):
         e = {**env, "CUDA_VISIBLE_DEVICES": str(i % g)} if n_gpus() > 0 else env
         cmd = [sys.executable, "experiments/route/run_route.py", "--grid", job["grid"], "--out", W, "--shard", f"{i}/{k}",
-               "--max-stack", str(job.get("max_stack", 10))]
+               "--max-stack", str(job.get("max_stack", 10)), "--ckpt-dir", ck]
         tee = f"exec {' '.join(cmd)} 2>&1 | tee {os.path.join(W, f'route_shard{i}.txt')} | sed -u 's/^/[route{i}] /'"
         procs.append(subprocess.Popen(tee, shell=True, env=e))
     rcs = [p.wait() for p in procs]

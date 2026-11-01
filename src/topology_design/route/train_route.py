@@ -12,6 +12,7 @@ and the router's head parameters.
 from __future__ import annotations
 
 import math
+import os
 import time
 from dataclasses import fields
 
@@ -31,15 +32,20 @@ DATA_KEYS = {f.name for f in fields(RouteConfig)}
 ROUTER_KEYS = {f.name for f in fields(RouterConfig)}
 TRAIN_DEFAULTS = dict(steps=6000, batch=64, lr=1e-3, warmup=500, seed=0, eval_every=2000, T_eval=64, eval_n=250,
                       pool_n=60000, wd=0.01, grad_clip=1.0, teacher=False, crit_n=256, crit_every=100, eval_chunk=50, samples=4,
-                      estimator="exact", K=16, W=16, ei_eps=0.1, warm_steps=0, per_run_init=False, gae=0.0, critic_warmup=0)
+                      estimator="exact", K=16, W=16, ei_eps=0.1, warm_steps=0, per_run_init=False, gae=0.0, critic_warmup=0,
+                      # rung 3 (experiments/commit/DESIGN.md): schedule "cosine" | "constant"; save_state keeps the router's
+                      # parameters in the record (run_route writes them to <out>/ckpt/<name>.pt); init_from (per run) loads a
+                      # saved router before training; entropy bonus beta for rl; save_every writes the state every n steps (0: end)
+                      schedule="cosine", save_state=False, init_from=None, beta=0.0, clean_eval=True)
 # rung 2 (experiments/routefind/DESIGN.md): route-finding estimators; "rf" is an alias of "ell"
-ESTIMATORS = ("exact", "teacher", "iw", "ell", "rf", "rl", "si", "ei", "pf", "tb", "ac", "exal", "pfis")
+ESTIMATORS = ("exact", "teacher", "iw", "ell", "rf", "rl", "si", "ei", "pf", "tb", "ac", "exal", "pfis", "rlb", "acb", "pfb")
 SAMPLED = ("iw", "ell", "rf", "rl", "si", "tb", "ac", "pfis")
+BEAMED = ("ei", "rlb", "acb", "pfb")          # rung 3: routes supplied by the eps-mixed beam's completions (forced breadth)
 # revisions 3-4: pf = exact fixed-prior posterior supervision (the PFN signal); pfis = its forward KL from samples
 # (self-normalized importance weights); tb = trajectory balance toward the same posterior (reverse KL); ac =
 # actor-critic with the router's learned contextual value V(x); exal = the exact current-policy marginal with the
 # answer-only likelihood (EX's objective with PF's likelihood)
-PER_RUN_KEYS = ("seed", "lr")
+PER_RUN_KEYS = ("seed", "lr", "init_from")
 ACTION_NAMES = {HOP: "HOP", PREV: "PREV", SET: "SET", HALT: "HALT"}
 
 
@@ -133,6 +139,8 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
         sl = slice(r * B, (r + 1) * B)
         kk = fb["q_k"][sl].reshape(-1); okr = ok[sl].reshape(-1); oka = ok_ans[sl].reshape(-1); dp = depth[sl].reshape(-1)
         okm = min_ok[sl].reshape(-1); ofl = on_flag[sl].reshape(-1); oth = set_oth[sl].reshape(-1)
+        iso = isolated_P(fb["q_word"][sl]).reshape(-1)                 # rung 3: program identity on isolated-P words only
+        ofl_i = torch.where(iso, ofl, torch.full_like(ofl, float("nan"))); oth_i = torch.where(iso, oth, torch.full_like(oth, float("nan")))
         acc, ans_acc, by_depth, min_acc = {}, {}, {}, {}
         for k in range(1, dc.kmax + 1):
             mk = kk == k
@@ -149,6 +157,9 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
                     "min_acc_by_k": min_acc, "min_acc": float(okm.mean()),
                     "set_late": float(torch.nanmean(ofl)) if torch.isfinite(ofl).any() else None,
                     "set_other": float(torch.nanmean(oth)) if torch.isfinite(oth).any() else None,
+                    "set_late_iso": float(torch.nanmean(ofl_i)) if torch.isfinite(ofl_i).any() else None,
+                    "set_other_iso": float(torch.nanmean(oth_i)) if torch.isfinite(oth_i).any() else None,
+                    "min_acc_pp": float(okm[~iso & (fb["q_word"][sl].reshape(-1, fb["q_word"].shape[-1]) == 1).any(-1)].mean()) if (~iso & (fb["q_word"][sl].reshape(-1, fb["q_word"].shape[-1]) == 1).any(-1)).any() else None,
                     "crit_obj": float(nll[sl].mean()),
                     "act_acc": {ACTION_NAMES[a]: float(h[a] / c[a]) for a in range(4) if c[a] > 0},
                     "cf_count2_prev": float(ha / ca) if ca else None, "cf_pending_set": float(hb / cb) if cb else None})
@@ -195,6 +206,52 @@ def program_stats(acts, states, steps, s_fin, q_ans, osteps, mp, oracle_acts=Non
     frac_late = torch.where(ok, n_late / n_set.clamp_min(1), nan)
     frac_other = torch.where(ok, (n_set - n_late - n_early) / n_set.clamp_min(1), nan)
     return min_ok, frac_late, frac_other
+
+
+def isolated_P(q_word):
+    """(B, Q) bool: the word has at least one P and no two consecutive P-steps (rung 3: PP words are mixed into training)."""
+    w = q_word == 1
+    pp = (w[..., 1:] & w[..., :-1]).any(-1)
+    return w.any(-1) & ~pp
+
+
+def pp_set_placement(acts, states, min_ok, oracle_acts, oracle_states, q_word):
+    """Rung 3 shift B (commit/DESIGN.md §4): on PP words whose committed route is shortest-correct, where its SETs sit
+    relative to the first PP run's two P-leaving symbols (the symbols the oracle PREVs out of, in oracle order): counts
+    (before the first, at the first, at the second, elsewhere) per query, -1 where not applicable. E-double = (2,0,0,0),
+    E-E = (1,1,0,0), E-L = (1,0,1,0), L-double = (0,2,0,0), L-L = (0,1,1,0)."""
+    B, Q, T = acts.shape
+    dev = acts.device
+    out = torch.full((B, Q, 4), -1, dtype=torch.long, device=dev)
+    w = q_word == 1
+    pp = (w[..., 1:] & w[..., :-1]).any(-1) & min_ok
+    if not pp.any():
+        return out
+    To = oracle_acts.shape[-1]
+    osym = oracle_states[:, :, :To] // PER_SYM
+    sym = states[:, :, :T] // PER_SYM
+    for b, q in pp.nonzero().tolist():
+        pl = [int(osym[b, q, t]) for t in range(To) if int(oracle_acts[b, q, t]) == PREV]
+        if len(pl) < 2:
+            continue
+        first, second = pl[0], pl[1]
+        order = [int(x) for x in osym[b, q].tolist()]
+        pos_first = order.index(first) if first in order else None
+        c = [0, 0, 0, 0]
+        for t in range(T):
+            if int(acts[b, q, t]) != SET:
+                continue
+            sy = int(sym[b, q, t])
+            if sy == first:
+                c[1] += 1
+            elif sy == second:
+                c[2] += 1
+            elif pos_first is not None and sy in order and order.index(sy) < pos_first:
+                c[0] += 1
+            else:
+                c[3] += 1
+        out[b, q] = torch.tensor(c, device=dev)
+    return out
 
 
 def deepest_P(q_word, q_k):
@@ -284,6 +341,14 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
                     rec[f"samp_min_acc_{lab}"] = float(samp_min[sl][sel][mask].mean())
                     rec[f"samp_acc_{lab}"] = float(samp_ok[sl][sel][mask].mean()); rec[f"samp_steps_{lab}"] = float(samp_steps[sl][sel][mask].mean())
                     rec[f"e_steps_{lab}"] = float(es[sl][sel][mask].mean()); rec[f"oracle_steps_{lab}"] = float(osteps[sl][sel][mask].float().mean())
+            if name.startswith("pp"):
+                plc = pp_set_placement(acts[sl][sel].unsqueeze(1), states[sl][sel].unsqueeze(1), ok_min[sl][sel].unsqueeze(1),
+                                       oa[sl][sel].unsqueeze(1), ostates[sl][sel].unsqueeze(1), fb["q_word"][sl][sel].unsqueeze(1))[:, 0]
+                hist = {}
+                for row in plc.tolist():
+                    if row[0] >= 0:
+                        key = "-".join(str(x) for x in row); hist[key] = hist.get(key, 0) + 1
+                rec["pp_set_placement"] = hist
             d = dist[sl][sel]; ph = p_halt[sl][sel]; en = ent[sl][sel]
             visited = torch.arange(d.shape[-1], device=dev).unsqueeze(0) <= steps[sl][sel].unsqueeze(-1)
             for lab, mask in (("d0", d == 0), ("d1", d == 1), ("d2p", d >= 2), ("dead", d < 0)):
@@ -312,6 +377,20 @@ def sample_per_run(pi, mp, q_start, T, K, gens, R):
     outs = [E.sample_routes(pi[r * B:(r + 1) * B], _slice_mp(mp, slice(r * B, (r + 1) * B)), q_start[r * B:(r + 1) * B], T, K,
                             generator=gens[r]) for r in range(R)]
     return tuple(torch.cat([o[i] for o in outs], 0) for i in range(4))
+
+
+def router_state(m: StackedRouter, r: int) -> dict:
+    """Run r's parameters as a CPU state dict without the stack dimension (rung 3 checkpoints). The frozen bases are not
+    saved: they are rebuilt from emb_seed, which the run config carries."""
+    return {n: p[r].detach().cpu().clone() for n, p in m.named_parameters()}
+
+
+@torch.no_grad()
+def load_router_state_(m: StackedRouter, r: int, state: dict):
+    names = {n for n, _ in m.named_parameters()}
+    assert set(state) == names, f"state keys differ: missing {names - set(state)}, extra {set(state) - names}"
+    for n, p in m.named_parameters():
+        p[r].copy_(state[n].to(p.device))
 
 
 def per_run_init_(m: StackedRouter, seeds, rc, dc):
@@ -399,15 +478,41 @@ def estimator_loss(est, pi, mp, fb, R, tc, rc, dc, gens, Rd, V=None, step=10**9)
             diag = {"td_abs": d["sTD"] / n, "ev": 1 - var(d["sR"], d["sR2"]) / var(d["sG"], d["sG2"]).clamp_min(1e-12), **dv}
             return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), diag
         lpy = E.readout_logp(sym, fb["q_ans"].unsqueeze(-1), dc, rc.eps)
-        fn = {"iw": E.iw_loss, "ell": E.rf_loss, "rf": E.rf_loss, "rl": E.rl_loss}[est]
+        if est == "rl":
+            ent = E.route_entropy(pi, a_k, x_k) if tc["beta"] > 0 else None
+            sur, obj = E.rl_loss(lpy, st_k, lpr, rc.lam, entropy=ent, beta=tc["beta"])
+            if ent is not None:
+                dv["entropy"] = ent.detach().reshape(R, -1).mean(1)
+            return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), dv
+        fn = {"iw": E.iw_loss, "ell": E.rf_loss, "rf": E.rf_loss}[est]
         sur, obj = fn(lpy, st_k, lpr, rc.lam)
         return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), dv
-    # ei
-    found, a_b, _ = E.beam_search(pi.detach(), mp, fb["q_start"], fb["q_ans"], rc.T, tc["W"], dc, eps_mix=tc["ei_eps"], lam=rc.lam)
-    a_t = torch.where(found.unsqueeze(-1), a_b, torch.full_like(a_b, -1))
-    per_q = teacher_loss(pi, a_t, E.replay(mp, fb["q_start"], a_t))
-    sur = per_q.view(R, -1).sum(1) / found.view(R, -1).sum(1).clamp_min(1).float()
-    return sur, sur.detach(), None
+    if est == "ei":
+        found, a_b, _ = E.beam_search(pi.detach(), mp, fb["q_start"], fb["q_ans"], rc.T, tc["W"], dc, eps_mix=tc["ei_eps"], lam=rc.lam)
+        a_t = torch.where(found.unsqueeze(-1), a_b, torch.full_like(a_b, -1))
+        per_q = teacher_loss(pi, a_t, E.replay(mp, fb["q_start"], a_t))
+        sur = per_q.view(R, -1).sum(1) / found.view(R, -1).sum(1).clamp_min(1).float()
+        return sur, sur.detach(), None
+    # rung 3 forced-breadth arms over the beam's completions: rlb, acb, pfb
+    comp = E.beam_completions(pi.detach(), mp, fb["q_start"], rc.T, tc["W"], dc, eps_mix=tc["ei_eps"], lam=rc.lam)
+    xs = E.replay(mp, fb["q_start"], comp["acts"])
+    hitq = ((comp["end"] // PER_SYM == fb["q_ans"].unsqueeze(-1)) & comp["valid"]).any(-1).float().view(R, -1).mean(1)
+    if est == "pfb":
+        per_q, ok = E.pfb_loss(pi, comp, fb["q_ans"], dc, rc.lam, rc.eps, xs)
+        sur = per_q.view(R, -1).sum(1) / ok.view(R, -1).sum(1).clamp_min(1)
+        return sur, sur.detach(), {"beam_hit": hitq, "any_target": ok.view(R, -1).mean(1)}
+    reward = E.readout_logp(comp["end"] // PER_SYM, fb["q_ans"].unsqueeze(-1), dc, rc.eps).exp()
+    if est == "rlb":
+        sur, obj, ess = E.rlb_loss(pi, comp, reward, rc.lam, xs)
+        return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), {"beam_hit": hitq, "ess": ess.view(R, -1).mean(1)}
+    # acb: the actor-critic over the support, weighted by the self-normalized support weights
+    w, _ = E.support_weights(pi, comp, xs)
+    sur, obj = E.ac_loss(pi, V, comp["acts"], xs, reward, rc.lam, gae=tc["gae"], actor_scale=float(step >= tc["critic_warmup"]), weights=w)
+    d = {k: v.view(R, -1).sum(1) for k, v in E.ac_loss.diag.items()}
+    n = d["n"].clamp_min(1)
+    var = lambda s1, s2: s2 / n - (s1 / n) ** 2
+    diag = {"td_abs": d["sTD"] / n, "ev": 1 - var(d["sR"], d["sR2"]) / var(d["sG"], d["sG2"]).clamp_min(1e-12), "beam_hit": hitq}
+    return sur.view(R, -1).mean(1), obj.view(R, -1).mean(1), diag
 
 
 @torch.no_grad()
@@ -417,7 +522,7 @@ def search_stats(m, dc, rc, tc, crit, est, R, dev):
     the beam reach the label ("hit"), contain the oracle route ("oracle_any", sampled arms), and on which the route
     that imitation would use is the oracle's ("oracle_kept": EI's beam route, SI's best correct sample)."""
     if est not in SAMPLED + ("ei",):
-        return None
+        return None                                  # (the rung-3 beam arms share EI16's beam; stats as EI's would need W x T routes)
     b = stack_batches([crit[r] for r in range(R)]); fb = flat(b)
     mp = maps(fb["pair_key"], fb["pair_val"], fb["pair_prev"], fb["pair_flag"], dc)
     pi = policy(m, b, rc.T, chunk=tc["eval_chunk"])
@@ -469,21 +574,34 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
     if tc["per_run_init"]:
         per_run_init_(m, seeds, rc, dc)
     m = m.to(dev)
+    inits = [c.get("init_from") for c in cfgs]
+    for r, path in enumerate(inits):                 # rung 3 phase 2: continue a saved router under a new signal / data
+        if path:
+            st = torch.load(path, map_location="cpu")
+            assert st["router"] == rc.dict(), f"{path}: router config differs"
+            load_router_state_(m, r, st["state"])
     n_params = sum(p.numel() for p in m.parameters() if p.requires_grad) // R
     opt = StackedAdamW(m.parameters(), lrs, betas=(0.9, 0.95), weight_decay=tc["wd"])
-    sched = lambda s: min(1.0, (s + 1) / tc["warmup"]) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / tc["steps"])))
+    if tc["schedule"] == "constant":
+        sched = lambda s: min(1.0, (s + 1) / tc["warmup"])
+    else:
+        sched = lambda s: min(1.0, (s + 1) / tc["warmup"]) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / tc["steps"])))
     t0 = time.time()
     pools = [EpisodePool(dc, tc["pool_n"], seed=s * 7919 + 11, dev=dev) for s in seeds]
     strata = [strata_episodes(dc, tc["eval_n"], seed=s * 7919 + 12345) for s in seeds]
+    # rung 3 shift B: the strata above are generated with the training config, so with pp_frac > 0 even an isolated-P
+    # query sits in a PP-polluted context (false pointers); evaluate on a clean context too (design review 1, S4)
+    dc_clean = RouteConfig(**{**dc.dict(), "pp_frac": 0.0}) if (dc.pp_frac > 0 and tc["clean_eval"]) else None
+    strata_clean = [strata_episodes(dc_clean, tc["eval_n"], seed=s * 7919 + 12345) for s in seeds] if dc_clean else None
     crit = [to_dict(generate(dc, tc["crit_n"], np.random.default_rng(s * 7919 + 999)), dev) for s in seeds]
     log(f"pools, strata and criterion sets generated in {time.time() - t0:.0f}s")
     Rd = readout(dc, rc.eps, dev)
     est = "teacher" if tc["teacher"] else tc["estimator"]
     assert est in ESTIMATORS, est
-    rpq = tc["K"] if est in SAMPLED else (tc["W"] if est == "ei" else 0)
+    rpq = tc["K"] if est in SAMPLED else (tc["W"] if est in BEAMED else 0)
     recs = [{"cfg": {k: v for k, v in c.items() if k not in ("name", "arm")}, "name": c.get("name"), "arm": c.get("arm"),
              "data": dc.dict(), "router": rc.dict(),
-             "train": {**tc, "lr": float(lrs[r]), "seed": seeds[r], "stack_size": R, "stack_seeds": seeds, "rollouts_per_query": rpq},
+             "train": {**tc, "lr": float(lrs[r]), "seed": seeds[r], "init_from": (os.path.basename(inits[r]) if inits[r] else None), "stack_size": R, "stack_seeds": seeds, "rollouts_per_query": rpq},
              "n_params": n_params, "curve": [], "evals": [], "device": dev} for r, c in enumerate(cfgs)]
     st0 = search_stats(m, dc, rc, tc, crit, est, R, dev)                     # what the estimator sees at init (step 0)
     if st0 is not None:
@@ -500,7 +618,7 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
         mp = maps(fb["pair_key"], fb["pair_val"], fb["pair_prev"], fb["pair_flag"], dc)
         est_now = "exact" if s < tc["warm_steps"] else est                   # warm start inside the exact marginal's basin
         V = None
-        if est_now == "ac":
+        if est_now in ("ac", "acb"):
             lg, vv = m.logits_and_values(b)
             pi = torch.softmax(lg, -1).reshape(R * fb["pair_key"].shape[0] // R, -1, 4); V = vv.reshape(pi.shape[0], -1)
         else:
@@ -537,15 +655,17 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
                     recs[r]["curve"][-1]["search"] = ss[r]
                 if diag_acc:
                     recs[r]["curve"][-1]["diag"] = {k_: float(v_[r] / tc["crit_every"]) for k_, v_ in diag_acc.items()}
-                recs[r]["curve"][-1]["set_other"] = cr[r]["set_other"]
+                for k_ in ("set_other", "set_late_iso", "set_other_iso", "min_acc_pp"):
+                    recs[r]["curve"][-1][k_] = cr[r][k_]
             diag_acc = {}
             run_loss.zero_(); hits.zero_(); cnt.zero_(); clip_hits.zero_()
         if (s + 1) % tc["eval_every"] == 0 or s + 1 == tc["steps"]:
             m.eval()
             ev = evaluate(m, dc, rc, tc, strata, dev)
+            evc = evaluate(m, dc_clean, rc, tc, strata_clean, dev) if strata_clean else None
             m.train()
             for r in range(R):
-                recs[r]["evals"].append({"step": s + 1, "eval": ev[r], "time": time.time() - t0})
+                recs[r]["evals"].append({"step": s + 1, "eval": ev[r], "time": time.time() - t0, **({"clean": evc[r]} if evc else {})})
             e0 = ev[0]; c0 = recs[0]["curve"][-1] if recs[0]["curve"] else {}
             log(f"step {s+1} [{R} runs] loss(run0) {c0.get('loss', float('nan')):.3f} crit {c0.get('acc', float('nan')):.2f} "
                 f"act {c0.get('act_acc', {})} route/ans acc by stratum (run0): "
@@ -553,6 +673,9 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
                 + f"  [{time.time()-t0:.0f}s]")
     for r in range(R):
         recs[r]["time"] = time.time() - t0
+        if tc["save_state"]:
+            recs[r]["state"] = {"state": router_state(m, r), "router": rc.dict(), "data": dc.dict(), "emb_seed": rc.emb_seed,
+                                "seed": seeds[r], "name": cfgs[r].get("name"), "steps": tc["steps"]}
         if rc.kind == "state":
             recs[r]["head"] = {"w_norm": m.head.weight[r].norm(dim=0).tolist(), "b": m.head.bias[r, 0].tolist()}
         else:

@@ -42,7 +42,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")
 INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "tests/test_priors.py", "experiments/fleet",
            "pyproject.toml"]
 PTR_INCLUDE = ["tests/test_ptr.py", "experiments/ptr/run_ptr.py", "experiments/ptr/gate.py"]
-ROUTE_INCLUDE = ["tests/test_route.py", "tests/test_routefind.py", "tests/test_ptr.py", "experiments/route/run_route.py"]
+ROUTE_INCLUDE = ["tests/test_route.py", "tests/test_routefind.py", "tests/test_commit.py", "tests/test_ptr.py",
+                 "experiments/route/run_route.py"]
 VALIDATE_EXTRA = ["experiments/paths/results_data/compact.json.gz"]
 
 
@@ -87,6 +88,8 @@ def main():
     ap.add_argument("--no-tests", action="store_true", help="grid jobs: skip the fleet tests before the grid")
     ap.add_argument("--out", default=None)
     ap.add_argument("--dataset", default=None)
+    ap.add_argument("--ckpt-dir", default=None, help="rung 3 stage 2: a directory of saved routers (*.pt) that the grid's "
+                    "init_from names refer to; uploaded with the code and mounted as the job's checkpoint directory")
     ap.add_argument("--kernel", default=None)
     ap.add_argument("--poll", type=int, default=60)
     ap.add_argument("--no-wait", action="store_true", help="push the job and exit")
@@ -153,13 +156,18 @@ def main():
         json.dump(job, f)
     prior_dir = os.path.join(args.out, "results")
     prior = sorted(f for f in os.listdir(prior_dir) if f.endswith(".json.gz")) if os.path.isdir(prior_dir) else []
+    ckpts = sorted(f for f in os.listdir(args.ckpt_dir) if f.endswith(".pt")) if args.ckpt_dir else []
+    if args.ckpt_dir and not ckpts:
+        sys.exit(f"no *.pt in --ckpt-dir {args.ckpt_dir}")
     with tarfile.open(os.path.join(ds, "code.tar.gz"), "w:gz") as tf:
         for rel in include:
             tf.add(os.path.join(ROOT, rel), arcname=os.path.join("code", rel))
         tf.add(jp, arcname="code/job.json")
         for f in prior:
             tf.add(os.path.join(prior_dir, f), arcname=os.path.join("code", "prior", f))
-    print(f"job {job}; {len(prior)} prior results uploaded for resume", flush=True)
+        for f in ckpts:
+            tf.add(os.path.join(args.ckpt_dir, f), arcname=os.path.join("code", "ckpt", f))
+    print(f"job {job}; {len(prior)} prior results uploaded for resume; {len(ckpts)} checkpoints uploaded", flush=True)
     json.dump({"title": args.dataset, "id": f"{user}/{args.dataset}", "licenses": [{"name": "CC0-1.0"}]},
               open(os.path.join(ds, "dataset-metadata.json"), "w"))
     # the status call can return 403 for a dataset that does not exist yet, so try a new version first and fall back

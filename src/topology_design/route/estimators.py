@@ -100,13 +100,32 @@ def iw_loss(lp: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, lam
 
 
 # ---------- rf: REINFORCE on the expected log-likelihood (RLOO) ----------
-def rl_loss(lp: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, lam: float):
-    """Reward R_k = p(y | r_k) - lam * steps_k (expectation q(y) - lam E[steps]); RLOO surrogate of -grad E[R]."""
+def rl_loss(lp: torch.Tensor, steps: torch.Tensor, logp_route: torch.Tensor, lam: float, entropy: torch.Tensor | None = None,
+            beta: float = 0.0):
+    """Reward R_k = p(y | r_k) - lam * steps_k (expectation q(y) - lam E[steps]); RLOO surrogate of -grad E[R].
+    entropy (B, Q, K): the mean policy entropy along each sampled route (with grad); beta > 0 adds -beta * entropy (rung 3,
+    RL16+H: a check that an entropy bonus does not by itself let the reward signal find the setup step)."""
     K = lp.shape[-1]
     assert K >= 2
     R = lp.float().exp() - lam * steps.float()
     adv = (R - _loo_mean(R)).detach()
-    return -(adv * logp_route).mean(-1), (-R.mean(-1)).detach()
+    sur = -(adv * logp_route).mean(-1)
+    if beta > 0 and entropy is not None:
+        sur = sur - beta * entropy.mean(-1)
+    return sur, (-R.mean(-1)).detach()
+
+
+def route_entropy(pi: torch.Tensor, acts: torch.Tensor, states: torch.Tensor) -> torch.Tensor:
+    """Mean policy entropy over the states a route visits (valid steps only), differentiable in pi."""
+    B = pi.shape[0]
+    T = acts.shape[-1]
+    p = pi.float()
+    H = -(p * torch.log(p + 1e-12)).sum(-1)                                         # (B, NS)
+    st = states[..., :T]
+    bidx = torch.arange(B, device=pi.device).view(B, *([1] * (st.dim() - 1)))
+    h = H[bidx.expand_as(st), st]
+    valid = (acts >= 0).float()
+    return (h * valid).sum(-1) / valid.sum(-1).clamp_min(1)
 
 
 @torch.no_grad()
@@ -202,18 +221,119 @@ def beam_search(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, q_ans: torch.
 
 
 @torch.no_grad()
+def beam_completions(pi: torch.Tensor, mp: dict, q_start: torch.Tensor, T: int, W: int, cfg: RouteConfig,
+                     eps_mix: float = 0.1, lam: float = 0.02):
+    """Rung 3 (commit/DESIGN.md §3, core B): the SAME beam as beam_search, returning EVERY completion instead of the best
+    correct one. At each step t every kept state is completed by HALT (the route's actions so far + HALT, t moves), and
+    the forced halt at T completes the rest. Returns a dict with, for M = W (T + 1) completion slots per query:
+      acts (B, Q, M, T) with -1 after the route ends; moves (B, Q, M); end (B, Q, M) product state; valid (B, Q, M)
+      (a live beam slot); logp_mix (B, Q, M) = log pi~(route) under the eps-mixed policy, incl. the HALT term.
+    Completions of dead beam slots are marked invalid. Invalid or duplicate-free: distinct kept states give distinct
+    routes (states are merged), so the completions are distinct routes."""
+    B, Q = q_start.shape
+    dev = pi.device
+    logpi = torch.log((1 - eps_mix) * pi.float() + eps_mix / 4)
+    st = sid(q_start, torch.zeros_like(q_start), torch.zeros_like(q_start)).unsqueeze(-1).expand(B, Q, W).clone()
+    lp = torch.full((B, Q, W), float("-inf"), device=dev); lp[..., 0] = 0.0
+    hist = torch.full((B, Q, W, T), -1, dtype=torch.long, device=dev)
+    ar = torch.arange(B, device=dev).view(B, 1, 1)
+    sym_of = lambda x: x // PER_SYM
+    is_ans = lambda x: (sym_of(x) >= cfg.n_keys) & (sym_of(x) < cfg.DEAD)
+    is_dead = lambda x: sym_of(x) == cfg.DEAD
+    tabs = (mp["hop"], mp["prev"], mp["set"])
+    parent_of = torch.arange(W, device=dev).repeat_interleave(3)
+    act_of = torch.arange(3, device=dev).repeat(W)
+    tri = torch.tril(torch.ones(3 * W, 3 * W, dtype=torch.bool, device=dev), -1)
+    A, MV, EN, LP = [], [], [], []
+    for t in range(T):
+        l = logpi[ar, st]
+        acts_halt = hist.clone(); acts_halt[..., t] = HALT
+        A.append(acts_halt); MV.append(torch.full((B, Q, W), t, device=dev, dtype=torch.long)); EN.append(st.clone())
+        LP.append(lp + l[..., HALT])
+        nxt = torch.stack([tab.gather(1, st.reshape(B, -1)).view(B, Q, W) for tab in tabs], -1)
+        nlp = lp.unsqueeze(-1) + l[..., :3]
+        bad = (is_ans(st) | is_dead(st)).unsqueeze(-1) | is_dead(nxt) | (nxt == st.unsqueeze(-1))
+        nlp = torch.where(bad, torch.full_like(nlp, float("-inf")), nlp)
+        cs, clp = nxt.reshape(B, Q, 3 * W), nlp.reshape(B, Q, 3 * W)
+        order = clp.argsort(-1, descending=True)
+        s_sorted, lp_sorted = cs.gather(-1, order), clp.gather(-1, order)
+        dup = ((s_sorted.unsqueeze(-1) == s_sorted.unsqueeze(-2)) & tri).any(-1)
+        lp_sorted = torch.where(dup, torch.full_like(lp_sorted, float("-inf")), lp_sorted)
+        top_lp, top_i = lp_sorted.topk(W, -1)
+        sel = order.gather(-1, top_i)
+        st, lp = cs.gather(-1, sel), top_lp
+        parent, a = parent_of[sel], act_of[sel]
+        hist = hist.gather(2, parent.unsqueeze(-1).expand(B, Q, W, T)).clone()
+        hist[..., t] = a
+    A.append(hist.clone()); MV.append(torch.full((B, Q, W), T, device=dev, dtype=torch.long)); EN.append(st.clone()); LP.append(lp)
+    acts = torch.cat(A, 2); moves = torch.cat(MV, 2); end = torch.cat(EN, 2); lpm = torch.cat(LP, 2)
+    return {"acts": acts, "moves": moves, "end": end, "valid": torch.isfinite(lpm), "logp_mix": lpm}
+
+
+def pfb_loss(pi: torch.Tensor, comp: dict, q_ans: torch.Tensor, cfg: RouteConfig, lam: float, eps: float, states: torch.Tensor):
+    """PFB16 (commit/DESIGN.md §3): the fixed-prior posterior RESTRICTED to the beam's completions. Weights
+    w(r) ∝ pi0(r) exp(-lam moves) L_y(end r) over the valid completions of a query, normalized; loss = -sum_r w(r) log pi(r).
+    Biased relative to PF (no importance correction for the beam's selection; design review 1, S7). Queries with no
+    label-reaching completion give no gradient. Returns (loss per query, fraction of queries with a target)."""
+    sym = comp["end"] // PER_SYM
+    lLy = torch.log(answer_likelihood(sym, q_ans.unsqueeze(-1), cfg, eps)).float()
+    lp0 = route_logprob(flat_prior_like(pi, cfg), comp["acts"], states)
+    logw = lp0 - lam * comp["moves"].float() + lLy
+    logw = torch.where(comp["valid"], logw, torch.full_like(logw, float("-inf")))
+    ok = torch.isfinite(logw).any(-1, keepdim=True)
+    logw = torch.where(ok, logw, torch.zeros_like(logw))
+    w = torch.softmax(logw, -1) * ok.float()
+    lpr = route_logprob(pi, comp["acts"], states)
+    return -(w.detach() * lpr).sum(-1), ok.squeeze(-1).float()
+
+
+def flat_prior_like(pi: torch.Tensor, cfg: RouteConfig) -> torch.Tensor:
+    B, NS, _ = pi.shape
+    s = torch.arange(NS, device=pi.device) // PER_SYM
+    pi0 = torch.full((NS, 4), 0.25, dtype=torch.float64, device=pi.device)
+    pi0[s >= cfg.n_keys] = torch.tensor([0.0, 0.0, 0.0, 1.0], dtype=torch.float64, device=pi.device)
+    return pi0.unsqueeze(0).expand(B, NS, 4)
+
+
+def support_weights(pi: torch.Tensor, comp: dict, states: torch.Tensor):
+    """Self-normalized weights of the beam's completions under the ROUTER (not the mixed policy): w(r) = pi(r) / sum pi(r')
+    over the valid completions of a query (detached), and log pi(r) with grad. The forced-breadth reward arms RL16-B /
+    AC16-B (commit/DESIGN.md §3) take their expectation over this support with these weights."""
+    lpr = route_logprob(pi, comp["acts"], states)
+    lw = torch.where(comp["valid"], lpr.detach(), torch.full_like(lpr, float("-inf")))
+    return torch.softmax(lw, -1), lpr
+
+
+def rlb_loss(pi: torch.Tensor, comp: dict, reward: torch.Tensor, lam: float, states: torch.Tensor):
+    """RL16-B: policy gradient over the beam support, J = sum_r w(r) R(r), R = reward - lam moves, with the per-query
+    baseline b = sum_r w(r) R(r). Surrogate -sum_r w(r) (R(r) - b) log pi(r). Returns (surrogate per query, -J detached,
+    effective sample size / M)."""
+    w, lpr = support_weights(pi, comp, states)
+    R = reward.float() - lam * comp["moves"].float()
+    R = torch.where(comp["valid"], R, torch.zeros_like(R))
+    b = (w * R).sum(-1, keepdim=True)
+    sur = -(w * (R - b) * lpr).sum(-1)
+    ess = 1.0 / (w ** 2).sum(-1).clamp_min(1e-30) / w.shape[-1]
+    return sur, (-(w * R).sum(-1)).detach(), ess.detach()
+
+
+@torch.no_grad()
 def replay(mp: dict, q_start: torch.Tensor, acts: torch.Tensor) -> torch.Tensor:
-    """The product states (B, Q, T + 1) visited by given action sequences (-1 / HALT end a route)."""
-    B, Q, T = acts.shape
-    st = sid(q_start, torch.zeros_like(q_start), torch.zeros_like(q_start))
+    """The product states (B, Q, [M,] T + 1) visited by given action sequences (B, Q, [M,] T) (-1 / HALT end a route)."""
+    B, Q = q_start.shape
+    T = acts.shape[-1]
+    extra = acts.shape[2:-1]                                               # optional route axes (rung 3: beam completions)
+    st = sid(q_start, torch.zeros_like(q_start), torch.zeros_like(q_start)).view(B, Q, *([1] * len(extra))).expand(B, Q, *extra)
+    st = st.reshape(B, -1)
+    a_flat = acts.reshape(B, -1, T)
     out = [st]
     for t in range(T):
-        a = acts[:, :, t]
+        a = a_flat[:, :, t]
         nxt = torch.where(a == HOP, mp["hop"].gather(1, st), torch.where(a == PREV, mp["prev"].gather(1, st),
                           torch.where(a == SET, mp["set"].gather(1, st), st)))
         st = nxt
         out.append(st)
-    return torch.stack(out, 2)
+    return torch.stack(out, -1).view(B, Q, *extra, T + 1)
 
 
 # ---------- rung 2 revision 3: amortized-posterior and value signals ----------
@@ -358,13 +478,15 @@ def pfis_loss(lpy_route: torch.Tensor, steps: torch.Tensor, logp_route: torch.Te
 
 
 def ac_loss(pi: torch.Tensor, V: torch.Tensor, acts: torch.Tensor, states: torch.Tensor, reward: torch.Tensor,
-            lam: float, gae: float = 0.0, actor_scale: float = 1.0):
+            lam: float, gae: float = 0.0, actor_scale: float = 1.0, weights: torch.Tensor | None = None):
     """Actor-critic with a learned contextual value V(x) (B, NS) — the router's own estimate of a state's value given
     the context, without the label. Reward: -lam per move, `reward` (B, Q, K) at the end (p(y | r), as RL16's), so
     RL16 vs AC16 isolates bootstrapping. TD(lambda=gae) advantages along K sampled routes; gae = 0 is TD(0) (pure
     bootstrapping), gae = 1 the Monte-Carlo return. Critic loss: squared error to the lambda-return (detached).
     actor_scale = 0 during the critic's warm-up (policy evaluation before improvement: with V = 0, TD(0) charges every
     move -lam and pays only the final action, so the router collapses into halting at once; revision-4 CPU run).
+    weights (B, Q, K), optional: per-route weights summing to 1 per query (AC16-B over the beam support; invalid routes get
+    weight 0); without them every route weighs 1/K.
     Returns (actor loss + critic loss, per query; mean return per query detached)."""
     B = pi.shape[0]
     T = acts.shape[-1]
@@ -393,6 +515,9 @@ def ac_loss(pi: torch.Tensor, V: torch.Tensor, acts: torch.Tensor, states: torch
     actor = -(adv * lp * valid.float()).sum(-1) * actor_scale
     critic = 0.5 * (((v[..., :T] - target) ** 2) * valid.float()).sum(-1)
     ret = (r * valid.float()).sum(-1)
+    if weights is not None:                      # weighted expectation over the support instead of the mean over K
+        wK = weights.detach().float() * weights.shape[-1]
+        actor, critic, ret = actor * wK, critic * wK, ret * wK
     with torch.no_grad():   # critic diagnostics, as per-episode sums (the trainer aggregates them per run)
         vm = valid.float()
         G = torch.flip(torch.cumsum(torch.flip(r * vm, [-1]), -1), [-1])               # MC return-to-go
