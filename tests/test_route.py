@@ -278,3 +278,21 @@ def test_counterfactual_probes_and_sampled_routes(cfg):
     flat = torch.full_like(pi, 0.25)
     s2, st2, a2, _ = committed(flat, tb, tb["q_start"], 40, sample=True, generator=g)
     assert float(route_ok(a2, st2, oa, osteps).float().mean()) < 0.2
+
+
+def test_pp_frac_mixes_pp_words_and_zero_leaves_the_stream_unchanged():
+    import numpy as np
+    from topology_design.route.data import RouteConfig, generate, P
+    a = generate(RouteConfig(), 6, np.random.default_rng(5)); b = generate(RouteConfig(pp_frac=0.0), 6, np.random.default_rng(5))
+    assert np.array_equal(a.pair_val, b.pair_val) and np.array_equal(a.q_word, b.q_word)
+    cfg = RouteConfig(pp_frac=0.5)
+    ep = generate(cfg, 60, np.random.default_rng(5))
+    def has_pp(w):
+        w = [x for x in w.tolist() if x >= 0]
+        return any(w[i] == P and w[i + 1] == P for i in range(len(w) - 1))
+    long = [(ep.q_word[b, j], ep.q_k[b, j]) for b in range(60) for j in range(cfg.Qn) if ep.q_k[b, j] >= 4]
+    frac = np.mean([has_pp(w) for w, _ in long])
+    assert 0.35 < frac < 0.65, frac
+    short = [ep.q_word[b, j] for b in range(60) for j in range(cfg.Qn) if ep.q_k[b, j] < 4]
+    assert not any(has_pp(w) for w in short)
+    assert all(not has_pp(w) for w, _ in [(generate(RouteConfig(), 1, np.random.default_rng(s)).q_word[0, 0], 0) for s in range(20)] )

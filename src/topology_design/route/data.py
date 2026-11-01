@@ -40,6 +40,9 @@ class RouteConfig:
     seed: int = 0
     ans_pool: int = 0           # rung 2 dose: if > 0, each episode's chains end in only this many distinct answers
                                 # (drawn per episode from all n_ans); the readout and likelihood keep all n_ans
+    pp_frac: float = 0.0        # rung 3 shift B: with this probability a chain of length >= 4 draws a PP word (a run of
+                                # 2-3 consecutive P-steps, the "pp" strata generator) instead of a training word; 0 leaves
+                                # the stream unchanged (no extra random draws)
 
     def dict(self):
         return asdict(self)
@@ -168,13 +171,18 @@ def generate(cfg: RouteConfig, B: int, rng: np.random.Generator, forced_k=None, 
                    (lambda: cfg.n_keys + int(pool[rng.integers(cfg.ans_pool)]))
         chains = []
         used = 0
+        def train_word(k):
+            w = sample_word(rng, k, cfg.p_P, cfg.max_prun)
+            if cfg.pp_frac > 0 and k >= 4 and rng.random() < cfg.pp_frac:
+                w = forced_word(rng, k, "pp", cfg.p_P)
+            return w
         for j, k in enumerate(ks):
-            w = forced_word(rng, k, forced_kind, cfg.p_P) if (j == 0 and forced_kind) else sample_word(rng, k, cfg.p_P, cfg.max_prun)
+            w = forced_word(rng, k, forced_kind, cfg.p_P) if (j == 0 and forced_kind) else train_word(k)
             chains.append((keys[used:used + k], w, draw_ans()))
             used += k
         while used < cfg.n_keys:
             k = min(int(rng.choice(np.arange(1, cfg.kmax + 1), p=pmf)), cfg.n_keys - used)
-            chains.append((keys[used:used + k], sample_word(rng, k, cfg.p_P, cfg.max_prun), draw_ans()))
+            chains.append((keys[used:used + k], train_word(k), draw_ans()))
             used += k
         val, flag = {}, {}
         for ck, w, ans in chains:

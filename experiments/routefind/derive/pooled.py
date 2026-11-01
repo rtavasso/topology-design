@@ -124,6 +124,14 @@ def eval_policy(tot, cfg, label, stoch=False):
     print(f"  [{label}{' sampled' if stoch else ' committed'}] " + " | ".join(res))
 
 
+if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[2] == "pp":
+    # rung 3 (commit/DESIGN.md §5.1): the pooled PF target under the shift-B mixtures (delta 1 + a fraction of PP words)
+    for f in (0.05, 0.25, 1.0):
+        cfg = RouteConfig(deferral=1, pp_frac=f)
+        tot, tb, cls = pooled_counts(cfg, 0)
+        show(tot, f"PF target, deferral 1, pp_frac {f}")
+        eval_policy(tot, cfg, f"PF d1 pp{f}")
+    sys.exit(0)
 if __name__ == "__main__":
  for pool in (0, 4):
         n_ans = 16 if pool == 0 else f"16, pool {pool}"
