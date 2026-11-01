@@ -49,19 +49,22 @@ def stage1():
     for sig, n in (("EI16", 7), ("EX", 7), ("PF", 3), ("PFIS16", 5)):          # phase 1: the committed starting points and checks C
         for s in range(n):
             g.append(run(f"cm1_{sig}_p1_s{s}", f"{sig}_p1", sig, s, **P1))
-    for sig, n in (("RL16B", 5), ("ACMC16B", 5), ("AC16B", 5)):             # core B: forced-breadth reward arms
-        for s in range(n):
+    # core B. The forced-breadth REWARD arms are checks (2 seeds): on CPU, RL16-B's self-normalized support weights put all
+    # mass on the policy's own route from step 200 (ESS / valid = 0.004) and it sat in all-H, as the code review feared
+    # (DESIGN.md §3, §9). The entropy arm is a check by derivation (§5.2). The forced-breadth POSTERIOR arm (PFB16) is the
+    # core-B arm.
+    for sig in ("RL16B", "ACMC16B", "AC16B"):
+        for s in range(2):
             g.append(run(f"cm1_{sig}_d1_s{s}", f"{sig}_d1", sig, s, **CB))
-    for sig in ("RL16B", "AC16B"):
-        for s in range(3):
-            g.append(run(f"cm1_{sig}_d0_s{s}", f"{sig}_d0", sig, s, **{**CB, "deferral": 0}))
-    for beta in (0.01, 0.03, 0.1):                                          # the entropy check
+    for beta in (0.01, 0.03, 0.1):
         for s in range(2):
             g.append(run(f"cm1_RL16H{beta:g}_d1_s{s}", f"RL16H{beta:g}_d1", "RL16H", s, beta=beta, **CB))
-    for s in range(3):                                                      # PFB16 and its matched dose reference
+    for s in range(5):
         g.append(run(f"cm1_PFB16_d1_s{s}", "PFB16_d1", "PFB16", s, **CB))
+    for s in range(3):
+        g.append(run(f"cm1_PFB16_d0_s{s}", "PFB16_d0", "PFB16", s, **{**CB, "deferral": 0}))
         g.append(run(f"cm1_PFB16_d1p4_s{s}", "PFB16_d1p4", "PFB16", s, ans_pool=4, **CB))
-        g.append(run(f"cm1_PFIS16_d1p4_s{s}", "PFIS16_d1p4", "PFIS16", s, ans_pool=4, **CB))
+        g.append(run(f"cm1_PFIS16_d1p4_s{s}", "PFIS16_d1p4", "PFIS16", s, ans_pool=4, **CB))   # the matched constant-lr dose reference
     return g
 
 
