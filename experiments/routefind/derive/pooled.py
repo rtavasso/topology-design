@@ -92,7 +92,9 @@ def show(tot, label, keys_only=True):
 
 
 def eval_policy(tot, cfg, label, stoch=False):
-    """Apply the per-class argmax (or soft) policy to fresh training and PP episodes."""
+    """Apply the per-class argmax (or soft) policy to fresh training and PP episodes. The evaluation stream is CLEAN
+    (pp_frac = 0): a mixture config would put PP words into the "in" strata (rung-3 design review 1, B2)."""
+    cfg = RouteConfig(**{**cfg.dict(), "pp_frac": 0.0})
     res = []
     for kindw, ks in (("train", None), ("pp", (4, 6, 8))):
         for kk in ([None] if ks is None else ks):

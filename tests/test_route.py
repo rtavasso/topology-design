@@ -295,4 +295,9 @@ def test_pp_frac_mixes_pp_words_and_zero_leaves_the_stream_unchanged():
     assert 0.35 < frac < 0.65, frac
     short = [ep.q_word[b, j] for b in range(60) for j in range(cfg.Qn) if ep.q_k[b, j] < 4]
     assert not any(has_pp(w) for w in short)
+    # the realized dose over ALL queries (rung-3 design review 1, B3): PP words sit only on chains of length >= 4, which
+    # are a minority under the Zipf lengths, so pp_frac = 1 gives roughly a fifth of the queries
+    full = generate(RouteConfig(pp_frac=1.0), 200, np.random.default_rng(7))
+    realized = np.mean([has_pp(full.q_word[b, j]) for b in range(200) for j in range(cfg.Qn)])
+    assert 0.12 < realized < 0.30, realized
     assert all(not has_pp(w) for w, _ in [(generate(RouteConfig(), 1, np.random.default_rng(s)).q_word[0, 0], 0) for s in range(20)] )

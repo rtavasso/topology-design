@@ -1,8 +1,8 @@
-# Rung 3: commitment (revision 1)
+# Rung 3: commitment (revision 2)
 
-**Status:** design, 1 Nov 2026. For an independent design review before implementation. Code does not exist yet; §10 lists what is needed. History Entry 70; ledger risks 4 and 8 (the 1 Nov update), H12–H14, I30, I33.
+**Status:** design, 1 Nov 2026. Revision 2 applies design review 1 ([review/review1_design.md](review/review1_design.md); handling in §13) to revision 1 (`7310e91`). For a code review once implemented, and a short re-review of the open rows after the derive step (§5.3). History Entry 70; ledger risks 4 and 8, H12–H14, I30, I33.
 
-**Direction.** After rung 2 (F35–F41), two questions decide how the router of later rungs should be trained, and both are about what happens *after* a router has committed to a program. **Core A (risk 8):** when the data later start to care about a tie the procedure broke, does the committed router move, and does that depend on how its targets are made? This is the live disagreement of Entry 70 §2: the researcher's position that varied data break ties, against the mechanism of F36. **Core B (risk 4's prerequisite):** can a reward signal be kept exploring long enough to learn, so that contextual value becomes readable at all (H14)? **Checks C (H13):** on the saved routers, whether disagreement among sampled routes is an uncertainty signal, derivable against the exact marginal.
+**Direction.** After rung 2 (F35–F41), two questions decide how the router of later rungs should be trained, and both concern a router that has already committed to a program. **Core A (risk 8):** when the data later require a different decision at a state the router has already sharpened, does it move, and does that depend on how its targets are made? This is the live disagreement of Entry 70 §2: the researcher's position that varied data break ties, against the lock-in mechanism of F36. **Core B (risk 4's prerequisite):** can a reward signal be kept exploring long enough to learn, so that contextual value becomes readable (H14)? **Secondary A′:** the easier kind of plasticity, learning decisions at states the committed router never visited. **Checks C (H13):** on the saved routers, whether disagreement among sampled routes is an uncertainty signal, against the exact marginal.
 
 **Scope (AGENTS hard rule 1).** The rung-1 router, executor and data; the rung-2 signals. Nothing neural. Every claim labeled.
 
@@ -10,148 +10,186 @@
 
 ## 1. The questions
 
-**QA (plasticity after commitment).** A router committed to one of two programs that are tied on its training distribution is trained further on a distribution where only one of them is right. For each way of making its targets, does it move, and how fast?
-
-The readings and what each predicts (Entry 70):
+**QA (overturning a committed decision).** A router committed to one program is trained further on a distribution where, at a state it visits on every relevant word, the decision it has sharpened is now wrong and one other decision is right. For each way of making its targets, does it move, and how fast, as a function of how often the data relabel that state?
 
 | reading | prediction |
 |---|---|
-| *ties do not matter* (researcher): the loss breaks ties when disambiguating data arrive; the procedure's first choice is a transient | every signal moves to the required program, at a rate set by the fraction of disambiguating data, not by the signal |
-| *plasticity is a property of the target* (Claude): a committed learner moves only if its targets can see the other program | movement orders by how the target is made: exact fixed prior > search under the router's own policy > importance-sampled fixed prior ≈ the router's own posterior; and search's plasticity is predicted by its route coverage at the committed policy |
-| *exactness, not priors*: only an enumerating target can move | only PF moves anywhere |
+| *ties do not matter* (researcher): the loss relabels the decision when disambiguating data arrive; the procedure's first choice is a transient | every signal moves, at a rate set by the fraction of relabeling data, not by the signal |
+| *plasticity is a property of the target* (Claude): a committed learner moves only if its targets can see the new decision | movement orders by how the target is made (exact fixed prior, search under the router's own policy, importance-sampled fixed prior, the router's own posterior), and is predicted per seed by the target's coverage of the new route at the committed policy |
+| *exactness, not priors*: only an enumerating target moves | only PF and the teacher-forced ceiling move |
 
-The first outcome is a clean loss for the second reading and the cheapest possible place to learn it. The third is the worst outcome for the thesis: every scalable signal locks in.
+**QA′ (filling in a new decision).** The same committed routers see words that need decisions at states they never visited; the old program stays right on the old words. Does every signal fill the new decisions in? F30 says the data determine what was undetermined; whether every *signal* delivers that is the question, and the derived fixed point of the exact fixed-prior target says it may not (§5.1).
 
-**QB (exploration before value).** Rung 2's reward arms collapsed into a deterministic policy within 200–400 steps (F40). Two fixes differ in kind: an entropy term keeps the policy soft; a beam supplies routes the policy would not sample. Does either let a reward signal learn the deferred program? The derivation in §5.2 says the two should differ, which is why both are core.
+**QB (exploration before value).** Rung 2's reward arms collapsed into a deterministic policy within 200–400 steps (F40). Two fixes differ in kind: an entropy term keeps the policy soft; a beam supplies routes the policy would not sample. Which, if either, lets a reward signal learn the deferred program; and once one does, does bootstrapped value beat Monte-Carlo value (rung 2's unread P4)?
 
-**QC (disagreement as uncertainty).** For a stochastic router, does disagreement among k sampled routes predict which queries its committed route gets wrong? In the toy this is a Monte Carlo estimate of the exact marginal, so it is a check with a known ceiling; its value is to calibrate the picture of Entry 70 §4 before a carrier with real epistemic uncertainty.
+**QC (disagreement as uncertainty).** For a stochastic router, does disagreement among sampled routes predict which queries its committed route gets wrong? In the toy this is a Monte Carlo estimate of the exact marginal, so it is a check with a known ceiling.
 
 ## 2. Setting
 
-Unchanged from rungs 1–2 ([route/DESIGN.md](../route/DESIGN.md) §§2–4; [routefind/DESIGN.md](../routefind/DESIGN.md) §§2–3): 48 keys, 16 answers, decoys, the flag deferred (δ = 1) or local (δ = 0), the product state (symbol, pending c ≤ 2, set-here), actions HOP / PREV / SET / HALT, the Markov router with one cross-attention layer, ε = 0.02, λ = 0.02, T = 14, the strata, the held-out criterion set.
+Unchanged from rungs 1–2 ([route/DESIGN.md](../route/DESIGN.md) §§2–4; [routefind/DESIGN.md](../routefind/DESIGN.md) §§2–3): 48 keys, 16 answers, decoys, the flag deferred (δ = 1) or local (δ = 0), the product state (symbol, pending c ≤ 2, set-here), HOP / PREV / SET / HALT, the Markov router with one cross-attention layer, ε = 0.02, λ = 0.02, T = 14, the strata, the held-out criterion set.
 
-**The tie and what breaks it.** Under δ = 1 the shortest correct programs E (SET at the predecessor, carry) and L (SET at the P-leaving state) are tied on the training distribution (words with isolated P-steps). Two changes to the data break the tie in opposite directions:
-- **PP words** (two or more consecutive P-steps; today only an evaluation stratum, never trained on): L cannot do them under δ = 1, because at a PP arrival no pair's value points to the state and L's read finds nothing (routefind §2, confirmed: EI16's pp8 first deviation is SET>HOP in 1,250/1,250). E can, once its precedence at the conjunction "flagged ∧ pending" is set (F30; the E programs' pp8 failure is SET>PREV, a learnable decision). So PP words favour **E**.
-- **The local trigger** (δ = 0): E is inexpressible (it would need a two-hop read), L is the only shortest program. And E's rule under δ = 0 is precisely F29's stray rule (set here ⇒ HOP, carried count ⇒ PREV). So δ = 0 favours **L**, from the worst possible starting point for an E router.
+**The committed starting points.** Under δ = 1 the shortest programs E (SET at the predecessor, carry) and L (SET at the P-leaving state) are tied on the training distribution. Rung 2's phase-1 programs are deterministic: EI16 → L (10/10), EX → E (3/3). Rung 2 saved no weights, so phase 1 retrains them with checkpoints, under the **commitment gate** of §3.
 
-**The committed starting points** come from rung 2's phase-1 programs, which are deterministic: EI16 → L (10/10), EX → E (3/3), IW16 → E (4/4, one R); PF → E (2/2) and PF-IS16 → L-leaning mixtures (F37). Rung 2 saved no weights, so phase 1 retrains them with checkpoints.
+**Shift A: the decision the data relabel.** Under δ = 0 the flag sits on the P-leaving pair, E is inexpressible, and E's rule is exactly F29's stray rule: the E router SETs at the flagged state (which is now the P-leaving state, L's correct SET) and then HOPs, where L needs PREV. So one in-support decision changes, HOP → PREV at the class (own flag = 1, c = 1, set-here = 1), and every P-word relabels it. The L router of δ = 1 reads the value slot to decide its SET; under δ = 0 that read never fires, so the L router never SETs and must learn SET at the own-flag state and then PREV: two decisions, one of them (PREV at set-here) the same relabel. The **dose** is `p_P`, the probability that an admissible step is P: at p_P = 0.3 (the standard) 16 % of queries are P-words; at 0.15, 10 %; at 0.08, 6 % (measured on the generator). This is a clean dose: the task stays well posed at every p_P.
 
-**Program R** (F38) is a third program (SET once at the start, decisions one count higher) and is counted as its own category throughout.
+**Shift B (secondary): the decisions the data add.** PP words (runs of two or three consecutive P-steps, today only an evaluation stratum) need decisions at states no committed router visits. Review 1 showed that both programs can complete them at the oracle's length: a PP run admits at least five shortest route types (E-E, E-L, L-L, L-double, E-double), and a one-lookup policy that stays L on ordinary words and adds three off-support decisions reaches 0.90 on PP words. So **PP words do not break the E/L tie**; revision 1's claim that they favour E was wrong. What they do is add decisions, plus a small push on ordinary words: flagged pairs inside PP runs create false pointers that corrupt L's value-slot read on 2–4 % of ordinary P-words. The dose is `pp_frac`, applied to chains of length ≥ 4 only: pp_frac = 1.0 makes 20 % of queries PP words, 0.25 makes 4.6 % (measured). Endpoints separate the ordinary-word program (on clean strata) from PP completion by route type.
+
+**Program R** (F38) is counted as its own category throughout.
 
 ## 3. Design
 
-Two phases per run, both at a **constant** learning rate (1e-3, the rung-2 pilot's choice for every signal) after a 500-step warm-up, so that a slow mover is not recorded as a failure by a decaying schedule (L31).
+All training at a **constant** learning rate of 1e-3 (the rung-2 pilot's choice for every signal) after a warm-up, so that a slow mover is not recorded as a failure by a decaying schedule (L31). Phase 1 warms up 500 steps; phase 2 warms up 100 steps with fresh optimizer moments, and every phase-2 clock starts at the end of its warm-up.
 
-**Phase 1 (commitment).** δ = 1, the rung-2 training distribution, 2,500 steps × batch 64, seeds 0–4, per-run init; the full router state is saved at the end. Arms: EI16 (→ L), EX (→ E), IW16 (→ E), PF (→ E), PF-IS16 (→ mixture), 5 seeds each. The saved routers are the starting points of phase 2 and the material of checks C.
+**Phase 1 (commitment).** δ = 1, p_P = 0.3, 2,500 steps × batch 64, per-run init, seeds 0–6; the full router state (parameters and the frozen bases' seed) is saved at the end. Arms: **EI16** (→ L) and **EX** (→ E) as the starting points, 7 seeds each so that 5 pass the gate; **PF** (3) and **PF-IS16** (5) for checks C.
 
-**Phase 2, shift B (accumulation; the test of the researcher's argument as stated).** Training distribution = the phase-1 distribution with a fraction f of chains carrying a PP word (the `pp` generator of the strata, k ≥ 4), f ∈ {0.25, 0.05}. 3,000 steps. From the **L-committed EI16 routers**, the treatment is the phase-2 signal:
+**Commitment gate** (preregistered; applied at the checkpoint before anything else): shortest-correct committed accuracy ≥ 0.95 at in4 and in8; program label E (`set_late` ≤ 0.25) for EX and L (≥ 0.75) for EI16 on P-words at in8; sampled shortest-correct ≥ 0.95; not R. Seeds that fail are excluded and the next seed takes their place; the exclusions are reported. At each passing checkpoint the derive step records the **logit margins** at the classes phase 2 must flip (shift A: HOP − PREV at (own = 1, c = 1, h = 1); shift B: the three PP classes of review 1 B1), so that reachability under the phase-2 budget is stated before running (L24: Σ lr ≈ 3 units per parameter over 3,000 steps).
 
-| phase-2 signal from the L router | how its targets can see E on PP words | seeds (f = 0.25 / 0.05) |
-|---|---|---|
-| PF (exact fixed-prior posterior) | by recursion, whatever the policy does | 5 / 3 |
-| EI16 (beam under its own ε-mixed policy, hard EM) | only if the beam keeps routes that SET where the policy says HOP | 5 / 3 |
-| PF-IS16 (fixed prior, self-normalized IS from its own samples) | only if one of 16 samples reaches the label on a PP word | 5 / 3 |
-| IW16 (own posterior, sampled) | same coverage, and the target on ordinary words prefers L | 5 / 3 |
-| EX (own posterior, exact) | sees E on PP words exactly; on ordinary words its target is L | 5 / 3 |
+**Phase 2, shift A (core A).** Training distribution δ = 0, 3,000 steps. The treatment is the phase-2 signal, applied to the same saved router:
 
-References: EX from the **E-committed EX routers** at both f (the precedence flip alone; the speed ceiling), 3 seeds each; from scratch on the f = 0.25 mixture, EX, EI16 and PF-IS16, 3 seeds each (what each signal does when it never committed; whether EI16 still lands in L when PP words are present from the start); EI16 continued on the unchanged distribution, 2 seeds (stability).
+| phase-2 signal | how its targets can see the new PREV at the committed policy |
+|---|---|
+| **RT** (teacher forcing on the δ = 0 oracle route) | always: the full-information ceiling; the one arm known to move if anything can |
+| **PF** (exact fixed-prior posterior) | by recursion, whatever the policy does; its pooled fixed point under δ = 0 is L (rung 2 §5.2) |
+| **EX** (own posterior, exact) | by recursion over all routes under its own policy; sees the correct route with whatever posterior mass the stray policy leaves it |
+| **EI16** (ε-mixed beam, hard EM), at ε = 0.1 and 0.3 | only if the beam keeps the improbable PREV child; ε is the coverage knob and is varied within the signal |
+| **PF-IS16** (fixed prior, self-normalized IS from 16 own samples) | only if a sample takes the PREV |
+| **IW16** (own posterior, 16 samples) | only if a sample takes the PREV, and the target on the rest prefers the old route |
 
-**Phase 2, shift A (replacement; F29's conflict from a committed start).** Training distribution = δ = 0 only, 3,000 steps, from the **E-committed EX routers**, signals EX, IW16, PF, PF-IS16, EI16, 3 seeds each. Reference: rung 2's from-scratch δ = 0 cells (EX 0/2 + 0/5, IW16 0/2, PF 2/2, PF-IS16 3/3, EI16 2/2) and EI16B (search started inside EX's δ = 0 basin, 0/2).
+Cells:
+- from the **E routers** at p_P = 0.3: RT 2, PF 5, EX 5, EI16(0.1) 5, EI16(0.3) 3, PF-IS16 5, IW16 5;
+- from the E routers at p_P = 0.15 and 0.08: PF, EX, EI16(0.1), PF-IS16, IW16 × 3 each;
+- from the **L routers** at p_P = 0.3: RT 2, PF, EX, EI16(0.1), PF-IS16, IW16 × 3;
+- **stability controls**: EX and EI16 routers continued on the unchanged δ = 1 stream under their own signal, 2 each (nothing should move);
+- **matched from-scratch references** on δ = 0 at constant lr: EX, EI16, PF, PF-IS16 × 3 (rung 2's δ = 0 cells were on a cosine schedule; these separate "cannot move" from "cannot learn δ = 0 at this lr").
 
-**Core B (exploration for the reward signals), δ = 1 from scratch, 5,000 steps, constant lr.**
-- **RL16+H(β):** REINFORCE with RLOO and an entropy bonus β · H(π(· | x)) at the visited states, β ∈ {0.01, 0.03, 0.1}; 3 seeds each in stage 1.
-- **PFB16:** the fixed-prior posterior **restricted to a beam**: the width-16 ε-mixed beam of EI16 supplies the completions, each weighted by π₀(r) e^{−λ·moves} L_y(r) and normalized over the beam; the router is trained by cross-entropy to that soft distribution (soft EM over the beam; PF with the beam as its support, instead of 16 on-policy samples). 5 seeds on δ = 1, 3 on δ = 0, 3 at rung 2's dose (answer pool 4).
-- **Stage 2, conditional:** if RL16+H learns the deferred program in ≥ 2/3 seeds at some β, AC16+H(β*) and ACMC16+H(β*) run at 5 seeds, and P4 of rung 2 (bootstrapped vs Monte-Carlo value) is read there. If not, risk 4 stays blocked and the record says why.
+**Phase 2, shift B (secondary A′).** Training distribution δ = 1 with pp_frac = 1.0 (20 % of queries PP), 3,000 steps, from the **L routers**: RT 2, PF 3, EX 3, EI16(0.1) 3, PF-IS16 3; and an **f = 0 control** for every signal from the same routers (2 each), because the fixed prior prefers E on ordinary words with no PP words at all (§5.1) and every signal's drift on unchanged data is the baseline the shift is measured against. Evaluation on both the mixture strata and **clean strata** (pp_frac = 0), since false pointers alone drop an unchanged L router to ≈ 0.95 on ordinary P-words in a PP-polluted context.
 
-**Checks C (no training).** On every saved phase-1 router, on the held-out strata, per query: the committed route's correctness; agreement among k ∈ {4, 16} sampled routes, on the answer and on the route; the exact marginal p(correct) (the enumerating ceiling); the router's policy entropy at each state of the committed route, by the oracle's decision there (HOP / SET / PREV / HALT). The readout's entropy at the committed end state is constant by construction (1 − ε on an answer), so the "spread of the prediction" baseline is known to carry nothing here.
+**Core B (exploration for the reward signals), δ = 1 from scratch, 5,000 steps.**
+- **Forced-breadth reward arms (the arms that answer QB and read P4).** The K routes per query are the ε-mixed beam's **completions** (every kept state completed by HALT at every step, and the forced halt at T; `beam_search` already scores them and keeps the best; it has to return them all), weighted by self-normalized importance weights w(r) = π(r) / Σ_{r′ ∈ B} π(r′) over the beam support, with a per-query baseline over the support. **RL16-B:** ∇J = Σ_r w(r) (R(r) − b) ∇log π(r), R = p(y | r) − λ·moves (rung 2's reward). **ACMC16-B / AC16-B:** the same support and weights with the rung-2 value head as baseline (λ = 1) or bootstrapping (TD λ = 0.9), 200-step critic warm-up. 5 seeds each on δ = 1; RL16-B and AC16-B also 3 on δ = 0. P4 (bootstrapped vs Monte-Carlo value) is read on these three arms in one stage.
+- **RL16+H(β)**, β ∈ {0.01, 0.03, 0.1}, 2 seeds each, as a **check**: §5.2 derives its stationary coverage and expects it to fail, for a reason different from revision 1's.
+- **PFB16** (the fixed-prior posterior restricted to the beam's completions, soft EM over the beam), relabeled per review 1 S7: biased relative to PF (no importance correction; the beam's merge rule keeps one path per state, so the prior's padding cannot act and its program is near-derivable to be L, like EI16's); 3 seeds on δ = 1 and 3 at rung 2's dose (answer pool 4), against a **matched constant-lr PF-IS16 dose reference** (3 seeds). This is F41's follow-up and exploratory.
+
+**Checks C (no training).** On every saved phase-1 PF and PF-IS16 router (the stochastic ones; EX and EI16 are deterministic and have no disagreement), on the held-out strata, per query: the committed route's correctness; the fraction of 16 sampled routes whose answer agrees with the committed answer (the statistic, fixed here: PF's sampled answer accuracy is 0.37, so raw disagreement is near its maximum everywhere and uninformative); the exact marginal's probability of the committed answer (the enumerating ceiling); the router's policy entropy at each state of the committed route by the oracle's decision there. AUROC is computed **per stratum**, only on strata where committed error is between 10 % and 90 % (len16, len32, alt, deepP8 for these routers), with the marginal's AUROC on the same queries; pooled AUROC is not reported, because it would be a stratum detector.
 
 ## 4. Endpoints
 
-- Shortest-correct committed accuracy on P-words at in4 / in8, and on **pp8** (the disambiguating stratum), on the held-out curve every 100 steps; time to pp8 ≥ 0.95.
-- Program identity over phase 2: `set_late` and `set_other` on P-words every 100 steps (the E ↔ L trajectory), R as a category; the first deviation at pp8.
-- Determinism (sampled shortest-correct), as in rung 2.
-- **What the signal sees at the start of phase 2** (the derive step, §5.3): on PP words, the fraction of queries whose beam / 16 samples contain an E route (`oracle_kept`, `oracle_any` by k); under shift A, the fraction whose beam / samples contain an L route.
-- Core B: distinct sampled routes per query (collapse), policy entropy, criterion step; for PFB16, the beam's hit rate and the target's entropy.
-- Checks C: AUROC of each uncertainty signal for committed-route error, by stratum; policy entropy by decision type.
+- **Movement** (shift A): shortest-correct committed accuracy on P-words at in4 / in8 under δ = 0, every 100 steps; time to ≥ 0.95 from the end of warm-up; the PREV logit at the relabeled class over time (the margin's trajectory); program label and R.
+- **Filling in** (shift B): pp8 shortest-correct by route type (E-E, E-L, L-L, L-double, E-double; a classifier on the committed route); the ordinary-word program on clean strata (`set_late` on isolated-P words); in4 / in8 on clean and on mixture strata.
+- **What the signal sees at the checkpoint** (§5.3, per seed): coverage of the correct new route by the beam at ε ∈ {0.1, 0.3} and by 16 samples; EX's exact posterior mass on the correct route; the margins.
+- Core B: criterion step, distinct routes per query, policy entropy, the beam's hit rate and the weights' effective sample size; the value head's explained variance.
+- Checks C: per-stratum AUROC of the agreement statistic and of the marginal; entropy by decision type (reported; derived ratio ≤ 1.7×, §5.4).
 
 ## 5. Derived before measuring
 
-**5.1 PF's fixed points under the phase-2 mixtures** (`routefind/derive/pooled.py`, extended to the mixture): the pooled target under δ = 1 + PP at f = 0.25 and 0.05, and under δ = 0. Expected: E at both f (PP words add E-only mass to a target that was already E-favouring at pool 0), L under δ = 0 (as rung 2 derived). This makes PF's phase-2 cells checks of speed, not of direction, and it gives the direction the data are pulling toward in every cell.
+**5.1 Fixed points of the exact fixed-prior target** (`routefind/derive/pooled.py`; [derive/pooled_pp_120.txt](derive/pooled_pp_120.txt), 120 episodes; review 1's `pp_pooled.txt` at 300). Under δ = 0 the pooled target is L with large margins (rung 2). Under δ = 1 it is E on ordinary words at every pp_frac, including 0: the predecessor class is SET 0.59–0.61 / HOP 0.40 whatever the PP fraction, because the preference comes from the flat prior's SET padding, not from the data. So **PF drifts from L toward E with no shift at all**; its shift-B cell is a check against its f = 0 control, not a test of the data's pull. Under the PP mixtures the pooled target **fails pp8 (0.01–0.02 at pp_frac 0.05 and 0.25, 0.08–0.14 at 1.0)**: the decisions a PP completion needs at the second P-leaving state pool into classes dominated by ordinary-word HOPs. The pooled model is blind to the router's generalization along the count direction (rung 1's probe (a): PREV on any carried count), so whether the actual PF router fills PP in is open, and that is QA′'s non-derivable part.
 
-**5.2 Why the two exploration fixes should differ.** Rung 2's `derive/search.py`: at a near-uniform policy, 16 samples contain the oracle route on 0.00–0.03 of k = 3 P-words. An entropy bonus keeps the policy near uniform exactly where it has not learned, which is where the setup step must first be rewarded; a reward gradient for SET at a flagged state needs a sampled route that SETs there *and* completes correctly, which the uniform policy almost never produces. So RL16+H is predicted to learn the all-H words (its collapse delayed) and still not the setup step. The beam, by contrast, reached the label on 0.68–1.00 of k = 3 P-words at the stray policy and kept the oracle on 0.74–1.00 (δ = 1), because it enumerates completions rather than sampling them. The beam-supported soft target (PFB16) therefore sees the setup step from the start, and it also has the fixed prior's property of not reinforcing the policy's own labels. This derivation is the reason core B is two arms and not one.
+**5.2 Why the entropy fix should fail, and the beam fix is open.** Revision 1 derived coverage at the uniform init; review 1 pointed out that an entropy arm does not sit there. It learns all-H in a few hundred steps and sits at an all-H policy with residual mass set by β. At residual mass 0.15–0.6 on the other actions, 16 samples contain the oracle route on 1.6–4.4 % of P-words (≈ 1–3 oracle samples per step), so the setup step is occasionally rewarded; but the maximum-entropy stationary policy suppresses PREV at carried-count states by e^{−0.9/β}, because PREV loses the chain on every all-H word, and the all-H words are 84 % of the stream. So RL16+H is expected to fail at every β, and it is a check. The beam-supported arms see label-reaching routes on P-words from the start (the beam reached the label on 0.68–1.00 of k = 3 P-words at the stray policy, rung 2 §5.4), and their self-normalized weights concentrate on the routes the policy already prefers, which is the same proposal bias PF-IS16 showed (F37). Whether that bias leaves enough weight on the SET routes to learn is not derivable: core B's open question.
 
-**5.3 Route coverage at the committed routers** (after phase 1, before phase 2 is preregistered): for each L router, the beam's and the sampler's coverage of E routes on PP words, under ε-mixing 0.1 and K = 16; for each E router under δ = 0, their coverage of L routes. These numbers turn the "open" rows of §7 into predictions, and they are the test of the second reading's claim that coverage predicts plasticity. Rung 2's EI16B is the one existing point: at EX's δ = 0 basin policy the beam's MAP correct route was the oracle's on 0.00, and EI16B did not move (0/2).
+**5.3 Coverage and margins at the committed routers** (after phase 1, before phase 2 is preregistered). Per passing checkpoint: the beam's coverage of the correct δ = 0 route on P-words at ε ∈ {0.1, 0.3}; the sampler's at K = 16; EX's exact posterior mass on it (`marginal` / `posterior_counts`); the margin HOP − PREV at the relabeled class. The open rows of §7 are set from these, and the per-seed coverage → movement analysis of PA3 uses them. Review 1's estimate: the E start is easier than EI16B's basin (one improbable beam child at ≈ −3.6 nats instead of two), so the EX and EI16 rows are genuinely open.
 
-**5.4 Checks C are derivable in part.** Given each query's exact marginal p(correct), the distribution of k-sample agreement is binomial, so the AUROC of k-sample disagreement is a function of the marginal's AUROC and k. What is not derivable is whether the marginal's uncertainty is informative about *committed-route* error at all for a router whose stochasticity is SET padding (§5.2 of rung 2): that is H13's falsifier.
+**5.4 Checks C.** Given each query's exact marginal, the distribution of 16-sample agreement is binomial, so the agreement statistic's AUROC is a function of the marginal's and k; what is not derivable is whether the marginal's uncertainty is informative about committed-route error at all (H13's falsifier). The entropy-by-decision ratio is derivable from the pooled target: 0.59 nats at HOP states, 0.67 at SET, ≈ 0.9–1.0 at PREV, so ≤ 1.7×, not the 3× revision 1 predicted; it is reported.
 
 ## 6. Grid and budget
 
 | stage | cells | runs | steps |
 |---|---|---|---|
-| 1 | phase 1: EI16, EX, IW16, PF, PF-IS16 × 5 seeds | 25 | 2,500 |
-| 1 | core B: RL16+H × 3 β × 3 seeds; PFB16 δ1 × 5, δ0 × 3, dose × 3 | 20 | 5,000 |
-| (derive) | §5.3 on the 25 saved routers; checks C | – | – |
-| 2 | shift B from L: 5 signals × (5 + 3) seeds | 40 | 3,000 |
-| 2 | shift B references: EX from E × 2 f × 3; from scratch × 3 signals × 3; stability × 2 | 17 | 3,000 |
-| 2 | shift A from E: 5 signals × 3 seeds | 15 | 3,000 |
-| 2 | core B stage 2 (conditional): AC16+H, ACMC16+H × 5 | ≤ 10 | 5,000 |
+| 1 | phase 1: EI16 7, EX 7, PF 3, PF-IS16 5 | 22 | 2,500 |
+| 1 | core B: RL16-B 5 + 3, ACMC16-B 5, AC16-B 5 + 3, RL16+H 3 β × 2, PFB16 3 + 3, PF-IS16 dose ref 3 | 36 | 5,000 |
+| (derive) | gate, margins, coverage, checks C on the saved routers | – | – |
+| 2 | shift A from E at p_P 0.3: RT 2, PF 5, EX 5, EI16(0.1) 5, EI16(0.3) 3, PF-IS16 5, IW16 5 | 30 | 3,000 |
+| 2 | shift A from E at p_P 0.15 and 0.08: 5 signals × 3 × 2 | 30 | 3,000 |
+| 2 | shift A from L at 0.3: RT 2 + 5 signals × 3 | 17 | 3,000 |
+| 2 | stability 4; matched from-scratch δ = 0 references 4 × 3 | 16 | 3,000 |
+| 2 | shift B from L: RT 2, 4 signals × 3, f = 0 controls 4 × 2 | 22 | 3,000 |
 
-≈ 127 runs, ≈ 380k run-steps, ≈ 9 T4-hours at rung 2's rate (0.085 s per run-step), ≈ 4.5 h wall on two T4s, in two jobs with the derive step between them. Seeds are below AGENTS rule 4 and defensible only for count predictions on near-bimodal outcomes; timing comparisons are exploratory.
+≈ 173 runs, ≈ 580k run-steps, ≈ 14 T4-hours at rung 2's rate, ≈ 7 h wall on two T4s, in two jobs with the derive step between them. If this has to shrink, the p_P = 0.15 row and the L-start row go first; the E-start row at 0.3 with its references is the rung. Seeds are below AGENTS rule 4 and defensible only for count predictions on near-bimodal outcomes.
 
-## 7. Predictions (counts; thresholds fixed here; the "open" rows are set from §5.3 before phase 2 runs)
+## 7. Predictions (counts; thresholds fixed here; rows marked *open* are set from §5.3 before stage 2 and re-reviewed)
 
 | # | prediction | falsifier | type |
 |---|---|---|---|
-| **PA1** | **Shift B, f = 0.25, from the L router.** PF moves to E and reaches pp8 ≥ 0.95 in **≥ 4/5**. IW16 stays L and fails pp8 in **≥ 4/5**. EX: **≥ 3/5** move (its exact target sees E on every PP word; its target on ordinary words is its own L, so it is slow). EI16 and PF-IS16: **open**, set from §5.3 — if the beam's E-coverage on PP words at the L router is ≥ 0.5, EI16 moves in ≥ 3/5; if ≤ 0.2, in ≤ 1/5; PF-IS16 likewise from the sampler's coverage, expected low. | Every signal in ≥ 4/5 (ties do not matter). Only PF (exactness). IW16 moving in ≥ 3/5 (sampled own posterior is plastic). | mechanism (risk 8) |
-| **PA2** | **Shift B, f = 0.05.** PF still moves in **≥ 2/3**; every other signal **≤ 1/3**. The data fraction sets the speed for a target that sees E; for the others it sets nothing, because they do not see E. | PF ≤ 1/3 (then a 5 % minority is too little for anyone, and PA1's f = 0.25 is the only readable cell). Any other signal ≥ 2/3. | mechanism |
-| **PA3** | **Shift A, δ = 0 from the E router.** EX and IW16 **≤ 1/3** learn L (lock-in: the E rule is the stray rule). EI16 **≤ 1/3** (EI16B replicated from a cleaner start). PF **≥ 2/3** (a fixed target has no basin). PF-IS16 **≤ 1/3** (coverage). | PF ≤ 1/3 (then even a fixed target cannot undo a commitment, and it is about the state, not the target). EX or EI16 ≥ 2/3 (a committed start is easier than F29's from-scratch stall). | mechanism (F29, F36) |
-| **PA4** | **Coverage predicts plasticity.** Across the open rows, the signal–cell pairs ordered by their §5.3 coverage are ordered the same way by their count of movers (Kendall τ > 0 over ≥ 6 pairs). | τ ≤ 0: plasticity is not about what the target sees. | mechanism |
-| **PB1** | **Entropy is not enough.** RL16+H learns the deferred program in **≤ 1/3** seeds at every β; its collapse is delayed (distinct routes > 1 for longer) but the setup step is never rewarded (§5.2). | ≥ 2/3 at some β; then stage 2 runs and P4 is read. | optimization (H14) |
-| **PB2** | **The beam-supported soft target learns.** PFB16 learns δ = 1 in **≥ 4/5** and δ = 0 in **≥ 2/3**, in a program that is **open** (E by the fixed prior's pooled target, or L by the beam's support, as EI16); at the dose it degrades by less than PF-IS16 did (criterion reached in ≥ 2/3 within 5k). | ≤ 2/5 on δ = 1: a beam of 16 is too narrow a support for a soft target. Dose degradation equal to PF-IS16's: the fragility was the target, not the proposal. | optimization |
-| **PC1** | **Disagreement is informative but padded.** On the stochastic routers (PF, PF-IS16), 16-sample disagreement on the *answer* predicts committed-route error on the held-out strata with AUROC ≥ 0.7, approaching the exact marginal's; disagreement on the *route* is near chance (SET padding, §5.2 of rung 2). Policy entropy concentrates at SET and PREV decisions over HOPs by ≥ 3×. | Answer disagreement at AUROC ≤ 0.6: breadth is not an uncertainty estimator here. Entropy flat across decision types. | by construction, partly (H13) |
+| **PA1** | **Shift A from E at p_P = 0.3.** RT moves in 2/2 (if not, the margins are unreachable and the shift is unreadable). PF moves in **≥ 4/5**: a fixed target with the right argmax and no basin. IW16 moves in **≤ 1/5**: its samples take the PREV almost never and its target on the rest is the old route. EX, EI16 and PF-IS16: **open**; set from §5.3 by a preregistered rule — a signal whose coverage of the correct route on P-words at the checkpoint is ≥ 0.3 is predicted to move in ≥ 3/5, one with coverage ≤ 0.05 in ≤ 1/5, and between those the row is reported, not predicted. | Every signal in ≥ 4/5 (ties do not matter; F36 was about stray labels from a bad start). Only RT and PF (exactness). IW16 ≥ 3/5. | mechanism (risk 8) |
+| **PA2** | **Dose.** For every signal that moves at 0.3, the time to move grows as p_P falls, and PF still moves in ≥ 2/3 at 0.08; a signal that does not move at 0.3 does not move at any dose (then its failure is not about how much relabeling data there is). | A signal that moves at 0.08 but not at 0.3 (then "movement" was noise); PF ≤ 1/3 at 0.08. | mechanism |
+| **PA3** | **Coverage predicts movement per seed.** Across every (signal, router, dose) run of shift A with an open or predicted row, the checkpoint's coverage of the correct route predicts whether the run moves with AUROC ≥ 0.75 over ≥ 20 runs, and within EI16, ε = 0.3 moves in at least as many seeds as ε = 0.1. | AUROC ≤ 0.6: plasticity is not about what the target sees. ε = 0.3 moving in fewer seeds than 0.1. | mechanism |
+| **PA4** | **From the L start**, the same ordering holds: PF ≥ 2/3, IW16 ≤ 1/3, the rest open; and the L start is harder than the E start for every signal (two decisions, the first with no in-support read). | The L start moving where the E start does not. | mechanism |
+| **PB1** | **Entropy is not enough** (check): RL16+H learns in ≤ 1/2 at every β. | ≥ 2/2 at some β. | optimization (H14) |
+| **PB2** | **Forced breadth: open.** RL16-B learns δ = 1 in a majority or it does not; both are informative. If it does, **P4 is read:** AC16-B and ACMC16-B each within ±1 seed of RL16-B and within 25 % of its criterion in pairs where both learn (no advantage from the learned value at this horizon, rung 2's P4 as stated). | If RL16-B learns: AC16-B or ACMC16-B ≥ 2 seeds better or worse than RL16-B. If RL16-B ≤ 1/5: the beam's self-normalized weights reproduce the policy's own preference and forced breadth alone is not exploration; risk 4 stays blocked. | optimization (H14), then mechanism (risk 4) |
+| **PB3** | **PFB16** (exploratory): learns δ = 1 in ≥ 2/3, in L; at the dose it reaches criterion in at least as many seeds as the matched PF-IS16 reference. | Program E (the merge-rule derivation was wrong). Dose equal or worse than PF-IS16 (F41's fragility is in the fixed prior itself). | optimization |
+| **PA′1** | **Filling in** (shift B from L, pp_frac 1.0): RT fills PP in (2/2). The sampled and searched signals fill in only where their routes reach the PP completions: EI16 and PF-IS16 open from coverage; EX ≥ 2/3 (its exact posterior on PP words is on the completions). PF: **open** between the pooled derivation (fails pp8) and the count-ray generalization (fills in); whichever it is, reported against its f = 0 control. The ordinary-word program on clean strata stays L for every signal except PF, whose f = 0 control already drifts toward E (§5.1). | Every signal fills PP in (filling in is signal-independent, as F30's reading suggests). PF's clean-strata program unchanged at f = 0 (the pooled prior-drift derivation was wrong). | mechanism (F30) |
+| **PC1** | **Disagreement is informative within a stratum.** On len16, len32, alt and deepP8, the agreement statistic's AUROC for committed-route error is ≥ 0.65 and within 0.1 of the exact marginal's on the same queries, for PF and PF-IS16. | AUROC ≤ 0.55 on every stratum: breadth is not an uncertainty estimator for this carrier. | by construction, partly (H13) |
 
-**Checks (reported, not predicted).** EX from the E router learns the pp8 precedence at both f (the speed ceiling). Stability: EI16 on unchanged data stays L at pp8 ≈ 0. From-scratch EI16 on the f = 0.25 mixture: whether it still lands in L when PP words are present from the start (open, reported).
+**Checks (reported, not predicted).** The stability controls stay put. The from-scratch constant-lr δ = 0 references reproduce rung 2's pattern (EX stalls; EI16, PF, PF-IS16 learn). Entropy by decision type ≤ 1.7×. From-scratch EI16 on δ = 0 lands in L.
 
 **Reading the outcomes.**
 
 | outcome | reading |
 |---|---|
-| Movement orders by target type and tracks coverage (PA1–PA4 as predicted) | Plasticity after commitment is a property of how targets are made. The synthesis of Entry 70 (search supplies targets, a fixed prior breaks ties) is about plasticity, and it is real. Later rungs train the router with searched or fixed-prior targets and never with its own posterior. |
-| Every signal moves at f = 0.25, most at 0.05 | Commitment is not sticky; F36 was about stray labels from a bad start. The researcher's reading holds; program identity is a transient and the choice of signal can be made on cost alone. |
-| Only PF moves | Plasticity requires enumeration; every scalable signal locks in. The worst outcome: before any primitive-learning rung, the program needs a signal that can move, and does not have one. |
-| EX moves but IW16 does not | The own-posterior target is plastic when exact and not when sampled: sampling, not self-consistency, is the lock. |
-| EI16 moves where its coverage is high and not where it is low | Search is plastic exactly as far as it searches; coverage, not the prior, is the variable to engineer. |
-| PA3: PF moves, nothing else | A fixed target undoes a commitment that search cannot: the AlphaZero structure (search under its own policy) is the one that locks in. |
-| PB1 holds and PB2 holds | Exploration for a router is a search problem, not a temperature problem; the beam-supported soft target is the scalable form of the PFN signal and the candidate for rungs 4+. |
-| PB1 fails | An entropy term suffices; stage 2 runs and risk 4 is read on the value contrast. |
-| PB2 fails on the dose | F41's fragility is in the fixed prior itself, not in the sampling estimator. |
-| PC1 holds | Breadth measures the router's own uncertainty about the answer; the controller of I30 is worth building on a carrier with real epistemic uncertainty. |
+| Movement orders by target type and coverage predicts it per seed (PA1–PA3 as predicted) | Plasticity after commitment is a property of how targets are made, and the predictor is what the target can see at the committed policy. The synthesis of Entry 70 (search supplies targets, a fixed prior breaks ties) is about plasticity. Later rungs train the router with targets whose coverage of the alternatives is engineered, never with its own samples alone. |
+| Every signal moves at 0.3 and the dose sets only the speed | Commitment is not sticky; F36 was about stray labels from a bad start. The researcher's reading holds and the signal can be chosen on cost. |
+| Only RT and PF move | Plasticity requires enumeration; every scalable signal locks in. Before any primitive-learning rung the program needs a signal that can move, and does not have one. |
+| EX moves, IW16 does not | The own-posterior target is plastic when exact and not when sampled: sampling, not self-consistency, is the lock. |
+| EI16 at ε = 0.3 moves and at 0.1 does not | Search is plastic exactly as far as it searches; coverage is the variable to engineer, and it is cheap. |
+| RT does not move | The margins after 2,500 sharpened steps are unreachable at this lr and budget (L24); the rung is re-run with a longer phase 2 or a shorter phase 1 before anything is read. |
+| PB2: RL16-B learns and the value arms match it | Exploration for a router is a search problem; the beam-supported reward signal is usable, and at this horizon a learned value adds nothing (rung 2's P4, now read). |
+| PB2: RL16-B learns and AC16-B beats it | Bootstrapped contextual value credits setup steps once exploration is supplied: the first positive evidence for risk 4. |
+| PB2: RL16-B fails | Forced breadth with self-normalized weights is not exploration; the weights return to the policy's own preference. Risk 4 needs an exploration mechanism that is not a reweighting of the policy. |
+| PA′1: PF fails pp8 at pp_frac 1.0 | The fixed prior's padding buries rare decisions; the count-ray generalization does not rescue it. A PFN-style target needs a prior that does not spread over padding. |
+| PA′1: everything fills in | Filling in undetermined decisions is signal-independent; only overturning determined ones (shift A) separates the signals. |
+| PC1 holds | Breadth measures the router's uncertainty about the answer where it has any; the controller of I30 is worth building on a carrier with real epistemic uncertainty. |
 
 ## 8. Gates
 
-- **G1 tests:** checkpoint save / load round-trips; the PP-fraction generator (the fraction and the `pp` word shape; f = 0 reproduces the rung-2 stream byte for byte); the constant schedule; the entropy bonus's gradient on a hand-built policy; PFB16's target equals PF's restricted to the beam's completions on a tiny case, and equals PF when the beam is exhaustive; agreement and AUROC on hand-built cases.
-- **G2 derive:** §5.1 before stage 1; §5.3 and checks C between stages.
-- **G3 pilot:** none beyond stage 1; lr is 1e-3 throughout.
-- **G4 reviews:** design review of this revision; a code review before stage 1; the open rows of §7 fixed from §5.3 before stage 2, with a short re-review.
-- **CPU sanity (L25):** one seed of EI16 phase 1 → PF phase 2 at f = 0.25 and one of RL16+H(0.03), 1,500 steps each, before stage 1.
+- **G1 tests:** checkpoint save / load round-trips (logits equal on a fixed batch across stack sizes; `evaluate` equal to the phase-1 record; the bases' seed travels with the state); `pp_frac` (done: f = 0 leaves the stream byte-identical; the realized fraction over all queries is asserted); the constant schedule and the 100-step phase-2 warm-up; the beam returning all completions, and PFB16's target equal to PF's when the beam is exhaustive on a tiny case; RL16-B's gradient on a hand-built support; the agreement statistic and per-stratum AUROC on hand-built cases; the PP route-type classifier on hand-built routes.
+- **G2 derive:** §5.1 (done), §5.2 (review 1's numbers, to be reproduced in `derive/`), §5.3 and checks C between stages.
+- **G3 pilot:** none; lr is 1e-3 throughout.
+- **G4 reviews:** design review 1 (handled, §13); a code review before stage 1; the open rows fixed from §5.3 before stage 2, with a short re-review.
+- **CPU sanity (L25):** one seed of EX phase 1 → PF and EI16 phase 2 under δ = 0, and one of RL16-B, 1,500 steps each, emitting the checkpoint's margins and coverage, before stage 1.
 
 ## 9. What this rung does not answer
 
 - Anything about neural primitives or the basis (risks 1, 2); rung 4 is the distillation test (D110).
-- Branching at inference, superposition, or a controller: checks C are the toy's calibration of the picture, not the picture.
+- Branching at inference or a controller: checks C calibrate the picture, they are not the picture.
 - Abstraction of compositions (risk 9).
-- Whether plasticity under *gradual* shifts (f rising over training) differs from a step at f; one step per cell is the minimum.
+- Plasticity under gradual shifts; one step per cell is the minimum.
+- The E/L tie itself: review 1 showed no δ = 1 data break it. Which tied program a signal picks remains F37's accident; shift A overturns a decision rather than breaking a tie.
 
-## 10. Implementation needed (for the code review; none of it exists)
+## 10. Implementation needed
 
-- `run_stack`: save each run's full `state_dict` (and the frozen bases' seed) at the end; a per-run `init_from` config key that loads a saved router before training; a `schedule: "constant"` option.
-- `RouteConfig.pp_frac`: in `generate`, with probability `pp_frac` a chain of length ≥ 4 draws its word from `forced_word(rng, k, "pp")`; `pp_frac = 0` must leave the stream unchanged.
-- Estimators: `rl_loss` with an entropy bonus β at the sampled routes' states; `pfb_loss`: the beam's completions (all of them, not only the MAP) with their π₀ e^{−λ·moves} L_y weights normalized per query, and a cross-entropy to that distribution along the completions' routes. The beam already returns completions internally (`complete` in `beam_search`); it has to return them all.
-- Analysis: program trajectory over phase 2; pp8 over time; coverage at the checkpoints (`derive/search.py` on saved routers); checks C (agreement, AUROC, entropy by decision).
-- Grids: two jobs (`cm_stage1.json`, `cm_stage2.json`), the second generated after the derive step.
+Done: `RouteConfig.pp_frac` (with tests), `pooled.py pp` (evaluating on a clean stream). To do:
+- `run_stack`: save each run's full state; a per-run `init_from` key; `schedule: "constant"` with a configurable warm-up; the commitment gate and margin record as a derive script over saved routers.
+- `beam_search`: return all completions (actions, moves, end symbols) per query; `rlb_loss` (self-normalized weights over the support, per-query baseline, optional value head and TD(λ)); `pfb_loss`; `rl_loss` with an entropy bonus.
+- Strata: clean (pp_frac = 0) and mixture evaluations side by side; a PP route-type classifier; `set_late` on isolated-P words only.
+- Analysis: movement curves and margin trajectories, per-seed coverage → movement, the dose plot, checks C.
+- Grids: `cm_stage1.json`; `cm_stage2.json` generated after the derive step.
 
 ## 11. Prior work
 
-Catastrophic forgetting and plasticity loss (continual-learning literature; "loss of plasticity" in deep RL, Dohare et al. 2024); policy collapse and entropy regularization (A3C, SAC); expert iteration and AlphaZero's search-improved targets (Anthony et al. 2017; Silver et al. 2017); soft EM and posterior regularization; adaptive self-consistency and agreement-based halting (Wang et al. 2023; Aggarwal et al. 2023); ensembles and MC dropout as epistemic uncertainty (Lakshminarayanan et al. 2017; Gal & Ghahramani 2016); value of computation (Russell & Wefald 1991); DreamCoder (Ellis et al. 2021).
+Loss of plasticity and continual learning (Dohare et al. 2024); policy collapse and entropy regularization (A3C, SAC); expert iteration and search-improved targets (Anthony et al. 2017; Silver et al. 2017); off-policy policy gradients with self-normalized weights; soft EM and posterior regularization; adaptive self-consistency (Wang et al. 2023; Aggarwal et al. 2023); ensembles and MC dropout as epistemic uncertainty (Lakshminarayanan et al. 2017; Gal & Ghahramani 2016); value of computation (Russell & Wefald 1991); DreamCoder (Ellis et al. 2021).
 
-New here, to our reading: the same committed router continued under five target types with the data shift held fixed, which separates "the data broke the tie" from "the learner could move"; coverage at the committed policy as a preregistered predictor of plasticity; the beam-supported fixed-prior posterior as a signal.
+New here, to our reading: the same committed router continued under six target types with the data shift held fixed, which separates "the data relabeled the decision" from "the learner could move"; per-seed coverage at the committed policy as a preregistered predictor of plasticity, with a within-signal coverage knob; the beam-supported reward signal as the exploration fix that lets contextual value be read.
+
+## 12. History of this design
+
+- **Revision 1** (`7310e91`): shift B as core A ("PP words break the tie toward E"); PF as a core arm; core B gated on the entropy arm; Kendall τ over 6 pairs.
+- **Revision 2**: shift A as core A with a p_P dose and a per-seed coverage predictor; shift B reframed as filling in, with f = 0 controls and clean strata; PF and RT as ceilings and checks; forced-breadth reward arms unconditional, P4 read there; the entropy arm a check; commitment gate, margins, matched references, constant lr with a short phase-2 warm-up; checks C per stratum with a fixed statistic.
+
+## 13. Review 1 handling ([review1_design.md](review/review1_design.md))
+
+| item | handling |
+|---|---|
+| B1 shift B does not break the tie; "moves to E" ≠ "passes pp8" | Accepted; §2 rewritten. Shift B is secondary and is about filling in, with pp8 by route type and the ordinary-word program on clean strata as separate endpoints. |
+| B2 PF's movement is prior-driven and f-independent | Accepted (also found independently, §5.1). PF is a ceiling in shift A and a check against its f = 0 control in shift B; f = 0 controls for every signal. |
+| B3 doses misstated 5× | Accepted; doses are stated as measured fractions of queries (§2), asserted in the generator's test; shift A's dose is p_P. |
+| B4 core B lacks the forced-breadth reward arm; the gate hung on a derivable failure; §5.2 at the wrong policy | Accepted. RL16-B / ACMC16-B / AC16-B unconditional at 5 seeds, P4 read there; RL16+H a 2-seed check with review 1's stationary-coverage derivation in §5.2; PFB16 relabeled and given a matched constant-lr reference. |
+| B5 no commitment gate, no ceiling | Accepted: the gate, the margin record, RT from every checkpoint under every shift, matched from-scratch references. |
+| S1 shift A is the clean tie-breaker; p_P dose; EX / EI16 rows open | Accepted; it is core A, with a dose series and open rows set from §5.3 by a preregistered coverage rule. |
+| S2 Kendall τ | Replaced by per-seed coverage → movement AUROC over ≥ 20 runs and the within-EI16 ε manipulation. |
+| S3 PC1 | Per-stratum AUROC on strata with 10–90 % error, the marginal on the same queries, the entropy ratio reported with its derived value. |
+| S4 contamination | Clean and mixture strata evaluated side by side; program identity on isolated-P words. |
+| S5 phase-2 clock | 100-step warm-up; clocks start after it; Σ lr stated against recorded margins. |
+| S6 phase-1 length | Margins recorded; one duration arm (EX at 1,250 steps, 2 seeds) added to phase 1 if budget allows; otherwise listed in §9. |
+| S7 PFB16 | Relabeled (biased; program near-derivable L); exploratory. |
+| S8 IW16 phase-1 unused; EX 3 not 5 | IW16 has no phase-1 arm; EX and EI16 have 7 for the gate; PF and PF-IS16 serve checks C. |
+| S9 checkpoint tests | In G1. |
+| S10 schedule-mismatched references | Matched constant-lr from-scratch references added. |
+| M1–M6 | §2 states the two decisions EX-from-E must learn in shift B; H12's "25 % minority" to be corrected in the ledger; §10 updated; ε named as the coverage knob; the CPU sanity run emits margins and coverage; the agreement statistic is fixed in §3. |

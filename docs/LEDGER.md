@@ -571,7 +571,8 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 
 **H12 — Plasticity after commitment is set by how the targets are made.** *Argument from F36 and EI16B; rung 3 core A.*
 - **Claim:** a router committed to one of two tied programs moves to the other when the data start to require it in the order exact fixed-prior target > search under its own policy > importance-sampled fixed prior ≈ own posterior, and search's plasticity is predicted by its route coverage at the committed policy.
-- **Falsifiers:** every signal moves at a 25 % minority of disambiguating data (then commitment is not sticky and F36 was a from-scratch artefact); only the exact target moves (then plasticity is about enumeration, not priors).
+- **Falsifiers:** every signal moves when 16 % of queries relabel the decision (then commitment is not sticky and F36 was a from-scratch artefact); only the exact target moves (then plasticity is about enumeration, not priors).
+- *1 Nov, design review 1 of rung 3:* the relabeling shift is the local trigger from a committed deferred-trigger router (one in-support decision, HOP → PREV, relabeled by every P-word; dose = p_P). PP words do not break the E/L tie (both programs complete them at the oracle's length), so the earlier "PP words favour E" is withdrawn; PP words test filling in, not overturning.
 
 **H13 — Disagreement among sampled routes estimates the value of computation.** *Argument; rung 3 check C, a carrier question later.*
 - **Claim:** per query, disagreement among k sampled routes predicts the committed route's error better than the prediction's entropy (which is constant in the toy) and approaches the exact marginal's predictive power as k grows; the router's policy entropy concentrates at the setup and payoff decisions, not at HOPs.
