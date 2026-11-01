@@ -19,8 +19,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "route"))
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "routefind"))
-import analyze as A  # noqa: E402  (rung 1 helpers)
+import analyze as A  # noqa: E402  (rung 1 helpers; routefind's analyze is loaded by path below, not by name)
 import importlib.util  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("rf", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "routefind", "analyze.py"))
@@ -38,7 +37,10 @@ def moved(r, thr=0.95):
 def move_step(r, thr=0.95):
     """First held-out step (from the end of the phase-2 warm-up) with every k <= 8 at shortest-correct >= thr, confirmed."""
     w = r["train"].get("warmup", 0)
-    pts = [(c["step"], min((c.get("min_acc_by_k") or {}).values(), default=0.0)) for c in r["curve"] if c.get("min_acc_by_k")]
+    if r["curve"] and "min_acc_P" in r["curve"][-1]:            # rung 3: shortest-correct on P-words of the criterion set
+        pts = [(c["step"], c["min_acc_P"] if c["min_acc_P"] is not None else 0.0) for c in r["curve"]]
+    else:
+        pts = [(c["step"], min((c.get("min_acc_by_k") or {}).values(), default=0.0)) for c in r["curve"] if c.get("min_acc_by_k")]
     for i in range(len(pts) - 1):
         if pts[i][1] >= thr and pts[i + 1][1] >= thr:
             return max(0, pts[i][0] - w)
@@ -74,15 +76,14 @@ def main():
             out(f"| {g} | {len(rs)} | {sum(RF.learned(r) for r in rs)} | {nE} / {nL} / {nX} / {nR} | {A.fmt_t95([RF.crit_step(r) for r in rs], rs[0]['train']['steps'])} | {det} | {gp} |")
         if gate:
             out("\nWhat each committed router's phase-2 targets can see (DESIGN §5.3): shift A = the δ0 oracle route on P-words; shift B = a shortest correct completion on PP words\n")
-            out("| router | start | beam ε0.1 A | beam ε0.3 A | 16 samples A | own posterior A | margin HOP−PREV (mean [min,max]) | p(PREV) at the class | beam ε0.1 B | 16 samples B |")
-            out("|---|---|---|---|---|---|---|---|---|---|")
+            out("| router | start | beam ε0.1 keeps oracle / oracle among completions / kept shortest (set_late) | beam ε0.3 keeps oracle | 16 samples | own posterior | margin HOP−PREV | margin HOP−SET | B: beam ε0.1 / samples |")
+            out("|---|---|---|---|---|---|---|---|---|")
             for name, sees in sorted(gate["sees"].items()):
                 a, b = sees["A"], sees["B"]
-                mg = a.get("margin_hop_minus_prev")
                 f = lambda v: "–" if v is None else f"{v:.2f}"
-                mgs = "–" if not mg else f"{mg['mean']:.1f} [{mg['min']:.1f}, {mg['max']:.1f}]"
-                out(f"| {name} | {gate['gate'][name]['start']} | {f(a.get('beam_eps0.1'))} | {f(a.get('beam_eps0.3'))} | {f(a.get('samples_K16'))} | "
-                    f"{f(a.get('own_posterior_on_oracle'))} | {mgs} | {f(a.get('p_prev_at_class'))} | {f(b.get('beam_eps0.1'))} | {f(b.get('samples_K16'))} |")
+                mg = lambda d: "–" if not d else f"{d['mean']:.1f} [{d['min']:.1f}, {d['max']:.1f}] n={d['n']}"
+                out(f"| {name} | {gate['gate'][name]['start']} | {f(a.get('beam_eps0.1'))} / {f(a.get('beam_eps0.1_oracle_among_completions'))} / {f(a.get('beam_eps0.1_kept_shortest'))} ({f(a.get('beam_eps0.1_kept_set_late'))}) | "
+                    f"{f(a.get('beam_eps0.3'))} | {f(a.get('samples_K16'))} | {f(a.get('own_posterior_on_oracle'))} | {mg(a.get('margin_hop_minus_prev'))} | {mg(a.get('margin_hop_minus_set'))} | {f(b.get('beam_eps0.1'))} / {f(b.get('samples_K16'))} |")
 
     cb = {g: rs for g, rs in groups.items() if g.endswith(("_d1", "_d0", "_d1p4")) and not g.startswith(("EX_", "EI16_", "PF_", "PFIS16_d0"))}
     cb.update({g: rs for g, rs in groups.items() if g in ("PFIS16_d1p4",)})

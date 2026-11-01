@@ -101,6 +101,8 @@ def run_chunk(chunk, dev, path_of):
             return
         raise
     for c, rec in zip(chunk, recs):
+        if rec.get("cfg", {}).get("init_from"):
+            rec["cfg"]["init_from"] = os.path.basename(rec["cfg"]["init_from"])
         if "state" in rec:                           # rung 3: the router's parameters go to <out>/ckpt/<name>.pt
             ck = os.path.join(CKPT_DIR[0], c["name"] + ".pt")
             os.makedirs(CKPT_DIR[0], exist_ok=True)

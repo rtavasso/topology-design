@@ -313,7 +313,8 @@ def rlb_loss(pi: torch.Tensor, comp: dict, reward: torch.Tensor, lam: float, sta
     R = torch.where(comp["valid"], R, torch.zeros_like(R))
     b = (w * R).sum(-1, keepdim=True)
     sur = -(w * (R - b) * lpr).sum(-1)
-    ess = 1.0 / (w ** 2).sum(-1).clamp_min(1e-30) / w.shape[-1]
+    n_valid = comp["valid"].sum(-1).clamp_min(1).float()
+    ess = 1.0 / (w ** 2).sum(-1).clamp_min(1e-30) / n_valid               # effective sample size / valid completions
     return sur, (-(w * R).sum(-1)).detach(), ess.detach()
 
 
@@ -520,6 +521,8 @@ def ac_loss(pi: torch.Tensor, V: torch.Tensor, acts: torch.Tensor, states: torch
         actor, critic, ret = actor * wK, critic * wK, ret * wK
     with torch.no_grad():   # critic diagnostics, as per-episode sums (the trainer aggregates them per run)
         vm = valid.float()
+        if weights is not None:                      # beam support: invalid slots carry weight 0 and are not routes
+            vm = vm * (weights > 0).float().unsqueeze(-1)
         G = torch.flip(torch.cumsum(torch.flip(r * vm, [-1]), -1), [-1])               # MC return-to-go
         res = G - v[..., :T]
         sm = lambda x: (x * vm).sum((1, 2, 3))

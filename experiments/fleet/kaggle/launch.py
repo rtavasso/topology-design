@@ -43,7 +43,7 @@ INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "tests/test_p
            "pyproject.toml"]
 PTR_INCLUDE = ["tests/test_ptr.py", "experiments/ptr/run_ptr.py", "experiments/ptr/gate.py"]
 ROUTE_INCLUDE = ["tests/test_route.py", "tests/test_routefind.py", "tests/test_commit.py", "tests/test_ptr.py",
-                 "experiments/route/run_route.py"]
+                 "experiments/route/run_route.py", "experiments/commit/gate.py"]
 VALIDATE_EXTRA = ["experiments/paths/results_data/compact.json.gz"]
 
 
@@ -159,6 +159,11 @@ def main():
     ckpts = sorted(f for f in os.listdir(args.ckpt_dir) if f.endswith(".pt")) if args.ckpt_dir else []
     if args.ckpt_dir and not ckpts:
         sys.exit(f"no *.pt in --ckpt-dir {args.ckpt_dir}")
+    if args.route_grid:
+        need = sorted({c["init_from"] for c in json.load(open(args.route_grid)) if c.get("init_from")})
+        missing = [f for f in need if f not in ckpts]
+        if missing:
+            sys.exit(f"the grid's init_from checkpoints are not in --ckpt-dir: {missing[:5]}{'...' if len(missing) > 5 else ''}")
     with tarfile.open(os.path.join(ds, "code.tar.gz"), "w:gz") as tf:
         for rel in include:
             tf.add(os.path.join(ROOT, rel), arcname=os.path.join("code", rel))
@@ -213,8 +218,15 @@ def wait_and_fetch(args, user):
         os.makedirs(res, exist_ok=True)
         for f in loose:
             os.replace(os.path.join(args.out, f), os.path.join(res, f))
+    ckd = os.path.join(args.out, "ckpt")
+    loose_pt = [f for f in os.listdir(args.out) if f.endswith(".pt")]
+    if loose_pt:
+        os.makedirs(ckd, exist_ok=True)
+        for f in loose_pt:
+            os.replace(os.path.join(args.out, f), os.path.join(ckd, f))
     n = len([f for f in os.listdir(res) if f.endswith(".json.gz")]) if os.path.isdir(res) else 0
-    print(f"logs in {args.out}" + (f"; {n} results in {res}" if n else ""))
+    nc = len([f for f in os.listdir(ckd) if f.endswith(".pt")]) if os.path.isdir(ckd) else 0
+    print(f"logs in {args.out}" + (f"; {n} results in {res}" if n else "") + (f"; {nc} checkpoints in {ckd}" if nc else ""))
 
 
 if __name__ == "__main__":

@@ -52,14 +52,14 @@ def gate(rec, start):
     i4, i8 = e["in4"], e["in8"]
     reasons = []
     if (i4.get("min_acc_P") or 0) < 0.95 or (i8.get("min_acc_P") or 0) < 0.95:
-        reasons.append(f"not learned ({i4.get('min_acc_P'):.2f}/{i8.get('min_acc_P'):.2f})")
+        reasons.append(f"not learned ({i4.get('min_acc_P')}/{i8.get('min_acc_P')})")
     late = i8.get("set_late_P"); oth = i8.get("set_other_P") or 0
     label = "–" if late is None else ("other" if oth > 0.25 else ("L" if late >= 0.75 else ("E" if late <= 0.25 else "mix")))
     want = {"E": "E", "L": "L"}[start]
     if label != want:
         reasons.append(f"program {label} ({late})")
     if (i8.get("samp_min_acc_P") or 0) < 0.95:
-        reasons.append(f"not deterministic ({i8.get('samp_min_acc_P'):.2f})")
+        reasons.append(f"not deterministic ({i8.get('samp_min_acc_P')})")
     plus_one = all(abs((e[st]["q_steps"] - e[st]["oracle_steps"]) - 1.0) <= 0.15 and e[st]["acc"] >= 0.95 for st in ("in4", "in8", "none8"))
     if plus_one:
         reasons.append("program R")
@@ -85,11 +85,23 @@ def what_it_sees(m, rc, dc_target, n, seed, dev, shift):
     # coverage by the beam at eps 0.1 / 0.3: a correct completion at the oracle's length (shift B: any shortest correct)
     for eps_mix in (0.1, 0.3):
         found, a_b, st_b = E.beam_search(pi, mp, fb["q_start"], fb["q_ans"], T, W, dc_target, eps_mix=eps_mix, lam=LAM)
+        kept_short = found & (st_b == osteps)                      # the kept route is shortest-correct (any program)
         if shift == "A":
-            ok = found & route_ok(a_b, st_b, oa, osteps)
+            ok = found & route_ok(a_b, st_b, oa, osteps)           # the kept route IS the oracle's (the expressible L route)
         else:
-            ok = found & (st_b == osteps)
+            ok = kept_short
         out[f"beam_eps{eps_mix}"] = float(ok[words].float().mean()) if words.any() else None
+        out[f"beam_eps{eps_mix}_kept_shortest"] = float(kept_short[words].float().mean()) if words.any() else None
+        # the oracle route among ALL completions (not only the kept one), and the kept route's program
+        comp = E.beam_completions(pi, mp, fb["q_start"], T, W, dc_target, eps_mix=eps_mix, lam=LAM)
+        xs = E.replay(mp, fb["q_start"], comp["acts"])
+        oks = torch.stack([route_ok(comp["acts"][:, :, j], comp["moves"][:, :, j], oa, osteps) & comp["valid"][:, :, j] for j in range(comp["acts"].shape[2])], -1)
+        out[f"beam_eps{eps_mix}_oracle_among_completions"] = float(oks.any(-1)[words].float().mean()) if words.any() else None
+        xb = E.replay(mp, fb["q_start"], a_b)
+        from topology_design.route.train_route import program_stats
+        _, late, oth = program_stats(a_b, xb, st_b, xb[:, :, -1] // PER_SYM, fb["q_ans"], osteps, mp, oa, ostates)
+        lw = late[words & kept_short]
+        out[f"beam_eps{eps_mix}_kept_set_late"] = float(torch.nanmean(lw)) if torch.isfinite(lw).any() else None
     g = torch.Generator(device=dev).manual_seed(4242)
     sym, st_k, a_k, x_k = E.sample_routes(pi, mp, fb["q_start"], T, K, generator=g)
     if shift == "A":
@@ -113,17 +125,21 @@ def what_it_sees(m, rc, dc_target, n, seed, dev, shift):
         NS = lg.shape[1]
         ids = torch.arange(NS, device=dev); s_, c_, h_ = ids // PER_SYM, (ids % PER_SYM) // NH, ids % NH
         own = mp["flag"][:, s_] == 1
-        cls = own & (c_ == 1).unsqueeze(0) & (h_ == 1).unsqueeze(0)          # (B, NS)
-        # visited by the committed route on P-words
-        vis = torch.zeros_like(cls)
-        stv = states[:, :, :T]
+        cls_prev = own & (c_ == 1).unsqueeze(0) & (h_ == 1).unsqueeze(0)     # (B, NS): where L must PREV
+        cls_set = own & (c_ == 0).unsqueeze(0) & (h_ == 0).unsqueeze(0)      # where L must SET
+        # the states the ORACLE route visits on P-words (the committed route of an L router never reaches (s, 1, 1))
+        vis = torch.zeros_like(cls_prev)
+        To = oa.shape[-1]
+        stv = ostates[:, :, :To]
         bidx = torch.arange(stv.shape[0], device=dev).view(-1, 1, 1).expand_as(stv)
-        m_ = (acts >= 0) & words.unsqueeze(-1)
+        m_ = (oa >= 0) & words.unsqueeze(-1)
         vis[bidx[m_], stv[m_]] = True
-        sel = cls & vis
-        marg = (lg[..., HOP] - lg[..., PREV])[sel]
-        out["margin_hop_minus_prev"] = {"mean": float(marg.mean()), "min": float(marg.min()), "max": float(marg.max()), "n": int(sel.sum())} if sel.any() else None
-        out["p_prev_at_class"] = float(torch.softmax(lg, -1)[..., PREV][sel].mean()) if sel.any() else None
+        pr = torch.softmax(lg, -1)
+        for key, cls, a2 in (("hop_minus_prev", cls_prev, PREV), ("hop_minus_set", cls_set, SET)):
+            sel = cls & vis
+            marg = (lg[..., HOP] - lg[..., a2])[sel]
+            out[f"margin_{key}"] = {"mean": float(marg.mean()), "min": float(marg.min()), "max": float(marg.max()), "n": int(sel.sum())} if sel.any() else None
+            out[f"p_{'prev' if a2 == PREV else 'set'}_at_class"] = float(pr[..., a2][sel].mean()) if sel.any() else None
     return out
 
 
@@ -133,6 +149,7 @@ def main():
     ap.add_argument("--n", type=int, default=96)
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--force", action="store_true", help="compute what_it_sees for checkpoints that fail the gate too (CPU sanity)")
     args = ap.parse_args()
     recs = {}
     for p in sorted(glob.glob(os.path.join(args.results, "results", "*.json.gz"))):
@@ -149,7 +166,7 @@ def main():
         ok, reasons, label = gate(r, start)
         report["gate"][name] = {"arm": arm, "seed": r["train"]["seed"], "start": start, "passes": ok, "reasons": reasons, "label": label, "ckpt": r["ckpt"]}
         print(f"{name}: {'PASS' if ok else 'FAIL'} {label} {reasons}", flush=True)
-        if not ok:
+        if not ok and not args.force:
             continue
         m, rc, dc, st = load_router(os.path.join(ck, r["ckpt"]), args.device)
         sees = {}

@@ -137,19 +137,32 @@ def test_isolated_P_and_pp_set_placement_on_hand_built_routes():
     assert isolated_P(w).tolist() == [[True, False, False]]
     cfg = RouteConfig(); A = cfg.n_keys
     s_ = lambda sym, c=0, h=0: sid(torch.tensor(sym), torch.tensor(c), torch.tensor(h)).item()
-    # oracle on a PP run: 0 -SET-> 0 -HOP-> 1 -SET-> 1 -PREV-> 5 -PREV-> 9 -HOP-> answer ; P-leaving symbols 1 (first), 5 (second)
+    # a word H P P H (k = 4): symbols 0 -H-> 1 ; P-steps leave 1 and 5 ; oracle (E under delta 1):
+    # 0 -SET-> 0 -HOP-> 1 -SET-> 1 -PREV-> 5 -PREV-> 9 -HOP-> answer. P-leaving symbols 1 (first), 5 (second); predecessor 0.
     oa = torch.tensor([[[SET, HOP, SET, PREV, PREV, HOP, HALT, -1]]])
     ost = torch.tensor([[[s_(0), s_(0, 1, 1), s_(1, 1), s_(1, 2, 1), s_(5, 1), s_(9), s_(A), s_(A), s_(A)]]])
     qw = torch.tensor([[[0, 1, 1, 0]]])
     ok = torch.tensor([[True]])
-    # E-E (as the oracle): SETs before the first (at 0) and at the first (1)
-    assert pp_set_placement(oa, ost, ok, oa, ost, qw)[0, 0].tolist() == [1, 1, 0, 0]
-    # L-L: HOP, SET at 1, PREV, SET at 5, PREV
-    ll = torch.tensor([[[HOP, SET, PREV, SET, PREV, HOP, HALT, -1]]])
-    llst = torch.tensor([[[s_(0), s_(1), s_(1, 1, 1), s_(5), s_(5, 1, 1), s_(9), s_(A), s_(A), s_(A)]]])
-    assert pp_set_placement(ll, llst, ok, oa, ost, qw)[0, 0].tolist() == [0, 1, 1, 0]
+    def place(acts, syms):
+        st = torch.tensor([[[s_(x) for x in syms]]])            # (c, h) do not matter to the classifier
+        out, L = pp_set_placement(acts, st, ok, oa, ost, qw)
+        return out[0, 0].tolist(), int(L[0, 0])
+    assert place(oa, [0, 0, 1, 1, 5, 9, A, A, A]) == ([1, 1, 0, 0, 0], 2)                       # E-E
+    assert place(torch.tensor([[[HOP, SET, PREV, SET, PREV, HOP, HALT, -1]]]), [0, 1, 1, 5, 5, 9, A, A, A]) == ([0, 1, 1, 0, 0], 2)   # L-L
+    assert place(torch.tensor([[[SET, HOP, PREV, SET, PREV, HOP, HALT, -1]]]), [0, 0, 1, 5, 5, 9, A, A, A]) == ([1, 0, 1, 0, 0], 2)   # E-L
+    assert place(torch.tensor([[[HOP, SET, SET, PREV, PREV, HOP, HALT, -1]]]), [0, 1, 1, 1, 5, 9, A, A, A]) == ([0, 2, 0, 0, 0], 2)   # L-double
+    assert place(torch.tensor([[[SET, SET, HOP, PREV, PREV, HOP, HALT, -1]]]), [0, 0, 0, 1, 5, 9, A, A, A]) == ([2, 0, 0, 0, 0], 2)   # E-double
     # not shortest-correct: not classified
-    assert pp_set_placement(ll, llst, torch.tensor([[False]]), oa, ost, qw)[0, 0].tolist() == [-1, -1, -1, -1]
+    out, _ = pp_set_placement(oa, ost, torch.tensor([[False]]), oa, ost, qw)
+    assert out[0, 0].tolist() == [-1] * 5
+    # an isolated P before the run: its SET is attributed to that step and not counted. Word H P H P P H (k = 6):
+    # 0 -H-> 1 -P-> 2 -H-> 3 -P-> 4 -P-> 5 ; oracle E: SET@0 HOP PREV(1->2) HOP SET@2.. wait: E sets at the predecessor of 3,
+    # which is 2: 0 SET, HOP(1), PREV(->2), SET@2, HOP(3), SET@3, PREV(->4), PREV(->5), HOP(answer)
+    oa2 = torch.tensor([[[SET, HOP, PREV, SET, HOP, SET, PREV, PREV, HOP, HALT, -1, -1]]])
+    ost2 = torch.tensor([[[s_(0), s_(0, 1, 1), s_(1, 1), s_(2), s_(2, 1, 1), s_(3, 1), s_(3, 2, 1), s_(4, 1), s_(5), s_(A), s_(A), s_(A), s_(A)]]])
+    qw2 = torch.tensor([[[0, 1, 0, 1, 1, 0]]])
+    out, L = pp_set_placement(oa2, ost2, ok, oa2, ost2, qw2)
+    assert out[0, 0].tolist() == [1, 1, 0, 0, 0] and int(L[0, 0]) == 2                             # the first SET (for the isolated P) is ignored
 
 
 @pytest.mark.parametrize("est", ["rlb", "acb", "pfb", "rl"])

@@ -23,7 +23,7 @@ import torch.nn.functional as F
 from ..ptr.stacked import StackedAdamW, clip_grad_norm_per_run
 from .data import RouteConfig, generate
 from .exec import (marginal, committed, oracle, route_ok, readout, maps, remaining_distance, counterfactual_probes,
-                   HOP, PREV, SET, HALT, PER_SYM)
+                   HOP, PREV, SET, HALT, PER_SYM, NH)
 from .pool import EpisodePool, stack_batches, strata_episodes, to_dict, STRATA
 from .router import StackedRouter, RouterConfig
 from . import estimators as E
@@ -130,6 +130,11 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
     ok_ans = (s_fin == fb["q_ans"]).float()
     min_ok, on_flag, set_oth = program_stats(acts, states_c, steps, s_fin, fb["q_ans"], osteps, mp, oa, ostates)
     min_ok = min_ok.float()
+    hasP_all = (fb["q_word"] == 1).any(-1)
+    # rung 3 shift A: the log-prob margins at the decisions the local trigger relabels, on the states the ORACLE route
+    # visits on P-words: log pi(HOP) - log pi(PREV) at (own flag 1, c 1, set-here 1) and log pi(HOP) - log pi(SET) at
+    # (own flag 1, c 0, set-here 0) (design review 1 code, items 5-6)
+    marg = margins_at_classes(pi, mp, oa, ostates, hasP_all)
     q, es, _, _ = marginal(pi, mp, fb["q_start"], rc.T, readout(dc, rc.eps, dev))     # the exact objective (every estimator)
     nll = -torch.log(q.gather(-1, (fb["q_ans"] - dc.n_keys).unsqueeze(-1)).squeeze(-1) + 1e-9) + rc.lam * es
     depth = deepest_P(fb["q_word"], fb["q_k"])
@@ -139,6 +144,7 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
         sl = slice(r * B, (r + 1) * B)
         kk = fb["q_k"][sl].reshape(-1); okr = ok[sl].reshape(-1); oka = ok_ans[sl].reshape(-1); dp = depth[sl].reshape(-1)
         okm = min_ok[sl].reshape(-1); ofl = on_flag[sl].reshape(-1); oth = set_oth[sl].reshape(-1)
+        hp = hasP_all[sl].reshape(-1)
         iso = isolated_P(fb["q_word"][sl]).reshape(-1)                 # rung 3: program identity on isolated-P words only
         ofl_i = torch.where(iso, ofl, torch.full_like(ofl, float("nan"))); oth_i = torch.where(iso, oth, torch.full_like(oth, float("nan")))
         acc, ans_acc, by_depth, min_acc = {}, {}, {}, {}
@@ -157,6 +163,9 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
                     "min_acc_by_k": min_acc, "min_acc": float(okm.mean()),
                     "set_late": float(torch.nanmean(ofl)) if torch.isfinite(ofl).any() else None,
                     "set_other": float(torch.nanmean(oth)) if torch.isfinite(oth).any() else None,
+                    "min_acc_P": float(okm[hp].mean()) if hp.any() else None, "n_P": int(hp.sum()),
+                    "margin_hop_prev": (float(marg[0][sl][marg[2][sl]].mean()) if marg is not None and marg[2][sl].any() else None),
+                    "margin_hop_set": (float(marg[1][sl][marg[3][sl]].mean()) if marg is not None and marg[3][sl].any() else None),
                     "set_late_iso": float(torch.nanmean(ofl_i)) if torch.isfinite(ofl_i).any() else None,
                     "set_other_iso": float(torch.nanmean(oth_i)) if torch.isfinite(oth_i).any() else None,
                     "min_acc_pp": float(okm[~iso & (fb["q_word"][sl].reshape(-1, fb["q_word"].shape[-1]) == 1).any(-1)].mean()) if (~iso & (fb["q_word"][sl].reshape(-1, fb["q_word"].shape[-1]) == 1).any(-1)).any() else None,
@@ -208,6 +217,31 @@ def program_stats(acts, states, steps, s_fin, q_ans, osteps, mp, oracle_acts=Non
     return min_ok, frac_late, frac_other
 
 
+@torch.no_grad()
+def margins_at_classes(pi, mp, oracle_acts, oracle_states, hasP):
+    """Per run-slice (the caller splits by run): mean log pi(HOP) - log pi(PREV) at product states with own flag 1, c 1,
+    set-here 1, and mean log pi(HOP) - log pi(SET) at own flag 1, c 0, set-here 0, over the states the oracle route visits
+    on P-words. pi (B', NS, 4) for a flat batch; returns (m_hop_prev, m_hop_set, sel_prev, sel_set), each (B', NS), for the
+    caller to pool per run slice; None for the index router."""
+    if pi.dim() != 3:
+        return None
+    Bt, NS, _ = pi.shape
+    dev = pi.device
+    ids = torch.arange(NS, device=dev); s_, c_, h_ = ids // PER_SYM, (ids % PER_SYM) // NH, ids % NH
+    own = mp["flag"][:, s_] == 1
+    cls_prev = own & (c_ == 1).unsqueeze(0) & (h_ == 1).unsqueeze(0)
+    cls_set = own & (c_ == 0).unsqueeze(0) & (h_ == 0).unsqueeze(0)
+    To = oracle_acts.shape[-1]
+    stv = oracle_states[:, :, :To]
+    valid = (oracle_acts >= 0) & hasP.unsqueeze(-1)
+    vis = torch.zeros(Bt, NS, dtype=torch.bool, device=dev)
+    bidx = torch.arange(Bt, device=dev).view(-1, 1, 1).expand_as(stv)
+    vis[bidx[valid], stv[valid]] = True
+    lp = torch.log(pi.float() + 1e-12)
+    m1 = (lp[..., HOP] - lp[..., PREV]); m2 = (lp[..., HOP] - lp[..., SET])
+    return (m1, m2, cls_prev & vis, cls_set & vis)
+
+
 def isolated_P(q_word):
     """(B, Q) bool: the word has at least one P and no two consecutive P-steps (rung 3: PP words are mixed into training)."""
     w = q_word == 1
@@ -216,42 +250,65 @@ def isolated_P(q_word):
 
 
 def pp_set_placement(acts, states, min_ok, oracle_acts, oracle_states, q_word):
-    """Rung 3 shift B (commit/DESIGN.md §4): on PP words whose committed route is shortest-correct, where its SETs sit
-    relative to the first PP run's two P-leaving symbols (the symbols the oracle PREVs out of, in oracle order): counts
-    (before the first, at the first, at the second, elsewhere) per query, -1 where not applicable. E-double = (2,0,0,0),
-    E-E = (1,1,0,0), E-L = (1,0,1,0), L-double = (0,2,0,0), L-L = (0,1,1,0)."""
+    """Rung 3 shift B (commit/DESIGN.md §4): on PP words whose committed route is shortest-correct, where the SETs that
+    serve the FIRST PP run sit. The run's P-steps are matched to the oracle's PREVs by ordinal (each P-step is one PREV),
+    which gives the run's P-leaving symbols in order and the symbol the oracle visits just before the first of them (the
+    run's predecessor). Counts per query: (at the predecessor, at the first, at the second, at the third [0 for runs of
+    2], elsewhere), where SETs at the P-leaving symbol or predecessor of a P-step OUTSIDE the run are attributed to that
+    step and not counted; -1 where not applicable. For a run of 2: E-double = (2,0,0,0,0), E-E = (1,1,0,0,0),
+    E-L = (1,0,1,0,0), L-double = (0,2,0,0,0), L-L = (0,1,1,0,0). Also returns the run length per query (0 if none)."""
     B, Q, T = acts.shape
     dev = acts.device
-    out = torch.full((B, Q, 4), -1, dtype=torch.long, device=dev)
-    w = q_word == 1
+    out = torch.full((B, Q, 5), -1, dtype=torch.long, device=dev)
+    runlen = torch.zeros(B, Q, dtype=torch.long, device=dev)
+    w = (q_word == 1)
     pp = (w[..., 1:] & w[..., :-1]).any(-1) & min_ok
     if not pp.any():
-        return out
+        return out, runlen
     To = oracle_acts.shape[-1]
-    osym = oracle_states[:, :, :To] // PER_SYM
+    osym = oracle_states[:, :, :To + 1] // PER_SYM
     sym = states[:, :, :T] // PER_SYM
     for b, q in pp.nonzero().tolist():
-        pl = [int(osym[b, q, t]) for t in range(To) if int(oracle_acts[b, q, t]) == PREV]
-        if len(pl) < 2:
+        word = [int(x) for x in q_word[b, q].tolist() if x >= 0]
+        p_idx = [i for i, x in enumerate(word) if x == 1]                      # word indices of P-steps, in order
+        # the first maximal run of consecutive P indices with length >= 2
+        run = None; i = 0
+        while i < len(p_idx):
+            j = i
+            while j + 1 < len(p_idx) and p_idx[j + 1] == p_idx[j] + 1:
+                j += 1
+            if j > i:
+                run = (i, j); break
+            i = j + 1
+        if run is None:
             continue
-        first, second = pl[0], pl[1]
-        order = [int(x) for x in osym[b, q].tolist()]
-        pos_first = order.index(first) if first in order else None
-        c = [0, 0, 0, 0]
+        prev_t = [t for t in range(To) if int(oracle_acts[b, q, t]) == PREV]      # oracle PREV steps, in order
+        if len(prev_t) != len(p_idx):
+            continue
+        pl = [int(osym[b, q, t]) for t in prev_t]                                  # P-leaving symbol of each P-step
+        pred = []
+        for t in prev_t:                                                            # the symbol visited before the P-leaving one
+            first_visit = next(tt for tt in range(t + 1) if int(osym[b, q, tt]) == int(osym[b, q, t]))
+            pred.append(int(osym[b, q, first_visit - 1]) if first_visit > 0 else -1)
+        i0, i1 = run
+        run_syms = pl[i0:i1 + 1]; L = len(run_syms)
+        run_pred = pred[i0]
+        other_attr = {x for k in range(len(pl)) if not (i0 <= k <= i1) for x in (pl[k], pred[k])}
+        c = [0, 0, 0, 0, 0]
         for t in range(T):
             if int(acts[b, q, t]) != SET:
                 continue
             sy = int(sym[b, q, t])
-            if sy == first:
-                c[1] += 1
-            elif sy == second:
-                c[2] += 1
-            elif pos_first is not None and sy in order and order.index(sy) < pos_first:
+            if sy == run_pred:
                 c[0] += 1
+            elif sy in run_syms:
+                c[1 + run_syms.index(sy)] += 1 if run_syms.index(sy) < 3 else 0
+            elif sy in other_attr:
+                continue
             else:
-                c[3] += 1
-        out[b, q] = torch.tensor(c, device=dev)
-    return out
+                c[4] += 1
+        out[b, q] = torch.tensor(c, device=dev); runlen[b, q] = L
+    return out, runlen
 
 
 def deepest_P(q_word, q_k):
@@ -342,12 +399,13 @@ def evaluate(m: StackedRouter, dc, rc, tc, strata: list[dict], dev):
                     rec[f"samp_acc_{lab}"] = float(samp_ok[sl][sel][mask].mean()); rec[f"samp_steps_{lab}"] = float(samp_steps[sl][sel][mask].mean())
                     rec[f"e_steps_{lab}"] = float(es[sl][sel][mask].mean()); rec[f"oracle_steps_{lab}"] = float(osteps[sl][sel][mask].float().mean())
             if name.startswith("pp"):
-                plc = pp_set_placement(acts[sl][sel].unsqueeze(1), states[sl][sel].unsqueeze(1), ok_min[sl][sel].unsqueeze(1),
-                                       oa[sl][sel].unsqueeze(1), ostates[sl][sel].unsqueeze(1), fb["q_word"][sl][sel].unsqueeze(1))[:, 0]
+                plc, rl_ = pp_set_placement(acts[sl][sel].unsqueeze(1), states[sl][sel].unsqueeze(1), ok_min[sl][sel].unsqueeze(1),
+                                            oa[sl][sel].unsqueeze(1), ostates[sl][sel].unsqueeze(1), fb["q_word"][sl][sel].unsqueeze(1))
+                plc, rl_ = plc[:, 0], rl_[:, 0]
                 hist = {}
-                for row in plc.tolist():
+                for row, L in zip(plc.tolist(), rl_.tolist()):
                     if row[0] >= 0:
-                        key = "-".join(str(x) for x in row); hist[key] = hist.get(key, 0) + 1
+                        key = f"{L}:" + "-".join(str(x) for x in row); hist[key] = hist.get(key, 0) + 1
                 rec["pp_set_placement"] = hist
             d = dist[sl][sel]; ph = p_halt[sl][sel]; en = ent[sl][sel]
             visited = torch.arange(d.shape[-1], device=dev).unsqueeze(0) <= steps[sl][sel].unsqueeze(-1)
@@ -655,7 +713,7 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
                     recs[r]["curve"][-1]["search"] = ss[r]
                 if diag_acc:
                     recs[r]["curve"][-1]["diag"] = {k_: float(v_[r] / tc["crit_every"]) for k_, v_ in diag_acc.items()}
-                for k_ in ("set_other", "set_late_iso", "set_other_iso", "min_acc_pp"):
+                for k_ in ("set_other", "set_late_iso", "set_other_iso", "min_acc_pp", "min_acc_P", "n_P", "margin_hop_prev", "margin_hop_set"):
                     recs[r]["curve"][-1][k_] = cr[r][k_]
             diag_acc = {}
             run_loss.zero_(); hits.zero_(); cnt.zero_(); clip_hits.zero_()
