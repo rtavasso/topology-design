@@ -581,6 +581,7 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 **H14 — Reward signals for the router fail by exploration before credit.** *Supported by F40 as the failure; the fix is untested; rung 3 core B.*
 - **Claim:** with an entropy term or forced breadth, RL16 learns the deferred program; then and only then does AC16 vs ACMC16 vs RL16 (bootstrapped vs Monte-Carlo value) become readable.
 - **Falsifier:** the exploration-fixed reward arms still fail at every dose (then value signals have a credit problem as well as an exploration one).
+- *1 Nov (Entry 71, CPU, one seed):* forced breadth with self-normalized weights under the router's own policy collapses too (effective sample size 0.004 of the beam's completions by step 200; all-H). The entropy form is derived to fail (rung 3 §5.2). Both run as checks in rung 3. Reposed: a reward signal that keeps exploring weights unsampled routes by something other than its own probability of them, and every such weighting is a posterior target; the value question needs per-step credit inside a posterior target.
 
 ## Ideas (not yet hypotheses)
 
@@ -618,7 +619,7 @@ Each has a prediction and a falsifier. Most are arguments from the 22 Oct discus
 | I30 | Branch disagreement as the estimator of epistemic uncertainty (Entry 70): sample or beam k routes at forks the router's policy entropy marks; agreement ⇒ commit and halt, disagreement ⇒ this token is worth more computation. Needs no learned value head; in the toy it is a Monte Carlo estimate of the exact marginal, so it is a check there and a candidate controller for a carrier with real epistemic uncertainty. | 1 Nov 2026 |
 | I31 | Routing on the model's own estimate (Entry 70): close the loop the static graph lacks by giving the router the current prediction (logit-lens state) and its own policy entropy as inputs, so that computation depends on uncertainty. The toy router never had either. | 1 Nov 2026 |
 | I32 | Library growth by abstraction (Entry 70): detect reused subcompositions in the router's programs and promote them to primitives (DreamCoder's sleep phase), trading depth for width; the mechanism behind "continual memory" of programs. No toy yet; needs a composition space with reusable subroutines. | 1 Nov 2026 |
-| I33 | Exploration-fixed reward signals for the router (Entry 69–70): an entropy bonus, or routes supplied by an ε-mixed beam with importance weights, so that RL16 / AC16 keep sampling distinct routes; the prerequisite for reading contextual value (P4). Rung 3 core B. | 1 Nov 2026 |
+| I33 | Exploration-fixed reward signals for the router (Entry 69–70): an entropy bonus, or routes supplied by an ε-mixed beam with importance weights, so that RL16 / AC16 keep sampling distinct routes; the prerequisite for reading contextual value (P4). Rung 3 core B. *1 Nov (Entry 71): both forms fail on CPU or by derivation; checks in rung 3. Next form: a bootstrapped value as per-step credit inside a posterior target (PFB16 / PF-IS16 with TD-weighted steps instead of whole-route weights).* | 1 Nov 2026 |
 
 ---
 

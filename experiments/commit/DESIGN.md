@@ -155,10 +155,10 @@ Cells:
 | `gate.py` on that checkpoint, shift A (δ = 0, 54 P-words) | beam keeps the oracle route 0.00 at ε 0.1 and 0.3; oracle among all completions 0.00; the kept route is shortest-correct on 0.78–0.81 and is program E (`set_late` 0.09–0.12); 16 samples 0.00; EX's own posterior on the oracle route 2·10⁻⁵; **margin HOP − PREV = +16.9 logits** [16.0, 17.7] on the 65 relabeled states, p(PREV) = 5·10⁻⁸; margin HOP − SET at (own flag, 0, 0) = −11.1 (the E router already SETs there, which is L's first step) |
 | same, shift B (pp_frac 1.0, 55 PP words) | beam keeps a shortest-correct completion on 0.82; 16 samples 0.00 |
 | EI16 from that checkpoint under δ = 0 | stuck: shortest-correct on P-words 0.00–0.02 throughout; the HOP − PREV margin drifts 16.9 → 8.5–12.8; the beam's E routes make it SET at unflagged predecessors inconsistently (teacher-forced SET 0.16–0.68) |
-| PF from that checkpoint under δ = 0 | (running when this was written; entered before stage 1) |
+| PF from that checkpoint under δ = 0 | **moves**: the HOP − PREV margin falls from +16.9 to +1.4 within 100 steps and is negative by 500; shortest-correct on P-words 1.00 at step 500 (0.94–0.99 after), program L (`set_late` 1.0); pp8 0.93; stochastic as derived (sampled shortest-correct 0.12–0.29). The fixed target undoes the commitment in ≈ 400 steps at batch 16 where search from the same weights did not move in 1,500. Reachability is not the obstacle; what the target pushes on is. |
 | RL16-B, δ = 1 from scratch | all-H from step 200; effective sample size over the support 0.004 (one route carries all the weight); beam hit 0.99 throughout; 3× an exact step's time on CPU |
 
-What changed because of it: the reward arms became checks and PFB16 the core-B arm (§3, §6, PB2–PB3); the Σ lr reachability statement for shift A is against a 17-logit margin (3,000 steps at 1e-3 under Adam can move a head weight by ≈ 3 per coordinate, which against features of norm ≈ 18 is enough in principle; RT decides it in practice).
+What changed because of it: the reward arms became checks and PFB16 the core-B arm (§3, §6, PB2–PB3). The reachability question for shift A is answered in the affirmative at one seed: a 17-logit margin falls in 100 steps under a target that pushes on it. The one-seed contrast PF moves / EI16 stuck is the design's prediction PA1 in miniature and is not a reading (L30); the grid has five seeds per cell, the dose, the L start and the ceiling.
 
 ## 9a. What this rung does not answer
 
