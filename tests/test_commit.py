@@ -180,6 +180,23 @@ def test_trainer_runs_the_rung_3_arms(est):
         assert "entropy" in c["diag"]
 
 
+def test_dose_cells_are_evaluated_and_judged_on_the_standard_configuration():
+    """Stage-2 review B2: a p_P = 0.08 run's strata hold a third of the P-words of the standard stream, so the movement
+    endpoint (>= 0.95 at in4 and in8) and the criterion curve would get noisier exactly along the dose. The clean
+    evaluation and the criterion set are generated on the standard configuration (p_P 0.3, pp_frac 0) instead."""
+    cfg = {**SMALL, "seed": 3, "deferral": 0, "steps": 1, "crit_every": 1, "eval_every": 1, "eval_n": 12, "crit_n": 40}
+    dose = run_stack([{**cfg, "p_P": 0.08}], dev="cpu", log=lambda s: None)[0]
+    std = run_stack([{**cfg, "p_P": 0.3}], dev="cpu", log=lambda s: None)[0]
+    ev_d, ev_s = dose["evals"][-1], std["evals"][-1]
+    assert "clean" in ev_d and "clean" not in ev_s
+    assert ev_d["eval"]["in8"]["n_P"] < ev_s["eval"]["in8"]["n_P"]                       # the training-stream strata lose P-words
+    assert ev_d["clean"]["in8"]["n_P"] == ev_s["eval"]["in8"]["n_P"]                       # the clean strata are the standard ones
+    assert dose["curve"][-1]["n_P"] == std["curve"][-1]["n_P"]                            # and so is the criterion set
+    # shift B keeps its criterion set on the training stream (it carries min_acc_pp), and still gets the clean evaluation
+    ppb = run_stack([{**cfg, "pp_frac": 1.0}], dev="cpu", log=lambda s: None)[0]
+    assert "clean" in ppb["evals"][-1] and ppb["evals"][-1]["clean"]["in8"]["n_P"] == ev_s["eval"]["in8"]["n_P"]
+
+
 def test_gate_logic_on_synthetic_records():
     import importlib.util
     spec = importlib.util.spec_from_file_location("gate", os.path.join(os.path.dirname(__file__), "..", "experiments", "commit", "gate.py"))
@@ -193,3 +210,26 @@ def test_gate_logic_on_synthetic_records():
     assert not G.gate(rec(0.1, mp=0.9), "E")[0] and not G.gate(rec(0.1, samp=0.5), "E")[0]
     ok, reasons, _ = G.gate(rec(0.1, plus=1.0), "E")
     assert not ok and any("R" in r for r in reasons)
+
+
+def test_phase2_outcomes_on_synthetic_records():
+    """moved / locked / collapsed / other from the final standard-configuration evaluation (stage-2 review B3): the
+    first-deviation mass is over the stratum's queries, so a router right on 93 % of words that halts on the rest is
+    not 'collapsed'."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cm_analyze", os.path.join(os.path.dirname(__file__), "..", "experiments", "commit", "analyze.py"))
+    M = importlib.util.module_from_spec(spec); spec.loader.exec_module(M)
+    def rec(mp, fd, acc_P=1.0, q=9.0, clean=True):
+        e = {st: {"min_acc_P": mp, "n": 250, "n_P": 217, "first_dev": fd, "acc_P": acc_P, "q_steps_P": q, "oracle_steps_P": 9.5, "set_late_P": 1.0, "set_other_P": 0.0}
+             for st in ("in4", "in8", "pp8")}
+        ev = {"eval": {st: {**v, "min_acc_P": 0.0} for st, v in e.items()}}      # the mixture evaluation disagrees on purpose
+        if clean:
+            ev["clean"] = e
+        return {"evals": [ev], "train": {"warmup": 100, "steps": 3000}, "curve": []}
+    assert M.outcome(rec(0.99, {"PREV>HOP": 2})) == "moved"
+    assert M.outcome(rec(0.0, {"PREV>HOP": 215, "SET>HALT": 2}, acc_P=0.0)) == "locked"
+    assert M.outcome(rec(0.0, {"SET>HALT": 216}, acc_P=0.0, q=2.3)) == "collapsed"
+    assert M.outcome(rec(0.93, {"SET>HALT": 16})) == "other"                   # 16 / 250 halts is not a collapse
+    assert M.outcome(rec(0.0, {"PREV>HOP": 215}, acc_P=0.0, clean=False)) == "locked"   # no clean eval: the mixture one
+    r = rec(0.99, {}); r["evals"][0]["clean"]["pp8"]["min_acc"] = 0.92
+    assert M.filled(r) and not M.filled(rec(0.99, {}))

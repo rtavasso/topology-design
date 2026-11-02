@@ -76,6 +76,13 @@ def stage2(gate_path):
             passed[g_["start"]].append((g_["seed"], g_["ckpt"]))
     E_, L_ = passed["E"][:5], passed["L"][:5]
     assert len(E_) >= 3 and len(L_) >= 3, f"too few committed routers passed the gate: E {len(E_)}, L {len(L_)}"
+    # stage-2 review B1 (4): the within-EX coverage contrast needs L routers whose own posterior on the oracle route is NOT
+    # ~0 on the words that must move; the gate report says which (unsolved own posterior >= 0.05). A derive-step choice
+    # from the gate, made before any phase-2 outcome exists (DESIGN §7a); the rows for these seeds are reported per seed.
+    sees = rep.get("sees", {})
+    by_ck = {g_["ckpt"]: n for n, g_ in rep["gate"].items()}
+    L_ex = [(sd, ck) for sd, ck in passed["L"] if (sd, ck) not in L_[:3]
+            and (sees.get(by_ck[ck], {}).get("A", {}).get("own_posterior_on_oracle_unsolved") or 0) >= 0.05]
     g = []
     A = lambda pP: dict(deferral=0, p_P=pP, **P2)
     def cont(sig, start, cell, cfg, routers, tag=None):
@@ -93,7 +100,10 @@ def stage2(gate_path):
     cont("RT", "L", "A30", A(0.30), L_[:2])                                 # from the L routers
     for sig in ("PF", "EX", "EI16", "PFIS16", "IW16"):
         cont(sig, "L", "A30", A(0.30), L_[:3])
-    cont("EX", "E", "S", dict(deferral=1, p_P=0.3, **P2), E_[:2])           # stability
+    cont("EX", "L", "A30", A(0.30), L_ex)                                   # + the L routers with visible own posterior (B1)
+    # stability: EX's own signal can leave a committed solution at the constant lr (EX seed 0 collapsed at phase-1 step
+    # ~2,000), so the spontaneous-collapse rate is read on every E router in the grid (stage-2 review B3)
+    cont("EX", "E", "S", dict(deferral=1, p_P=0.3, **P2), E_[:5])
     cont("EI16", "L", "S", dict(deferral=1, p_P=0.3, **P2), L_[:2])
     for sig in ("EX", "EI16", "PF", "PFIS16"):                              # matched from-scratch references on delta 0
         for s in range(3):
@@ -116,7 +126,7 @@ def main():
     for name, g in grids:
         assert len({c["name"] for c in g}) == len(g)
         json.dump(g, open(os.path.join(OUT, f"{name}.json"), "w"), indent=0)
-        print(f"{name}: {len(g)} runs, ≈ {sum(0.085 * c['steps'] for c in g) / 3600:.1f} T4-hours")
+        print(f"{name}: {len(g)} runs, ≈ {sum(0.1 * c['steps'] for c in g) / 3600:.1f} T4-hours (0.082–0.113 s per run-step measured at stage 1)")
 
 
 if __name__ == "__main__":

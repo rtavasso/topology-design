@@ -7,11 +7,14 @@
        - the logit margin at the class the shift relabels (shift A: HOP - PREV at own-flag = 1, c = 1, set-here = 1, on
          the states the committed route visits under delta 0);
        - coverage of the correct new route by the eps-mixed beam (eps 0.1 and 0.3, W = 16) and by K = 16 samples, on
-         P-words (shift A: the delta-0 oracle route; shift B: any shortest correct completion on PP words);
+         P-words (shift A: the delta-0 oracle route; shift B: any shortest correct completion on PP words), each ALSO
+         restricted to the words the committed route does not already solve (`*_unsolved`; stage-2 review B1: every L
+         router already produces the delta-0 oracle route on the same ~6 % of P-words, with own posterior ~1 there, which
+         inflates the all-words average exactly where the per-seed rows are set);
        - the router's own exact posterior mass on the correct route (what EX's target gives it);
   3. a JSON report that make_grids.py reads to build stage 2, and a markdown table.
 
-    PYTHONPATH=src python experiments/commit/gate.py --results results/kaggle_route-cm_stage1 [--n 96] [--out experiments/commit/results_data/gate.json]
+    PYTHONPATH=src python experiments/commit/gate.py --results results/kaggle_route-cm_stage1 [--n 256] [--out experiments/commit/results_data/gate.json]
 """
 
 from __future__ import annotations
@@ -81,7 +84,17 @@ def what_it_sees(m, rc, dc_target, n, seed, dev, shift):
         words = hasP                                            # every P-word relabels the decision
     else:
         words = hasP & ~isolated_P(qw)                          # PP words
-    out = {"n_words": int(words.sum())}
+    # the committed route under the target data: which words it already solves (the oracle's route under shift A; any
+    # shortest correct route under shift B) -- coverage is reported on all words and on the unsolved ones
+    s_fin, steps, acts, states = committed(pi, mp, fb["q_start"], T)
+    com_short = (s_fin == fb["q_ans"]) & (steps == osteps)
+    com_oracle = com_short & route_ok(acts, steps, oa, osteps)
+    solved = com_oracle if shift == "A" else com_short
+    unsolved = words & ~solved
+    out = {"n_words": int(words.sum()), "n_unsolved": int(unsolved.sum())}
+    avg = lambda ok: {"": (float(ok[words].float().mean()) if words.any() else None),
+                      "_unsolved": (float(ok[unsolved].float().mean()) if unsolved.any() else None)}
+    put = lambda key, ok: out.update({key + suf: v for suf, v in avg(ok).items()})
     # coverage by the beam at eps 0.1 / 0.3: a correct completion at the oracle's length (shift B: any shortest correct)
     for eps_mix in (0.1, 0.3):
         found, a_b, st_b = E.beam_search(pi, mp, fb["q_start"], fb["q_ans"], T, W, dc_target, eps_mix=eps_mix, lam=LAM)
@@ -90,13 +103,13 @@ def what_it_sees(m, rc, dc_target, n, seed, dev, shift):
             ok = found & route_ok(a_b, st_b, oa, osteps)           # the kept route IS the oracle's (the expressible L route)
         else:
             ok = kept_short
-        out[f"beam_eps{eps_mix}"] = float(ok[words].float().mean()) if words.any() else None
-        out[f"beam_eps{eps_mix}_kept_shortest"] = float(kept_short[words].float().mean()) if words.any() else None
+        put(f"beam_eps{eps_mix}", ok)
+        put(f"beam_eps{eps_mix}_kept_shortest", kept_short)
         # the oracle route among ALL completions (not only the kept one), and the kept route's program
         comp = E.beam_completions(pi, mp, fb["q_start"], T, W, dc_target, eps_mix=eps_mix, lam=LAM)
         xs = E.replay(mp, fb["q_start"], comp["acts"])
         oks = torch.stack([route_ok(comp["acts"][:, :, j], comp["moves"][:, :, j], oa, osteps) & comp["valid"][:, :, j] for j in range(comp["acts"].shape[2])], -1)
-        out[f"beam_eps{eps_mix}_oracle_among_completions"] = float(oks.any(-1)[words].float().mean()) if words.any() else None
+        put(f"beam_eps{eps_mix}_oracle_among_completions", oks.any(-1))
         xb = E.replay(mp, fb["q_start"], a_b)
         from topology_design.route.train_route import program_stats
         _, late, oth = program_stats(a_b, xb, st_b, xb[:, :, -1] // PER_SYM, fb["q_ans"], osteps, mp, oa, ostates)
@@ -108,7 +121,7 @@ def what_it_sees(m, rc, dc_target, n, seed, dev, shift):
         oks = torch.stack([route_ok(a_k[:, :, j], st_k[:, :, j], oa, osteps) for j in range(K)], -1)
     else:
         oks = (sym == fb["q_ans"].unsqueeze(-1)) & (st_k == osteps.unsqueeze(-1))
-    out["samples_K16"] = float(oks.any(-1)[words].float().mean()) if words.any() else None
+    put("samples_K16", oks.any(-1))
     # the router's own exact posterior mass on the oracle route (EX's target): pi(r*) p(y | r*) / q(y)
     Rd = readout(dc_target, EPS, dev)
     q, es, _, _ = marginal(pi, mp, fb["q_start"], T, Rd)
@@ -117,9 +130,11 @@ def what_it_sees(m, rc, dc_target, n, seed, dev, shift):
     qy = q.gather(-1, ans.unsqueeze(-1)).squeeze(-1)
     post = (lpr.exp() * (1 - EPS) / qy.clamp_min(1e-12)).clamp(max=1.0)
     out["own_posterior_on_oracle"] = float(post[words].mean()) if words.any() else None
-    # the committed route under the target data, and the margin at the relabeled class
-    s_fin, steps, acts, states = committed(pi, mp, fb["q_start"], T)
-    out["committed_min_acc_words"] = float(((s_fin == fb["q_ans"]) & (steps == osteps))[words].float().mean()) if words.any() else None
+    out["own_posterior_on_oracle_unsolved"] = float(post[unsolved].mean()) if unsolved.any() else None
+    # the committed route under the target data (shortest-correct by any route, and by the oracle's), and the margin
+    # at the relabeled class
+    out["committed_min_acc_words"] = float(com_short[words].float().mean()) if words.any() else None
+    out["committed_oracle_words"] = float(com_oracle[words].float().mean()) if words.any() else None
     if shift == "A":
         lg = m.logits(b)[0]                                     # (B, NS, 4)
         NS = lg.shape[1]
@@ -146,7 +161,7 @@ def what_it_sees(m, rc, dc_target, n, seed, dev, shift):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--results", required=True)
-    ap.add_argument("--n", type=int, default=96)
+    ap.add_argument("--n", type=int, default=256)
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--force", action="store_true", help="compute what_it_sees for checkpoints that fail the gate too (CPU sanity)")

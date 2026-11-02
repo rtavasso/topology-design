@@ -165,6 +165,8 @@ def criterion(m: StackedRouter, dc, rc, tc, crit: list[dict], dev):
                     "set_other": float(torch.nanmean(oth)) if torch.isfinite(oth).any() else None,
                     "min_acc_P": float(okm[hp].mean()) if hp.any() else None, "n_P": int(hp.sum()),
                     "margin_hop_prev": (float(marg[0][sl][marg[2][sl]].mean()) if marg is not None and marg[2][sl].any() else None),
+                    "p_prev_class": (float(pi[sl][..., PREV][marg[2][sl]].mean()) if marg is not None and pi.dim() == 3 and marg[2][sl].any() else None),
+                    "p_set_class": (float(pi[sl][..., SET][marg[3][sl]].mean()) if marg is not None and pi.dim() == 3 and marg[3][sl].any() else None),
                     "margin_hop_set": (float(marg[1][sl][marg[3][sl]].mean()) if marg is not None and marg[3][sl].any() else None),
                     "set_late_iso": float(torch.nanmean(ofl_i)) if torch.isfinite(ofl_i).any() else None,
                     "set_other_iso": float(torch.nanmean(oth_i)) if torch.isfinite(oth_i).any() else None,
@@ -645,13 +647,21 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
     else:
         sched = lambda s: min(1.0, (s + 1) / tc["warmup"]) * 0.5 * (1 + math.cos(math.pi * min(1.0, s / tc["steps"])))
     t0 = time.time()
-    pools = [EpisodePool(dc, tc["pool_n"], seed=s * 7919 + 11, dev=dev) for s in seeds]
+    # a continued run (init_from) draws a fresh stream: the same seed would replay phase 1's pool and batch order exactly,
+    # which would make the stability control a replay of its own training (stage-2 review, S4)
+    pools = [EpisodePool(dc, tc["pool_n"], seed=s * 7919 + 11 + (100003 if inits[r] else 0), dev=dev) for r, s in enumerate(seeds)]
     strata = [strata_episodes(dc, tc["eval_n"], seed=s * 7919 + 12345) for s in seeds]
-    # rung 3 shift B: the strata above are generated with the training config, so with pp_frac > 0 even an isolated-P
-    # query sits in a PP-polluted context (false pointers); evaluate on a clean context too (design review 1, S4)
-    dc_clean = RouteConfig(**{**dc.dict(), "pp_frac": 0.0}) if (dc.pp_frac > 0 and tc["clean_eval"]) else None
+    # rung 3: when the training stream differs from the standard one (pp_frac > 0: PP words pollute the context with
+    # false pointers; p_P != 0.3: fewer P-words per stratum, so "learned" gets noisier exactly along the dose), evaluate
+    # ALSO on the standard configuration (pp_frac 0, p_P 0.3), stored under "clean", and generate the held-out criterion
+    # set on it, so movement curves are comparable across doses (design review 1 S4; stage-2 review B2)
+    nonstandard = dc.pp_frac > 0 or abs(dc.p_P - 0.3) > 1e-9
+    dc_clean = RouteConfig(**{**dc.dict(), "pp_frac": 0.0, "p_P": 0.3}) if (nonstandard and tc["clean_eval"]) else None
     strata_clean = [strata_episodes(dc_clean, tc["eval_n"], seed=s * 7919 + 12345) for s in seeds] if dc_clean else None
-    crit = [to_dict(generate(dc, tc["crit_n"], np.random.default_rng(s * 7919 + 999)), dev) for s in seeds]
+    # the criterion set: at the standard P-word rate for the dose cells (movement curves comparable across doses), but on
+    # the training stream for shift B, whose curve carries min_acc_pp and needs the PP words
+    dc_crit = RouteConfig(**{**dc.dict(), "p_P": 0.3}) if (dc_clean is not None and abs(dc.p_P - 0.3) > 1e-9) else dc
+    crit = [to_dict(generate(dc_crit, tc["crit_n"], np.random.default_rng(s * 7919 + 999)), dev) for s in seeds]
     log(f"pools, strata and criterion sets generated in {time.time() - t0:.0f}s")
     Rd = readout(dc, rc.eps, dev)
     est = "teacher" if tc["teacher"] else tc["estimator"]
@@ -713,7 +723,7 @@ def run_stack(cfgs: list[dict], dev: str = "cuda", log=print) -> list[dict]:
                     recs[r]["curve"][-1]["search"] = ss[r]
                 if diag_acc:
                     recs[r]["curve"][-1]["diag"] = {k_: float(v_[r] / tc["crit_every"]) for k_, v_ in diag_acc.items()}
-                for k_ in ("set_other", "set_late_iso", "set_other_iso", "min_acc_pp", "min_acc_P", "n_P", "margin_hop_prev", "margin_hop_set"):
+                for k_ in ("set_other", "set_late_iso", "set_other_iso", "min_acc_pp", "min_acc_P", "n_P", "margin_hop_prev", "margin_hop_set", "p_prev_class", "p_set_class"):
                     recs[r]["curve"][-1][k_] = cr[r][k_]
             diag_acc = {}
             run_loss.zero_(); hits.zero_(); cnt.zero_(); clip_hits.zero_()
