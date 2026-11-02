@@ -119,6 +119,39 @@ Cells:
 | **PA′1** | **Filling in** (shift B from L, pp_frac 1.0): RT fills PP in (2/2). The sampled and searched signals fill in only where their routes reach the PP completions: EI16 and PF-IS16 open from coverage; EX ≥ 2/3 (its exact posterior on PP words is on the completions). PF: **open** between the pooled derivation (fails pp8) and the count-ray generalization (fills in); whichever it is, reported against its f = 0 control. The ordinary-word program on clean strata stays L for every signal except PF, whose f = 0 control already drifts toward E (§5.1). | Every signal fills PP in (filling in is signal-independent, as F30's reading suggests). PF's clean-strata program unchanged at f = 0 (the pooled prior-drift derivation was wrong). | mechanism (F30) |
 | **PC1** | **Disagreement is informative within a stratum.** On len16, len32, alt and deepP8, the agreement statistic's AUROC for committed-route error is ≥ 0.65 and within 0.1 of the exact marginal's on the same queries, for PF and PF-IS16. | AUROC ≤ 0.55 on every stratum: breadth is not an uncertainty estimator for this carrier. | by construction, partly (H13) |
 
+### 7a. The open rows, set from §5.3 on the stage-1 checkpoints (2 Nov 2026; [results_data/gate_stage1.json](results_data/gate_stage1.json))
+
+Stage 1 ran as designed (2.7 h; [results_data/stage1_report.md](results_data/stage1_report.md)). The gate passed 7/7 EI16 routers (L, deterministic, criterion 800) and 5/7 EX routers (E; seed 0 sat in all-H for all 2,500 steps at the constant lr, seed 4 was at 0.90–0.93). Stage 2 uses E seeds 1, 2, 3, 5, 6 and L seeds 0, 1, 2 (`cm_stage2.json`, 115 runs).
+
+What each target sees at the checkpoints, under δ = 0 on P-words (96 episodes per router):
+
+| router | beam keeps the oracle route (ε 0.1 / 0.3) | oracle among all completions | kept route shortest-correct, its program | 16 samples | EX's own posterior on the oracle route | margin HOP − PREV at (own flag, 1, 1) | margin HOP − SET at (own flag, 0, 0) |
+|---|---|---|---|---|---|---|---|
+| E s1 | **0.74 / 0.74** | 0.87 | 0.81, L | 0.00 | 0.00 | +26 | −15 |
+| E s2 | 0.00 / 0.00 | 0.00 | 0.79, E | 0.00 | 0.00 | +21 | −15 |
+| E s3 | 0.01 / 0.08 | 0.01 | 0.78, E | 0.00 | 0.00 | +26 | −16 |
+| E s5 | **0.45 / 0.55** | 0.54 | 0.78, mixed | 0.00 | 0.00 | +32 | −16 |
+| E s6 | 0.01 / 0.18 | 0.01 | 0.78, E | 0.00 | 0.00 | +21 | −16 |
+| L s0–s6 | 0.61–0.70 (ε-independent) | 0.75–0.85 | 0.70–0.80, L | 0.06–0.07 | 0.07–0.26 | −16 to −25 (PREV already preferred; p(PREV) 1.00 on six of seven) | +5 to +9 (p(SET) 0.13: the missing decision) |
+
+Three things the numbers say before anything runs:
+- **The merge tie breaks per seed.** From the E start the beam keeps the oracle's L route on 0.74 and 0.45 of P-words for two routers and on ≈ 0.00 for three, with the kept program flipping accordingly. The code review's mechanism (one ε-floored action each, same end state, the more probable prefix kept) holds, and which way it goes is a property of the seed's logits, not of ε. From the L start it goes the oracle's way on every seed.
+- **The exact own-posterior target is blind from the E start** (0.00 on all five routers) and sees the oracle route from the L start (0.07–0.26). Sampling sees it from neither (0.00 and 0.06).
+- **The locks are large and asymmetric.** The E routers hold the relabeled decision at +21 to +32 logits with the first L step already in place; the L routers hold PREV already and lack the SET at +5 to +9.
+
+The open rows, by the preregistered rule (coverage ≥ 0.3 → moves in ≥ 3/5 or 2/3; ≤ 0.05 → ≤ 1/5 or 1/3; between → reported):
+
+| cell | PF | RT | EX | IW16 | PF-IS16 | EI16 (ε 0.1) | EI16 (ε 0.3) |
+|---|---|---|---|---|---|---|---|
+| from E, p_P 0.3 (5 seeds) | ≥ 4/5 | 2/2 | **≤ 1/5** (blind) | ≤ 1/5 | ≤ 1/5 | **per seed: s1 and s5 move, s2, s3, s6 do not → 2/5**; the falsifier is any seed on the wrong side of its coverage | s1 moves, s2 does not, s3 reported (0.08) |
+| from E, p_P 0.15 and 0.08 (seeds 1, 2, 3) | ≥ 2/3 at each | – | ≤ 1/3 | ≤ 1/3 | ≤ 1/3 | s1 moves at each dose, later than at 0.3; s2, s3 do not → 1/3 | – |
+| from L, p_P 0.3 (seeds 0–2) | ≥ 2/3 | 2/2 | reported (0.07–0.09) | reported (0.06) | reported (0.06–0.07) | **≥ 2/3** (0.61–0.66) | – |
+| shift B from L (pp_frac 1.0) | open (§5.1) vs its f = 0 control | 2/2 | reported | reported (0.08–0.10) | reported | ≥ 2/3 (beam keeps a shortest completion on 0.73–0.79) | – |
+
+PA3's per-seed test now has its sharpest form in the E-start EI16 row: five routers from the same signal and data, split by their checkpoint's coverage, with the prediction made per router. PA4's "the L start is harder for every signal" is **withdrawn before running**: by the coverage and margin numbers the L start is the easier one for every searched or own-posterior target (the oracle route is in the beam from every L router and in none of three E routers), and the hard half of its two decisions, PREV at set-here, is already in place. The replacement prediction: from the L start, PF, RT and EI16 move in a majority, and the L-start row of EX is the one cell where a self-consistent exact target has a visible path (0.07–0.26 of its own posterior) and may move; if it does there while staying blind from E, "plasticity is what the target can see" is confirmed within a single signal.
+
+**Core B, stage 1 (checks and PB3; [results_data/stage1_report.md](results_data/stage1_report.md)).** PB2 held: RL16-B 0/2 (effective sample size 0.01 over the support), ACMC16-B 0/2, AC16-B 0/2, RL16+H 0/2 at every β (the entropy keeps 7–13 distinct routes at β ≥ 0.03 and learns nothing). PB3 held in its main clauses: PFB16 learned δ = 1 in 5/5 (criterion 1,100 [900–1,400]) and δ = 0 in 3/3 (800), program L in every run, stochastic (sampled shortest-correct 0.3–0.4). At the dose it reached criterion in 2/3 (3,800) against the matched constant-lr PF-IS16 reference's 2/3 (2,800): not worse in count, slower in time, so the dose clause is a tie and F41's fragility is not specific to the sampled proposal. Note for L31: PF-IS16 at the dose on a constant schedule reaches criterion in 2/3 where rung 2's cosine schedule recorded 0/3.
+
 **Checks (reported, not predicted).** The stability controls stay put. The from-scratch constant-lr δ = 0 references reproduce rung 2's pattern (EX stalls; EI16, PF, PF-IS16 learn). Entropy by decision type ≤ 1.7×. From-scratch EI16 on δ = 0 lands in L.
 
 **Reading the outcomes.**
