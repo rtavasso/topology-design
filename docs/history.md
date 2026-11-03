@@ -1437,6 +1437,8 @@ The Cayley-graph BFS from the Z_7 round (`count_isa.py`) is exactly this tool. T
 - **D115.** A run that leaves its committed solution for halting is *collapsed*, excluded from mover counts and reported with the stability controls' collapse rate; if the controls collapse at a similar rate, phase-2 EX is unreadable at this lr and is rerun lower.
 - Process: L32 (a derive-step quantity is conditioned on the cases the prediction is about; outcomes are read from curves; the dose must not change the ruler; re-review the derive step).
 
+**Launch note (2 Nov, 16:41–16:54).** The first stage-2 launch stopped at the Kaggle test gate without running a single run: the new `test_phase2_outcomes_on_synthetic_records` imports `experiments/commit/analyze.py`, which the Kaggle bundle does not ship (it carries `gate.py` only; analysis runs locally), so the test failed with `FileNotFoundError` and `run_on_kaggle.py` refused the grid (`TESTS FAILED: grid not run`). My omission: the test was written after the bundle contents were last checked. Fixed by skipping that test when the file is absent (verified in a bundle-shaped tree: 1 passed, 1 skipped); relaunched. Cost: ≈ 4 min of session time, no results affected.
+
 **Expected falsifiers at stage 2** (DESIGN §7, §7a). PA1: every signal moving from E in ≥ 4/5, or only RT and PF; IW16 ≥ 3/5. The per-seed EI16 row: any E router on the wrong side of its coverage (s1, s5 stuck or s2, s3, s6 moving). PA2: a signal moving at 0.08 but not 0.3; PF ≤ 1/3 at 0.08. PA3: AUROC ≤ 0.6 within EI16. From L: EI16 ≤ 1/3 (or ≥ 3/5 from E); EX, IW16 or PF-IS16 ≥ 2/3 from L s0–2. RT not moving anywhere (reachability; rerun longer). The stability controls collapsing at EX's phase-1 rate or above.
 
 ## Template for future entries

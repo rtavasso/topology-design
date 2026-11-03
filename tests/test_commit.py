@@ -217,7 +217,10 @@ def test_phase2_outcomes_on_synthetic_records():
     first-deviation mass is over the stratum's queries, so a router right on 93 % of words that halts on the rest is
     not 'collapsed'."""
     import importlib.util
-    spec = importlib.util.spec_from_file_location("cm_analyze", os.path.join(os.path.dirname(__file__), "..", "experiments", "commit", "analyze.py"))
+    path = os.path.join(os.path.dirname(__file__), "..", "experiments", "commit", "analyze.py")
+    if not os.path.exists(path):
+        pytest.skip("analysis code is not shipped in the Kaggle bundle (it runs locally); the test runs in the repo")
+    spec = importlib.util.spec_from_file_location("cm_analyze", path)
     M = importlib.util.module_from_spec(spec); spec.loader.exec_module(M)
     def rec(mp, fd, acc_P=1.0, q=9.0, clean=True):
         e = {st: {"min_acc_P": mp, "n": 250, "n_P": 217, "first_dev": fd, "acc_P": acc_P, "q_steps_P": q, "oracle_steps_P": 9.5, "set_late_P": 1.0, "set_other_P": 0.0}
