@@ -108,7 +108,11 @@ def main():
     args.out = args.out or os.path.join(ROOT, "results", f"kaggle_{name}")
     special = args.grid is not None or args.bench_worlds or args.ptr_grid is not None or args.route_grid is not None
     args.kernel = args.kernel or ("topology-fleet-validate" if not special else f"topology-fleet-{slug(name)}")
-    args.dataset = args.dataset or ("topology-design-code" if not special else f"{args.kernel}-code")
+    # a fresh dataset slug per launch: pushing a new VERSION of an existing dataset is asynchronous, and `datasets status`
+    # answers "ready" for the previous version while the new one is still processing, so a relaunched kernel mounted the
+    # stale code (rung 3 stage 2, 2 Nov 2026: the kernel ran a test file from the launch before). A new dataset has no
+    # previous version to be ready. The slug carries the launch time; --dataset overrides it (and --fetch does not need it).
+    args.dataset = args.dataset or ("topology-design-code" if not special else f"{args.kernel[:33]}-code-{time.strftime('%m%d%H%M')}")   # Kaggle slugs: <= 50 chars
     user = args.user
     if not user:
         cfg_dir = os.environ.get("KAGGLE_CONFIG_DIR", os.path.expanduser("~/.kaggle"))
@@ -152,6 +156,10 @@ def main():
         job = {"job": "route", "grid": grid_rel, "per_gpu": args.per_gpu, "max_stack": args.max_stack}
         include = INCLUDE + ROUTE_INCLUDE + [grid_rel]
     jp = os.path.join(tmp, "job.json")
+    # what code this bundle is: the kernel prints it first, so the log says which commit ran
+    head = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip() or "?"
+    dirty = bool(subprocess.run(["git", "-C", ROOT, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True).stdout.strip())
+    job["bundle"] = f"{head}{'+dirty' if dirty else ''} {time.strftime('%Y-%m-%d %H:%M:%S')} dataset={args.dataset}"
     with open(jp, "w") as f:
         json.dump(job, f)
     prior_dir = os.path.join(args.out, "results")

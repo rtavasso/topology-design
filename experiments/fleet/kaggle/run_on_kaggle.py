@@ -39,6 +39,7 @@ if code is None:  # Kaggle may have auto-extracted the archive
 os.chdir(code)
 job = json.load(open("job.json")) if os.path.exists("job.json") else {"job": "validate"}
 print("code at", code, "job:", job, flush=True)
+print("bundle:", job.get("bundle", "(none recorded)"), flush=True)
 env = dict(os.environ, PYTHONPATH=os.path.join(code, "src"))
 os.makedirs(W, exist_ok=True)
 
