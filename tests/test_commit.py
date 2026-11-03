@@ -213,26 +213,40 @@ def test_gate_logic_on_synthetic_records():
 
 
 def test_phase2_outcomes_on_synthetic_records():
-    """moved / locked / collapsed / other from the final standard-configuration evaluation (stage-2 review B3): the
-    first-deviation mass is over the stratum's queries, so a router right on 93 % of words that halts on the rest is
-    not 'collapsed'."""
+    """moved / moved~ / moved-R / locked / drifted / halted / other under shift A, conditioned on the start (the same
+    first-deviation key is the intact L program from L and the lost SET from E), and held / to-X / degraded / lost on the
+    unchanged delta-1 stream; the first-deviation mass is over the stratum's queries, so a router right on 93 % of words
+    that halts on the rest is not 'halted'."""
     import importlib.util
     path = os.path.join(os.path.dirname(__file__), "..", "experiments", "commit", "analyze.py")
     if not os.path.exists(path):
         pytest.skip("analysis code is not shipped in the Kaggle bundle (it runs locally); the test runs in the repo")
     spec = importlib.util.spec_from_file_location("cm_analyze", path)
     M = importlib.util.module_from_spec(spec); spec.loader.exec_module(M)
-    def rec(mp, fd, acc_P=1.0, q=9.0, clean=True):
-        e = {st: {"min_acc_P": mp, "n": 250, "n_P": 217, "first_dev": fd, "acc_P": acc_P, "q_steps_P": q, "oracle_steps_P": 9.5, "set_late_P": 1.0, "set_other_P": 0.0}
-             for st in ("in4", "in8", "pp8")}
+    def rec(mp, fd, start="E", deferral=0, acc=1.0, plus=0.0, p_prev=1.0, late=1.0, curve_max=None, clean=True):
+        e = {st: {"min_acc_P": mp, "n": 250, "n_P": 217, "first_dev": fd, "acc_P": acc, "acc": acc, "q_steps": 8.0 + plus, "oracle_steps": 8.0,
+                  "set_late_P": late, "set_other_P": 0.0} for st in ("in4", "in8", "none8", "pp8")}
         ev = {"eval": {st: {**v, "min_acc_P": 0.0} for st, v in e.items()}}      # the mixture evaluation disagrees on purpose
         if clean:
             ev["clean"] = e
-        return {"evals": [ev], "train": {"warmup": 100, "steps": 3000}, "curve": []}
+        cm = mp if curve_max is None else curve_max
+        curve = [{"step": 100 + 100 * i, "min_acc_P": cm, "p_prev_class": p_prev, "p_set_class": 0.5} for i in range(3)]
+        return {"evals": [ev], "train": {"warmup": 100, "steps": 3000, "init_from": f"cm1_{'EX' if start == 'E' else 'EI16'}_p1_s0.pt"},
+                "data": {"deferral": deferral, "p_P": 0.3, "pp_frac": 0.0}, "curve": curve}
     assert M.outcome(rec(0.99, {"PREV>HOP": 2})) == "moved"
-    assert M.outcome(rec(0.0, {"PREV>HOP": 215, "SET>HALT": 2}, acc_P=0.0)) == "locked"
-    assert M.outcome(rec(0.0, {"SET>HALT": 216}, acc_P=0.0, q=2.3)) == "collapsed"
-    assert M.outcome(rec(0.93, {"SET>HALT": 16})) == "other"                   # 16 / 250 halts is not a collapse
-    assert M.outcome(rec(0.0, {"PREV>HOP": 215}, acc_P=0.0, clean=False)) == "locked"   # no clean eval: the mixture one
+    assert M.outcome(rec(0.0, {"PREV>HOP": 215, "SET>HALT": 2}, acc=0.0)) == "locked"            # E intact under delta 0
+    assert M.outcome(rec(0.0, {"SET>HOP": 220}, acc=0.0)) == "drifted"                          # E lost its SET: the all-H route
+    assert M.outcome(rec(0.0, {"SET>HOP": 220}, start="L", acc=0.0, p_prev=1.0)) == "locked"     # L intact (PREV still in place)
+    assert M.outcome(rec(0.0, {"SET>HOP": 220}, start="L", acc=0.0, p_prev=0.0)) == "drifted"    # L with PREV lost
+    assert M.outcome(rec(0.0, {"SET>HALT": 216}, acc=0.0)) == "halted"
+    assert M.outcome(rec(0.93, {"SET>HALT": 16}, curve_max=0.93)) == "other"                     # 16 / 250 halts is not a collapse
+    assert M.outcome(rec(0.93, {"SET>HOP": 16}, curve_max=0.99)) == "moved~"                     # reached the criterion, ended at 0.93
+    assert M.outcome(rec(0.0, {"HOP>SET": 250}, acc=0.98, plus=1.0)) == "moved-R"                # program R: correct, one step longer
+    assert M.outcome(rec(0.0, {"PREV>HOP": 215}, acc=0.0, clean=False)) == "locked"             # no clean eval: the mixture one
+    # delta 1: the unchanged stream and shift B
+    assert M.outcome(rec(0.99, {}, start="L", deferral=1, late=1.0)) == "held-L"
+    assert M.outcome(rec(0.99, {"SET>HOP": 30}, start="L", deferral=1, late=0.0)) == "to-E"
+    assert M.outcome(rec(0.70, {"SET>HOP": 190}, start="L", deferral=1)) == "degraded"
+    assert M.outcome(rec(0.01, {"SET>HOP": 210}, start="L", deferral=1, acc=0.0)) == "lost"
     r = rec(0.99, {}); r["evals"][0]["clean"]["pp8"]["min_acc"] = 0.92
     assert M.filled(r) and not M.filled(rec(0.99, {}))
