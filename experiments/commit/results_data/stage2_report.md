@@ -43,7 +43,7 @@ What each committed router's phase-2 targets can see (DESIGN §5.3): shift A = t
 
 ## Phase 2: movement after commitment (shortest-correct on P-words under the new data, standard-configuration evaluation; time from the end of warm-up)
 
-Outcomes per run: moved (≥ 0.95 at in4 and in8) / locked (first deviation is the relabeled decision, oracle PREV → router HOP) / collapsed (halting where the oracle continues; stage-2 review B3) / other. Mover counts are over runs that did not collapse; collapses are reported separately. Time to move also in relabel events (P-word queries seen = steps × batch × Qn × realized P-word fraction).
+Outcomes per run (see `outcome()`): moved (≥ 0.95 at in4 and in8 on the standard strata) / moved~ (reached it on the curve, ended 0.85–0.95) / moved-R (program R) / locked (the committed decision still the argmax: PREV>HOP from E, SET>HOP with PREV in place from L) / drifted (left the committed program without reaching the oracle's) / halted (≥ half the queries halt where the oracle continues at the END; most EX runs pass through this state, RESULTS §4.3) / other. Denominators are the cell's n (the §7a rule "movers over non-collapsed runs" is dropped: halting is a transit, RESULTS §12). Time to move also in relabel events (P-word queries seen = steps × batch × Qn × realized P-word fraction).
 
 | arm | n | moved | moved~ | moved-R | locked | drifted | halted | other | time to move (steps) | (relabel events) | final in4 / in8 (mean) | program at end (E/L/mix/other) | pp8 at end | init routers |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -52,7 +52,7 @@ Outcomes per run: moved (≥ 0.95 at in4 and in8) / locked (first deviation is t
 | EI16_EA30 | 5 | 4 | 0 | 0 | 1 | 0 | 0 | 0 | 500 [0–>2900] (1/5 > 2900) | 34160 [0–>198128] (1/5 > 198128) | 0.80 / 0.80 | 0/5/0/0 | 0.80 | 5 |
 | EI16_LA30 | 3 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 1900 [1100–>2900] (1/3 > 2900) | 129808 [75152–>198128] (1/3 > 198128) | 0.66 / 0.66 | 0/2/0/1 | 0.64 | 3 |
 | EI16_d0 | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 300 [200–300] | 20496 [13664–20496] | 1.00 / 1.00 | 0/3/0/0 | 1.00 | 1 |
-| EI16e3_EA30 | 3 | 2 | 0 | 0 | 0 | 1 | 0 | 0 | 500 [0–>2900] (1/3 > 2900) | 34160 [0–>198128] (1/3 > 198128) | 0.66 / 0.66 | 0/3/0/0 | 0.64 | 3 |
+| EI16e3_EA30 | 3 | 2 | 0 | 0 | 1 | 0 | 0 | 0 | 500 [0–>2900] (1/3 > 2900) | 34160 [0–>198128] (1/3 > 198128) | 0.66 / 0.66 | 0/3/0/0 | 0.64 | 3 |
 | EX_EA08 | 3 | 0 | 0 | 0 | 0 | 0 | 3 | 0 | > 2900 | > 58464 | 0.00 / 0.00 | 0/0/0/3 | 0.00 | 3 |
 | EX_EA15 | 3 | 1 | 0 | 0 | 0 | 0 | 2 | 0 | > 2900 (2/3 censored) | > 114608 (2/3 censored) | 0.33 / 0.33 | 0/1/0/2 | 0.33 | 3 |
 | EX_EA30 | 5 | 3 | 0 | 0 | 0 | 0 | 1 | 1 | 2000 [100–>2900] (2/5 > 2900) | 136640 [6832–>198128] (2/5 > 198128) | 0.60 / 0.60 | 0/3/0/2 | 0.60 | 5 |
@@ -118,7 +118,7 @@ Per run: outcome; final first deviation at in8 (oracle>taken: queries of 250); t
 - EI16_d0 s1 ← scratch: **moved**; {}; p(PREV) 1.00, p(SET) 1.00, HOP−PREV -27.63, HOP−SET -10.75; max shortest-correct 1.00
 - EI16_d0 s2 ← scratch: **moved**; {}; p(PREV) 1.00, p(SET) 1.00, HOP−PREV -27.63, HOP−SET -13.73; max shortest-correct 1.00
 - EI16e3_EA30 s1 ← cm1_EX_p1_s1.pt: **moved**; {}; p(PREV) 1.00, p(SET) 1.00, HOP−PREV -27.63, HOP−SET -7.21; max shortest-correct 1.00
-- EI16e3_EA30 s2 ← cm1_EX_p1_s2.pt: **drifted**; {'SET>HOP': 125, 'PREV>HOP': 94}; p(PREV) 0.00, p(SET) 0.45, HOP−PREV 5.45, HOP−SET 0.37; max shortest-correct 0.03
+- EI16e3_EA30 s2 ← cm1_EX_p1_s2.pt: **locked**; {'SET>HOP': 125, 'PREV>HOP': 94}; p(PREV) 0.00, p(SET) 0.45, HOP−PREV 5.45, HOP−SET 0.37; max shortest-correct 0.03
 - EI16e3_EA30 s3 ← cm1_EX_p1_s3.pt: **moved**; {'SET>HOP': 7, 'HOP>SET': 3}; p(PREV) 1.00, p(SET) 0.97, HOP−PREV -12.32, HOP−SET -7.66; max shortest-correct 0.97
 - EX_EA08 s1 ← cm1_EX_p1_s1.pt: **halted**; {'SET>HALT': 202, 'SET>HOP': 17, 'HOP>HALT': 3}; p(PREV) 0.00, p(SET) 0.00, HOP−PREV 0.97, HOP−SET -2.75; max shortest-correct 0.00
 - EX_EA08 s2 ← cm1_EX_p1_s2.pt: **halted**; {'SET>HALT': 196, 'SET>HOP': 15, 'HOP>HALT': 4}; p(PREV) 0.00, p(SET) 0.01, HOP−PREV -0.41, HOP−SET -2.78; max shortest-correct 0.00
@@ -235,7 +235,7 @@ The in-run column is the same quantity on the run's own criterion set at step 0;
 | EI16_LA30 | s1 | L | 0.64 | 0.60 | 0 | None | locked | -21 |
 | EI16_LA30 | s2 | L | 0.64 | 0.60 | 0 | 1900 | moved | -25 |
 | EI16e3_EA30 | s1 | E | 0.74 | 0.74 | 0 | 0 | moved | +26 |
-| EI16e3_EA30 | s2 | E | 0.00 | 0.00 | None | None | drifted | +21 |
+| EI16e3_EA30 | s2 | E | 0.00 | 0.00 | None | None | locked | +21 |
 | EI16e3_EA30 | s3 | E | 0.06 | 0.06 | 500 | 500 | moved | +26 |
 
 Coverage exactly zero (< 0.005): 1/4 moved; coverage ≥ 0.005: 10/13 moved (the preregistered rule's thresholds were 0.05 and 0.3).
@@ -322,16 +322,19 @@ Coverage exactly zero (< 0.005): 1/4 moved; coverage ≥ 0.005: 10/13 moved (the
 | PF_LA30 | s1 | -21.0 | +1.9 | -1.8 | 0.63 | 800 | 900 | moved |
 | PF_LA30 | s2 | -24.6 | +1.4 | -1.9 | 0.63 | 1200 | 1400 | moved |
 
-### EX from E: the halting collapse by dose, against the unchanged-stream controls
+### EX and IW16 from E: the loss of the SET at the flag (p(SET) at (own flag, 0, 0) < 0.1) as a transit, by dose, against the unchanged-stream controls
 
-- EX_EA30: halted 1/5; moved 3; moved-R 0; locked 0; drifted 0; other 1
-- EX_EA15: halted 2/3; moved 1; moved-R 0; locked 0; drifted 0; other 0
-- EX_EA08: halted 3/3; moved 0; moved-R 0; locked 0; drifted 0; other 0
-- EX_ES: halted 0/5; moved 0; moved-R 0; locked 0; drifted 0; other 0
-- EX_d0: halted 0/3; moved 0; moved-R 0; locked 0; drifted 3; other 0
-- IW16_EA30: halted 3/5; moved 0; moved-R 0; locked 0; drifted 1; other 1
-- IW16_EA15: halted 2/3; moved 0; moved-R 0; locked 0; drifted 1; other 0
-- IW16_EA08: halted 1/3; moved 0; moved-R 0; locked 0; drifted 2; other 0
+Per run: the first step at which p(SET) at the flag is below 0.1 (the halting / all-H state), the first confirmed move, the final outcome and the end-of-run halting mass (fraction of in8 queries halting where the oracle continues).
+
+- EX_EA30 (halted at the end 1/5; moved 3; R 0): s1: SET lost at 0, move 2000, moved, halt mass 0.00; s2: SET lost at None, move 100, moved, halt mass 0.00; s3: SET lost at 500, move None, halted, halt mass 0.85; s5: SET lost at 300, move 700, moved, halt mass 0.00; s6: SET lost at 100, move None, other, halt mass 0.00
+- EX_EA15 (halted at the end 2/3; moved 1; R 0): s1: SET lost at 100, move None, halted, halt mass 0.86; s2: SET lost at 0, move 1700, moved, halt mass 0.00; s3: SET lost at 200, move None, halted, halt mass 0.84
+- EX_EA08 (halted at the end 3/3; moved 0; R 0): s1: SET lost at 100, move None, halted, halt mass 0.82; s2: SET lost at 100, move None, halted, halt mass 0.80; s3: SET lost at 100, move None, halted, halt mass 0.60
+- EX_LA30 (halted at the end 0/5; moved 2; R 0): s0: SET lost at None, move 1200, moved~, halt mass 0.00; s1: SET lost at 0, move None, locked, halt mass 0.00; s2: SET lost at None, move 1500, moved, halt mass 0.00; s3: SET lost at None, move 1800, other, halt mass 0.00; s5: SET lost at 0, move None, locked, halt mass 0.02
+- EX_ES (halted at the end 0/5; moved 0; R 0): s1: SET lost at None, move 0, held-E, halt mass 0.00; s2: SET lost at None, move 0, held-E, halt mass 0.00; s3: SET lost at None, move 0, held-E, halt mass 0.00; s5: SET lost at None, move 0, held-E, halt mass 0.00; s6: SET lost at None, move 0, held-E, halt mass 0.00
+- EX_d0 (halted at the end 0/3; moved 0; R 0): s0: SET lost at None, move None, drifted, halt mass 0.00; s1: SET lost at None, move None, drifted, halt mass 0.00; s2: SET lost at None, move None, drifted, halt mass 0.00
+- IW16_EA30 (halted at the end 3/5; moved 0; R 0): s1: SET lost at 100, move None, halted, halt mass 0.75; s2: SET lost at 100, move None, other, halt mass 0.01; s3: SET lost at 800, move None, halted, halt mass 0.78; s5: SET lost at 1100, move 200, drifted, halt mass 0.05; s6: SET lost at 0, move None, halted, halt mass 0.70
+- IW16_EA15 (halted at the end 2/3; moved 0; R 0): s1: SET lost at 600, move None, drifted, halt mass 0.19; s2: SET lost at 0, move None, halted, halt mass 0.55; s3: SET lost at 700, move None, halted, halt mass 0.74
+- IW16_EA08 (halted at the end 1/3; moved 0; R 0): s1: SET lost at 400, move None, halted, halt mass 0.74; s2: SET lost at 100, move None, drifted, halt mass 0.00; s3: SET lost at 1300, move None, drifted, halt mass 0.30
 
 ### From the L routers: outcome by router and signal (shift A)
 

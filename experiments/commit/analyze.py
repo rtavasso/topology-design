@@ -85,8 +85,10 @@ def outcome(r):
       moved~     reached >= 0.95 on the criterion curve (two consecutive points) and ended between 0.85 and 0.95;
       moved-R    program R (correct, one step longer everywhere): the relabeled decision was learned through R;
       halted     at least half the queries halt where the oracle continues (`*>HALT`): the halting collapse;
-      locked     the committed program intact: from E the first deviation is the relabeled decision itself (PREV>HOP);
-                 from L it is the missing SET at the flag (SET>HOP) with PREV still in place at the class (p >= 0.5);
+      locked     the committed decision still in place: from E the first deviation is the relabeled decision itself
+                 (PREV>HOP on >= 1/4 of queries; EI16's E-route targets erode the SET at the flag alongside, PF parks
+                 the margin at ~+1.3, so "locked" says the argmax, not that nothing moved); from L it is the missing SET
+                 at the flag (SET>HOP) with PREV still in place at the class (p >= 0.5);
       drifted    left the committed program without reaching the oracle's: from E, lost the SET at the flag (SET>HOP,
                  the all-H route); from L, SET>HOP with PREV lost; from scratch, SET>HOP is the all-H stall;
       other      none of the above (a run near the threshold, or a mixture)."""
@@ -112,7 +114,9 @@ def outcome(r):
     set_hop = first_dev_mass(r, lambda o, t: o == "SET" and t == "HOP")
     p_prev = (r["curve"][-1].get("p_prev_class") if r["curve"] else None)
     if st == "E":
-        if prev_hop >= 0.5:
+        # the relabeled decision (oracle PREV, router HOP) still the first deviation on a quarter or more of the queries:
+        # the committed decision is in place (whatever happened to the SET at the flag, which EI16's E-route targets erode)
+        if prev_hop >= 0.25:
             return "locked"
         if set_hop >= 0.5:
             return "drifted"
@@ -233,8 +237,10 @@ def main():
     p2 = {g: rs for g, rs in groups.items() if any(tag in g for tag in ("_EA", "_LA", "_ES", "_LS", "_LB")) or g.endswith("_d0") and g.startswith(("EX_", "EI16_", "PF_", "PFIS16_"))}
     if p2:
         out("\n## Phase 2: movement after commitment (shortest-correct on P-words under the new data, standard-configuration evaluation; time from the end of warm-up)\n")
-        out("Outcomes per run: moved (≥ 0.95 at in4 and in8) / locked (first deviation is the relabeled decision, oracle PREV → router HOP) / collapsed (halting where the oracle continues; stage-2 review B3) / other. "
-            "Mover counts are over runs that did not collapse; collapses are reported separately. Time to move also in relabel events (P-word queries seen = steps × batch × Qn × realized P-word fraction).\n")
+        out("Outcomes per run (see `outcome()`): moved (≥ 0.95 at in4 and in8 on the standard strata) / moved~ (reached it on the curve, ended 0.85–0.95) / moved-R (program R) / "
+            "locked (the committed decision still the argmax: PREV>HOP from E, SET>HOP with PREV in place from L) / drifted (left the committed program without reaching the oracle's) / halted (≥ half the queries halt where the oracle continues at the END; "
+            "most EX runs pass through this state, RESULTS §4.3) / other. Denominators are the cell's n (the §7a rule \"movers over non-collapsed runs\" is dropped: halting is a transit, RESULTS §12). "
+            "Time to move also in relabel events (P-word queries seen = steps × batch × Qn × realized P-word fraction).\n")
         out("| arm | n | moved | moved~ | moved-R | locked | drifted | halted | other | time to move (steps) | (relabel events) | final in4 / in8 (mean) | program at end (E/L/mix/other) | pp8 at end | init routers |")
         out("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         pA = {g: rs for g, rs in p2.items() if rs[0].get("data", {}).get("deferral", 1) == 0}
@@ -330,12 +336,19 @@ def main():
                 cross = next((x["step"] - w for x in c if x.get("margin_hop_prev") is not None and x["margin_hop_prev"] < 0), None)
                 f2 = lambda v: "–" if v is None else f"{v:+.1f}"
                 out(f"| {g} | s{r['train']['seed']} | {f2(mg0)} | {f2(m100)} | {f2(c[-1].get('margin_hop_prev'))} | {('–' if c[-1].get('p_prev_class') is None else f'{c[-1]['p_prev_class']:.2f}')} | {cross} | {move_step(r)} | {outcome(r)} |")
-        out("\n### EX from E: the halting collapse by dose, against the unchanged-stream controls\n")
-        for g in ("EX_EA30", "EX_EA15", "EX_EA08", "EX_ES", "EX_d0", "IW16_EA30", "IW16_EA15", "IW16_EA08"):
+        out("\n### EX and IW16 from E: the loss of the SET at the flag (p(SET) at (own flag, 0, 0) < 0.1) as a transit, by dose, against the unchanged-stream controls\n")
+        out("Per run: the first step at which p(SET) at the flag is below 0.1 (the halting / all-H state), the first confirmed move, the final outcome and the end-of-run halting mass (fraction of in8 queries halting where the oracle continues).\n")
+        for g in ("EX_EA30", "EX_EA15", "EX_EA08", "EX_LA30", "EX_ES", "EX_d0", "IW16_EA30", "IW16_EA15", "IW16_EA08"):
             rs = p2.get(g)
-            if rs:
-                oc = [outcome(r) for r in rs]
-                out(f"- {g}: halted {oc.count('halted')}/{len(rs)}; moved {oc.count('moved')}; moved-R {oc.count('moved-R')}; locked {oc.count('locked')}; drifted {oc.count('drifted')}; other {oc.count('other')}")
+            if not rs:
+                continue
+            rows = []
+            for r in sorted(rs, key=lambda r: r["train"]["seed"]):
+                w = r["train"].get("warmup", 0)
+                lost = next((c["step"] - w for c in r["curve"] if c.get("p_set_class") is not None and c["p_set_class"] < 0.1), None)
+                rows.append(f"s{r['train']['seed']}: SET lost at {lost}, move {move_step(r)}, {outcome(r)}, halt mass {first_dev_mass(r, lambda o, t: t == 'HALT'):.2f}")
+            oc = [outcome(r) for r in rs]
+            out(f"- {g} (halted at the end {oc.count('halted')}/{len(rs)}; moved {oc.count('moved') + oc.count('moved~')}; R {oc.count('moved-R')}): " + "; ".join(rows))
         out("\n### From the L routers: outcome by router and signal (shift A)\n")
         sigs = ["RT", "PF", "EX", "EI16", "PFIS16", "IW16"]
         seeds_L = sorted({r["train"]["seed"] for g, rs in p2.items() if "_LA" in g for r in rs})
