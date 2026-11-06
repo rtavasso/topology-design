@@ -1,6 +1,6 @@
 # Rung 4 — programs: does an amortized router generalize across programs, given labels? (design, revision 1, 3 Nov 2026)
 
-**Status: draft for discussion.** Three choices are left open for the researcher (§11) and the design goes to an independent review after them. Nothing here is implemented.
+**Status: superseded (6 Nov 2026)** by [rewrite/DESIGN.md](../rewrite/DESIGN.md): the same questions (recombination across worlds, rules against tables, labels against search, world inference from context) moved to a proof-shaped carrier after the real-model target was fixed as Lean (history Entry 75). Kept as the record of the route-carrier version; nothing here was implemented.
 
 ## 0. Where this comes from
 
