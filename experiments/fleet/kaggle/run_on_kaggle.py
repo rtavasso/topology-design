@@ -187,5 +187,32 @@ elif job["job"] == "route":
         print(open(os.path.join(W, f"route_shard{i}.txt")).read()[-2000:], flush=True)
     n = len([f for f in os.listdir(out) if f.endswith(".json.gz")])
     print(f"\nSUMMARY route grid={job['grid']} shards={k} rcs={rcs} results={n}", flush=True)
+elif job["job"] == "rewrite":
+    out = os.path.join(W, "results")
+    os.makedirs(out, exist_ok=True)
+    if os.path.isdir("prior"):
+        for f in os.listdir("prior"):
+            shutil.copy(os.path.join("prior", f), out)
+        print(f"resumed with {len(os.listdir(out))} prior results", flush=True)
+    if job.get("tests", True):
+        rc = run("tests", [sys.executable, "-m", "pytest", "-q", "-x", "tests/test_rewrite.py"])
+        if rc != 0:
+            print("TESTS FAILED: grid not run", flush=True)
+            sys.exit(1)
+    data = os.path.join(code, "data", "rewrite")
+    print("data files:", sorted(os.listdir(data)) if os.path.isdir(data) else "MISSING", flush=True)
+    k = max(1, n_gpus()) * int(job.get("per_gpu", 1))
+    g = max(1, n_gpus())
+    procs = []
+    for i in range(k):
+        e = {**env, "CUDA_VISIBLE_DEVICES": str(i % g)} if n_gpus() > 0 else env
+        cmd = [sys.executable, "experiments/rewrite/run_rewrite.py", "--grid", job["grid"], "--data", data, "--out", W, "--shard", f"{i}/{k}"]
+        tee = f"exec {' '.join(cmd)} 2>&1 | tee {os.path.join(W, f'rewrite_shard{i}.txt')} | sed -u 's/^/[rewrite{i}] /'"
+        procs.append(subprocess.Popen(tee, shell=True, env=e))
+    rcs = [p.wait() for p in procs]
+    for i in range(k):
+        print(open(os.path.join(W, f"rewrite_shard{i}.txt")).read()[-2000:], flush=True)
+    n = len([f for f in os.listdir(out) if f.endswith(".json.gz")])
+    print(f"\nSUMMARY rewrite grid={job['grid']} shards={k} rcs={rcs} results={n}", flush=True)
 else:
     sys.exit(f"unknown job {job}")

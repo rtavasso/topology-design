@@ -6,6 +6,8 @@ Jobs:
   rung 0, staged:        python experiments/fleet/kaggle/launch.py --user NAME --ptr-gate experiments/ptr/grids/pilot3.json \
                              --ptr-grid experiments/ptr/grids/rev3.json
   rung 1:                python experiments/fleet/kaggle/launch.py --user NAME --route-grid experiments/route/grids/pilot.json
+  rung 4:                python experiments/fleet/kaggle/launch.py --user NAME --rewrite-grid experiments/rewrite/grids/pilot.json \
+                             --data-dir data/rewrite        (the built dataset travels with the code)
       One session runs the gate grid, applies the preregistered rule (experiments/ptr/gate.py) and runs the gated grid;
       without --no-wait the command waits and downloads everything (run it under `caffeinate -i` so the laptop stays
       awake), otherwise `--fetch` with the same arguments later.
@@ -44,6 +46,7 @@ INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "tests/test_p
 PTR_INCLUDE = ["tests/test_ptr.py", "experiments/ptr/run_ptr.py", "experiments/ptr/gate.py"]
 ROUTE_INCLUDE = ["tests/test_route.py", "tests/test_routefind.py", "tests/test_commit.py", "tests/test_ptr.py",
                  "experiments/route/run_route.py", "experiments/commit/gate.py"]
+REWRITE_INCLUDE = ["tests/test_rewrite.py", "experiments/rewrite/run_rewrite.py"]
 VALIDATE_EXTRA = ["experiments/paths/results_data/compact.json.gz"]
 
 
@@ -80,6 +83,9 @@ def main():
                     help="throughput test of stacked models for the worlds round (experiments/worlds/DESIGN.md §8)")
     ap.add_argument("--ptr-grid", default=None, help="rung-0 grid JSON (experiments/ptr/grids/*.json) to run")
     ap.add_argument("--route-grid", default=None, help="rung-1 grid JSON (experiments/route/grids/*.json) to run")
+    ap.add_argument("--rewrite-grid", default=None, help="rung-4 grid JSON (experiments/rewrite/grids/*.json) to run")
+    ap.add_argument("--data-dir", default=None, help="rung 4: the built dataset directory (build_dataset.py --out), uploaded "
+                    "with the code and mounted as the job's data directory")
     ap.add_argument("--ptr-gate", default=None, help="rung-0: a gate grid run first in the same session; gate.py then sets "
                     "LH-Δ's head multiplier in --ptr-grid before it runs (staged, unattended)")
     ap.add_argument("--per-gpu", type=int, default=1, help="ptr: shard processes per GPU (runs are stacked per process)")
@@ -101,12 +107,14 @@ def main():
         name = "bench-worlds"
     if args.route_grid:
         name = "route-" + os.path.splitext(os.path.basename(args.route_grid))[0]
+    if args.rewrite_grid:
+        name = "rewrite-" + os.path.splitext(os.path.basename(args.rewrite_grid))[0]
     if args.ptr_grid:
         name = "ptr-" + os.path.splitext(os.path.basename(args.ptr_grid))[0]
         if args.ptr_gate:
             name = "ptr-" + os.path.splitext(os.path.basename(args.ptr_gate))[0] + "-" + os.path.splitext(os.path.basename(args.ptr_grid))[0]
     args.out = args.out or os.path.join(ROOT, "results", f"kaggle_{name}")
-    special = args.grid is not None or args.bench_worlds or args.ptr_grid is not None or args.route_grid is not None
+    special = args.grid is not None or args.bench_worlds or args.ptr_grid is not None or args.route_grid is not None or args.rewrite_grid is not None
     args.kernel = args.kernel or ("topology-fleet-validate" if not special else f"topology-fleet-{slug(name)}")
     # a fresh dataset slug per launch: pushing a new VERSION of an existing dataset is asynchronous, and `datasets status`
     # answers "ready" for the previous version while the new one is still processing, so a relaunched kernel mounted the
@@ -155,6 +163,18 @@ def main():
             sys.exit(f"grid not found: {args.route_grid}")
         job = {"job": "route", "grid": grid_rel, "per_gpu": args.per_gpu, "max_stack": args.max_stack}
         include = INCLUDE + ROUTE_INCLUDE + [grid_rel]
+    data_files = []
+    if args.rewrite_grid:
+        grid_rel = os.path.relpath(os.path.abspath(args.rewrite_grid), ROOT)
+        if not os.path.exists(os.path.join(ROOT, grid_rel)):
+            sys.exit(f"grid not found: {args.rewrite_grid}")
+        if not args.data_dir or not os.path.isdir(args.data_dir):
+            sys.exit("--data-dir (the built rewrite dataset) is required for a rewrite grid")
+        data_files = sorted(f for f in os.listdir(args.data_dir) if f.endswith(".jsonl.gz") or f == "meta.json")
+        if not any(f.startswith("train_") for f in data_files) or not any(f.startswith("eval5_") for f in data_files):
+            sys.exit(f"--data-dir {args.data_dir} has no train_*/eval5_* files")
+        job = {"job": "rewrite", "grid": grid_rel, "per_gpu": args.per_gpu, "tests": not args.no_tests}
+        include = INCLUDE + REWRITE_INCLUDE + [grid_rel]
     jp = os.path.join(tmp, "job.json")
     # what code this bundle is: the kernel prints it first, so the log says which commit ran
     head = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip() or "?"
@@ -180,7 +200,11 @@ def main():
             tf.add(os.path.join(prior_dir, f), arcname=os.path.join("code", "prior", f))
         for f in ckpts:
             tf.add(os.path.join(args.ckpt_dir, f), arcname=os.path.join("code", "ckpt", f))
-    print(f"job {job}; {len(prior)} prior results uploaded for resume; {len(ckpts)} checkpoints uploaded", flush=True)
+        for f in data_files:
+            tf.add(os.path.join(args.data_dir, f), arcname=os.path.join("code", "data", "rewrite", f))
+    print(f"job {job}; {len(prior)} prior results uploaded for resume; {len(ckpts)} checkpoints uploaded; "
+          f"{len(data_files)} data files ({sum(os.path.getsize(os.path.join(args.data_dir, f)) for f in data_files) / 1e6:.1f} MB)" if data_files
+          else f"job {job}; {len(prior)} prior results uploaded for resume; {len(ckpts)} checkpoints uploaded", flush=True)
     json.dump({"title": args.dataset, "id": f"{user}/{args.dataset}", "licenses": [{"name": "CC0-1.0"}]},
               open(os.path.join(ds, "dataset-metadata.json"), "w"))
     # the status call can return 403 for a dataset that does not exist yet, so try a new version first and fall back
