@@ -169,8 +169,8 @@ def report(runs, derived=None):
     md.append("\n## Success on eval5 by arm × world class × binding: masked | unmasked | first decision correct; greedy rung on the same instances\n\n" +
               table(rows, ["arm", "class", "binding", "n/seed", "masked", "unmasked", "first ok", "greedy d=1"]))
 
-    # P2
-    md.append("\n## P2 (Q1): held-out pairs' binding stratum, eval5 — RT-canon against the greedy rung; RT-all's ceiling")
+    # P2 — masked is the pass reading (the fair comparison with the ladder and EI16); unmasked reported alongside (review 2, S2)
+    md.append("\n## P2 (Q1): held-out pairs' binding stratum, eval5 — RT-canon against the greedy rung on the same instances; RT-all's ceiling. Pass rule on the masked reading; unmasked alongside.")
     rows = []
     for a in ("RT-canon", "RT-post", "RT-all", "EI16", "RT-examples", "RT-shuffled", "PF", "RT-absolute"):
         if a not in arms:
@@ -179,58 +179,94 @@ def report(runs, derived=None):
             per = []
             for r in by_seed(runs, a):
                 sel = instances(r, "eval5", world=worlds, binding=True)
-                s_, g_ = rate(sel), ladder_rate(sel, 1)
-                per.append((s_, g_, len(sel)))
-            above02 = sum(1 for s_, g_, _ in per if s_ is not None and s_ - g_ >= 0.2)
-            above0 = sum(1 for s_, g_, _ in per if s_ is not None and s_ > g_)
-            ge07 = sum(1 for s_, g_, _ in per if s_ is not None and s_ >= 0.7)
-            rows.append([a, cls, per[0][2] if per else 0, summarize_seeds([p[0] for p in per]), fmt(per[0][1] if per else None),
-                         f"{above0}/{len(per)}", f"{above02}/{len(per)}", f"{ge07}/{len(per)}"])
-    md.append(table(rows, ["arm", "worlds", "n/seed", "success (median [min,max])", "greedy", "> greedy", "≥ greedy+0.2", "≥ 0.7"]))
-    md.append("P2 passes when RT-canon on the pairs is ≥ greedy + 0.2 and ≥ 0.7 in ≥ 6/10 seeds, > greedy on triples+full in ≥ 6/10, and RT-all ≥ 0.9 there.")
+                per.append((rate(sel), ladder_rate(sel, 1), len(sel), rate(sel, "ok_u")))
+            above0 = sum(1 for s_, g_, _, _ in per if s_ is not None and s_ > g_)
+            joint = sum(1 for s_, g_, _, _ in per if s_ is not None and s_ - g_ >= 0.2 and s_ >= 0.7)     # both conditions in the same seed
+            ge09 = sum(1 for s_, g_, _, _ in per if s_ is not None and s_ >= 0.9)
+            rows.append([a, cls, per[0][2] if per else 0, summarize_seeds([p[0] for p in per]), summarize_seeds([p[3] for p in per]),
+                         fmt(per[0][1] if per else None), f"{above0}/{len(per)}", f"{joint}/{len(per)}", f"{ge09}/{len(per)}"])
+    md.append(table(rows, ["arm", "worlds", "n/seed", "masked (median [min,max])", "unmasked", "greedy d=1", "> greedy", "≥ greedy+0.2 and ≥ 0.7 (same seed)", "≥ 0.9"]))
+    md.append("P2 passes when RT-canon on the pairs meets both conditions in ≥ 6/10 seeds, exceeds greedy on triples+full in ≥ 6/10, and RT-all is ≥ 0.9 on the same strata.")
 
-    # P3
-    md.append("\n## P3 (Q2): sizes 6–7 (eval7, k ≤ 4) against size ≤ 5 at k ≤ 4 (eval5), masked; RT-absolute against the unaddressable share")
-    rows = []
+    # P3 — matched on (world, k, binding) cells reweighted to eval7's composition (review 2, S1); training worlds primary
+    md.append("\n## P3 (Q2): sizes 6–7 (eval7, k ≤ 4) against size ≤ 5 on the same (world, k, binding) cells reweighted to eval7's composition, masked; RT-absolute split by addressability")
     un = (derived or {}).get("eval7_unaddressable", {})
+
+    def matched_ratio(r, worlds):
+        e7 = instances(r, "eval7", world=worlds)
+        e5 = instances(r, "eval5", world=worlds, k=[1, 2, 3, 4])
+        cells7, cells5 = {}, {}
+        for pi in e7:
+            cells7.setdefault((pi["world"], pi["k"], pi["binding"]), []).append(pi)
+        for pi in e5:
+            cells5.setdefault((pi["world"], pi["k"], pi["binding"]), []).append(pi)
+        num = den = n_used = 0.0
+        for key, rows7 in cells7.items():
+            if key not in cells5:
+                continue
+            num += sum(pi["ok_m"] for pi in rows7)
+            den += len(rows7) * rate(cells5[key])
+            n_used += len(rows7)
+        if n_used == 0 or den == 0:
+            return None, 0, len(e7)
+        return num / den, int(n_used), len(e7)
+
+    rows = []
     for a in ("RT-canon", "RT-absolute", "RT-post", "RT-all"):
         if a not in arms:
             continue
-        ratios, abs_rows = [], []
-        for r in by_seed(runs, a):
-            s5 = rate(instances(r, "eval5", k=[1, 2, 3, 4]))
-            s7 = rate(instances(r, "eval7"))
-            ratios.append(s7 / s5 if s5 else None)
-            if un:
-                e7 = instances(r, "eval7")
-                flag = [un.get(pi["world"], {}).get(f"{pi['t']}|{pi['s']}") for pi in e7]
-                addr = [pi for pi, f in zip(e7, flag) if f is False]
-                unad = [pi for pi, f in zip(e7, flag) if f is True]
-                abs_rows.append((rate(addr), rate(unad), len(addr), len(unad)))
-        n_ok = sum(1 for x in ratios if x is not None and x >= 0.9)
-        extra = ""
-        if abs_rows:
-            extra = f"addressable: {summarize_seeds([x[0] for x in abs_rows])} (n {abs_rows[0][2]}); unaddressable: {summarize_seeds([x[1] for x in abs_rows])} (n {abs_rows[0][3]})"
-        rows.append([a, summarize_seeds([rate(instances(r, 'eval5', k=[1, 2, 3, 4])) for r in by_seed(runs, a)]),
-                     summarize_seeds([rate(instances(r, 'eval7')) for r in by_seed(runs, a)]), summarize_seeds(ratios), f"{n_ok}/{len(ratios)}", extra])
-    md.append(table(rows, ["arm", "size ≤ 5, k ≤ 4", "sizes 6–7", "ratio", "ratio ≥ 0.9", "split by addressability"]))
-    md.append("P3 passes when the structural RT-canon's ratio is ≥ 0.9 in ≥ 7/10 seeds, and RT-absolute's failures are the unaddressable instances (success on addressable ≈ size-5 success, ≈ 0 on unaddressable).")
+        for cls, worlds in (("train", TRAIN_WORLDS), ("held-out", PAIRS_HELD + TRIPLES + FULL)):
+            ratios, covered = [], None
+            abs_rows = []
+            for r in by_seed(runs, a):
+                ratio, n_used, n7 = matched_ratio(r, worlds)
+                ratios.append(ratio); covered = (n_used, n7)
+                if un:
+                    e7 = instances(r, "eval7", world=worlds)
+                    flag = [un.get(pi["world"], {}).get(f"{pi['t']}|{pi['s']}") for pi in e7]
+                    addr = [pi for pi, f in zip(e7, flag) if f is False]
+                    unad = [pi for pi, f in zip(e7, flag) if f is True]
+                    abs_rows.append((rate(addr), rate(unad), len(addr), len(unad)))
+            n_ok = sum(1 for x in ratios if x is not None and x >= 0.9)
+            extra = ""
+            if abs_rows:
+                extra = f"addressable {summarize_seeds([x[0] for x in abs_rows])} (n {abs_rows[0][2]}); unaddressable {summarize_seeds([x[1] for x in abs_rows])} (n {abs_rows[0][3]})"
+            rows.append([a, cls, summarize_seeds([rate(instances(r, 'eval5', world=worlds, k=[1, 2, 3, 4])) for r in by_seed(runs, a)]),
+                         summarize_seeds([rate(instances(r, 'eval7', world=worlds)) for r in by_seed(runs, a)]),
+                         summarize_seeds(ratios), f"{covered[0]}/{covered[1]}" if covered else "–", f"{n_ok}/{len(ratios)}", extra])
+    md.append(table(rows, ["arm", "worlds", "size ≤ 5, k ≤ 4", "sizes 6–7", "matched ratio", "eval7 n matched", "ratio ≥ 0.9", "RT-absolute split"]))
+    md.append("P3 passes when the structural RT-canon's matched ratio on the training worlds is ≥ 0.9 in ≥ 7/10 seeds, and RT-absolute's failures are the unaddressable instances (success on addressable ≈ its size-5 success, ≈ 0 on unaddressable).")
 
-    # P4
-    md.append("\n## P4 (Q3): training worlds, GP1 instances at k ≥ 4 (eval5, masked) against the lookahead rungs on the same instances")
+    # P4 — on cells where the rungs are separated (review 2, B5/S7): cells (world, k, GP1) of the training worlds with
+    # d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1 on the eval instances themselves; strict inequalities; unmasked alongside
+    md.append("\n## P4 (Q3): training worlds, GP1 instances at k ≥ 4 (eval5), on cells whose rungs are separated (d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1); masked is the pass reading")
+
+    def separated_cells(r):
+        cells = {}
+        for pi in instances(r, "eval5", world=TRAIN_WORLDS, GP1=True, k=[4, 5, 6]):
+            cells.setdefault((pi["world"], pi["k"]), []).append(pi)
+        out = []
+        for key, rows_ in cells.items():
+            d1, d2, d3 = ladder_rate(rows_, 1), ladder_rate(rows_, 2), ladder_rate(rows_, 3)
+            if d2 - d1 >= 0.1 and d3 - d2 >= 0.1:
+                out.extend(rows_)
+        return out
+
     rows = []
     for a in arms:
         per = []
         for r in by_seed(runs, a):
-            sel = instances(r, "eval5", world=TRAIN_WORLDS, GP1=True, k=[4, 5, 6])
-            per.append((rate(sel), ladder_rate(sel, 1), ladder_rate(sel, 2), ladder_rate(sel, 3), len(sel)))
-        between = sum(1 for s_, d1, d2, d3, _ in per if s_ is not None and d2 <= s_ < d3)
-        ge3 = sum(1 for s_, d1, d2, d3, _ in per if s_ is not None and s_ >= d3)
-        le1 = sum(1 for s_, d1, d2, d3, _ in per if s_ is not None and s_ <= d1)
-        rows.append([a, per[0][4] if per else 0, summarize_seeds([p[0] for p in per]), fmt(per[0][1] if per else None), fmt(per[0][2] if per else None), fmt(per[0][3] if per else None),
-                     f"{between}/{len(per)}", f"{ge3}/{len(per)}", f"{le1}/{len(per)}"])
-    md.append(table(rows, ["arm", "n/seed", "success", "d=1", "d=2", "d=3", "between d=2 and d=3", "≥ d=3", "≤ d=1"]))
-    # per k and GP1 for RT-canon
+            sel = separated_cells(r)
+            per.append((rate(sel), ladder_rate(sel, 1), ladder_rate(sel, 2), ladder_rate(sel, 3), len(sel), rate(sel, "ok_u")))
+        between = sum(1 for s_, d1, d2, d3, n, _ in per if s_ is not None and d2 < s_ < d3)
+        ge3 = sum(1 for s_, d1, d2, d3, n, _ in per if s_ is not None and s_ >= d3)
+        le1 = sum(1 for s_, d1, d2, d3, n, _ in per if s_ is not None and s_ <= d1)
+        n_cells = per[0][4] if per else 0
+        rows.append([a, n_cells, summarize_seeds([p[0] for p in per]), summarize_seeds([p[5] for p in per]), fmt(per[0][1] if per else None), fmt(per[0][2] if per else None), fmt(per[0][3] if per else None),
+                     f"{between}/{len(per)}" if n_cells else "rungs not separated", f"{ge3}/{len(per)}", f"{le1}/{len(per)}"])
+    md.append(table(rows, ["arm", "n/seed (separated cells)", "masked", "unmasked", "d=1", "d=2", "d=3", "strictly between d=2 and d=3", "≥ d=3", "≤ d=1"]))
+    md.append("P4 passes when RT-canon lies strictly between the d = 2 and d = 3 rungs in ≥ 7/10 seeds on the separated cells; ≥ d = 3 in ≥ 7/10 falsifies toward 'three steps absorbed', ≤ d = 1 toward 'none'.")
+    # Q3's quantity per cell: the largest d whose rung RT-canon matches (0 = below greedy), with the rungs
     if "RT-canon" in arms:
         rows = []
         for k in (2, 3, 4, 5, 6):
@@ -238,8 +274,18 @@ def report(runs, derived=None):
                 per = [instances(r, "eval5", world=TRAIN_WORLDS, GP1=bool(g), k=k) for r in by_seed(runs, "RT-canon")]
                 if not per or not per[0]:
                     continue
-                rows.append([k, g, len(per[0]), summarize_seeds([rate(p) for p in per]), fmt(ladder_rate(per[0], 1)), fmt(ladder_rate(per[0], 2)), fmt(ladder_rate(per[0], 3))])
-        md.append("\nRT-canon by k × GP1 (training worlds, eval5):\n\n" + table(rows, ["k", "GP1", "n/seed", "RT-canon", "d=1", "d=2", "d=3"]))
+                d1, d2, d3 = ladder_rate(per[0], 1), ladder_rate(per[0], 2), ladder_rate(per[0], 3)
+                reach = []
+                for p_ in per:
+                    s_ = rate(p_)
+                    # the largest d whose rung is matched, counting a rung only where it rises above the one below (ties at
+                    # zero would otherwise be "matched" by a router that solves nothing; review 2, B5)
+                    rungs = [0.0, d1, d2, d3]
+                    reach.append(max([d for d in (1, 2, 3) if s_ >= rungs[d] and rungs[d] > rungs[d - 1]], default=0))
+                rows.append([k, g, len(per[0]), summarize_seeds([rate(p_) for p_ in per]), summarize_seeds([rate(p_, "ok_u") for p_ in per]), fmt(d1), fmt(d2), fmt(d3),
+                             f"median {statistics.median(reach)} (min {min(reach)}, max {max(reach)})", "yes" if (d2 - d1 >= 0.1 and d3 - d2 >= 0.1) else "no"])
+        md.append("\nRT-canon by k × GP1 (training worlds, eval5): reach = the largest d whose rung RT-canon matches\n\n" +
+                  table(rows, ["k", "GP1", "n/seed", "masked", "unmasked", "d=1", "d=2", "d=3", "reach over seeds", "separated"]))
 
     # P5
     if "EI16" in arms and "RT-canon" in arms:
@@ -247,39 +293,47 @@ def report(runs, derived=None):
         sel_ei = [rate(instances(r, "eval5", world=PAIRS_HELD + TRIPLES + FULL, binding=True)) for r in by_seed(runs, "EI16")]
         cis = [bootstrap_ci(instances(r, "eval5", world=PAIRS_HELD + TRIPLES + FULL, binding=True)) for r in by_seed(runs, "EI16")]
         md.append(f"\n## P5 (Q5): held-out binding stratum — RT-canon median {fmt(statistics.median([v for v in sel_rt if v is not None]) if any(v is not None for v in sel_rt) else None)}, "
-                  f"EI16 {summarize_seeds(sel_ei)}; EI16 bootstrap 95 % CIs per seed: {[(fmt(a), fmt(b)) for a, b in cis]}; EI16 found routes: "
+                  f"EI16 {summarize_seeds(sel_ei)}; EI16 bootstrap 95 % CIs per seed: {[(fmt(a), fmt(b)) for a, b in cis]}; EI16 [routes found, instances tried, rows imitated]: "
                   f"{[r.get('ei_found') for r in by_seed(runs, 'EI16')]}")
 
-    # P6
-    if "RT-post" in arms or "RT-canon" in arms:
-        rows = []
-        for a in ("RT-canon", "RT-post"):
-            if a not in arms:
+    # P6 — against the RT-post target at t (review 2, S3): total variation between the router's masked distribution over the
+    # shortest-path first actions (renormalised) and the target; the lexicographic-class share for RT-canon
+    rows = []
+    for a in ("RT-canon", "RT-post", "PF", "RT-all"):
+        if a not in arms:
+            continue
+        for r in by_seed(runs, a):
+            sel = [pi for pi in instances(r, "eval5", world=TRAIN_WORLDS) if pi.get("p_first") and pi.get("target_first") and pi["n_classes"] > 1 and len(pi["p_first"]) > 1]
+            if not sel:
                 continue
-            for r in by_seed(runs, a):
-                sel = [pi for pi in instances(r, "eval5", world=TRAIN_WORLDS) if pi.get("p_first") and pi["n_classes"] > 1 and len(pi["p_first"]) > 1]
-                if not sel:
-                    continue
-                mass = statistics.mean(sum(pi["p_first"].values()) for pi in sel)
-                # share of the shortest-path mass on the single best action (1 = committed to one choice)
-                conc = statistics.mean(max(pi["p_first"].values()) / max(1e-12, sum(pi["p_first"].values())) for pi in sel)
-                rows.append([r["cfg"]["name"], len(sel), fmt(mass), fmt(conc)])
-        md.append("\n## P6 (Q6): at multi-class training instances, the router's mass on shortest-path first actions and its concentration on one of them (RT-canon should commit; RT-post should spread toward the target mixture)\n\n" +
-                  table(rows, ["run", "n", "mass on shortest-path actions", "concentration on best"]))
+            tvs, mass, canon = [], [], []
+            for pi in sel:
+                tot = sum(pi["p_first"].values())
+                mass.append(tot)
+                if tot > 0:
+                    q = {k_: v / tot for k_, v in pi["p_first"].items()}
+                    tvs.append(0.5 * sum(abs(q.get(k_, 0.0) - pi["target_first"].get(k_, 0.0)) for k_ in set(q) | set(pi["target_first"])))
+                canon.append(bool(pi.get("first_canon")))
+            rows.append([r["cfg"]["name"], len(sel), fmt(statistics.mean(mass)), fmt(statistics.mean(tvs)) if tvs else "–", fmt(statistics.mean(canon))])
+    if rows:
+        md.append("\n## P6 (Q6): multi-class training instances — the router's mass on shortest-path first actions, its total-variation distance to the RT-post target (0 = the target mixture), and the share of first decisions equal to the lexicographic (canonical) action\n\n" +
+                  table(rows, ["run", "n", "mass on shortest-path actions", "TV to RT-post target", "canonical first action"]))
 
-    # P7
+    # P7 — the ceiling weighted by the binding count per world (review 2, M3)
     if "RT-examples" in arms:
         exc = (derived or {}).get("examples_ceiling", {})
         rows = []
         for r in by_seed(runs, "RT-examples"):
             for cls, worlds in (("train", TRAIN_WORLDS), ("pair", PAIRS_HELD), ("triple+full", TRIPLES + FULL)):
                 sel = instances(r, "eval5", world=worlds, binding=True)
-                ceil = statistics.mean([exc[w]["ceiling_canon_binding"] for w in worlds if w in exc and exc[w]["binding_n"] > 0]) if exc else None
+                ws = [w for w in worlds if w in exc and exc[w]["binding_n"] > 0]
+                ceil = (sum(exc[w]["ceiling_canon_binding"] * exc[w]["binding_n"] for w in ws) / sum(exc[w]["binding_n"] for w in ws)) if ws else None
                 rt = [rate(instances(x, "eval5", world=worlds, binding=True)) for x in by_seed(runs, "RT-canon")]
-                rows.append([r["cfg"]["name"], cls, len(sel), fmt(rate(sel)), fmt(ceil), summarize_seeds(rt)])
-        md.append("\n## P7 (Q7): RT-examples on the binding stratum against its derived ceiling and stated-axiom RT-canon\n\n" + table(rows, ["run", "class", "n", "RT-examples", "derived ceiling", "RT-canon"]))
+                rows.append([r["cfg"]["name"], cls, len(sel), fmt(rate(sel)), fmt(rate(sel, "ok_u")), fmt(ceil), summarize_seeds(rt)])
+        md.append("\n## P7 (Q7): RT-examples on the binding stratum against its derived ceiling (weighted by binding count) and stated-axiom RT-canon\n\n" + table(rows, ["run", "class", "n", "RT-examples masked", "unmasked", "derived ceiling", "RT-canon"]))
 
-    # P8
+    # P8 — two readings (review 2, M4): shuffled against the cue-blind ceiling, and against ceiling × RT-canon's non-binding
+    # success (what a cue-blind router of RT-canon's planning ability would score); binding stratum against RT-canon
     if "RT-shuffled" in arms:
         cb = (derived or {}).get("cue_blind", {})
         rows = []
@@ -287,9 +341,14 @@ def report(runs, derived=None):
             for r in by_seed(runs, "RT-shuffled"):
                 sel = instances(r, "eval5", world=w)
                 selb = instances(r, "eval5", world=w, binding=True)
-                rt = [rate(instances(x, "eval5", world=w, binding=True)) for x in by_seed(runs, "RT-canon")]
-                rows.append([w, r["cfg"]["seed"], len(sel), fmt(rate(sel)), fmt(cb.get(w, {}).get("ceiling")), fmt(rate(selb)), summarize_seeds(rt)])
-        md.append("\n## P8 (null): RT-shuffled per world against the cue-blind ceiling; binding stratum against RT-canon\n\n" + table(rows, ["world", "seed", "n", "shuffled (all)", "cue-blind ceiling", "shuffled (binding)", "RT-canon (binding)"]))
+                rt_nb = [rate(instances(x, "eval5", world=w, binding=False)) for x in by_seed(runs, "RT-canon")]
+                rt_b = [rate(instances(x, "eval5", world=w, binding=True)) for x in by_seed(runs, "RT-canon")]
+                ceil = cb.get(w, {}).get("ceiling")
+                med_nb = statistics.median([v for v in rt_nb if v is not None]) if any(v is not None for v in rt_nb) else None
+                rows.append([w, r["cfg"]["seed"], len(sel), fmt(rate(sel)), fmt(ceil), fmt(ceil * med_nb) if (ceil is not None and med_nb is not None) else "–",
+                             len(selb), fmt(rate(selb)), summarize_seeds(rt_b)])
+        md.append("\n## P8 (null): RT-shuffled per world against the cue-blind ceiling and against ceiling × RT-canon's non-binding success; binding stratum against RT-canon\n\n" +
+                  table(rows, ["world", "seed", "n", "shuffled (all)", "cue-blind ceiling", "ceiling × RT-canon non-binding", "binding n", "shuffled (binding)", "RT-canon (binding)"]))
 
     # failure categories
     rows = []

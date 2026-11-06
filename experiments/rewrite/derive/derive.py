@@ -209,7 +209,9 @@ def main():
     ap.add_argument("--workers", type=int, default=max(1, os.cpu_count() or 1))
     ap.add_argument("--limit", type=int, default=2000, help="shortest-proof enumeration limit")
     ap.add_argument("--draws", type=int, default=3)
+    ap.add_argument("--out", default=HERE, help="directory for derived.json and derived.md")
     args = ap.parse_args()
+    os.makedirs(args.out, exist_ok=True)
     t0 = time.time()
     meta = json.load(open(os.path.join(args.data, "meta.json")))
     train = load(args.data, "train", ALL_WORLDS)
@@ -280,6 +282,21 @@ def main():
                     rows.append([w, b, g, k, c["n"], f"{c['d1']:.2f} [{c['d1r']:.2f}]", f"{c['d2']:.2f} [{c['d2r']:.2f}]", f"{c['d3']:.2f} [{c['d3r']:.2f}]"])
             md.append(f"\n## 3. Symbolic ladder on {tag}: success of greedy-σ (d=1), lookahead-2, lookahead-3; lexicographic tie-break [random, {args.draws} draws]\n\n" +
                       md_table(rows, ["world", "binding", "GP1", "k", "n", "d=1", "d=2", "d=3"]))
+        # P4's preregistered cells (review 2, S7): training worlds, GP1, k >= 4, by (world, k), where the rungs separate
+        sep = {}
+        for w in TRAIN_WORLDS:
+            rs = ev["eval5"].get(w, [])
+            for k in (4, 5, 6):
+                cell = [r for r in rs if r["first"]["GP1"] and r["k"] == k]
+                if len(cell) < 10:
+                    continue
+                d = {dd: sum(r["ladder"][str(dd)] for r in cell) / len(cell) for dd in (1, 2, 3)}
+                sep[f"{w}|{k}"] = {"n": len(cell), "d1": d[1], "d2": d[2], "d3": d[3], "separated": bool(d[2] - d[1] >= 0.1 and d[3] - d[2] >= 0.1)}
+        D["p4_cells"] = sep
+        md.append("\n### P4 cells (eval5, training worlds, GP1, k ≥ 4; lexicographic rungs; separated = d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1)\n\n" +
+                  md_table([[key, c["n"], f"{c['d1']:.2f}", f"{c['d2']:.2f}", f"{c['d3']:.2f}", "yes" if c["separated"] else "no"] for key, c in sep.items()],
+                           ["world|k", "n", "d=1", "d=2", "d=3", "separated"]) +
+                  f"\n\nSeparated cells: {sum(c['separated'] for c in sep.values())} of {len(sep)}; P4 is read on them (DESIGN §6).")
         # oracle check on a sample
         sample = [r for rs in ev["eval5"].values() for r in [x for x in rs if x["k"] <= 5][:10]]      # the deep lookahead is costly
         oc = pool.map(_oracle_check, sample, chunksize=8)
@@ -389,8 +406,8 @@ def main():
     md.append("\n## 8. Uniform policy's success probability (PF's prior p_success) by k, training worlds\n\n" +
               md_table([[k, f"{v:.4f}"] for k, v in D["uniform_policy_success_by_k"].items()], ["k", "p_success"]))
     D["seconds"] = time.time() - t0
-    json.dump(D, open(os.path.join(HERE, "derived.json"), "w"), indent=1)
-    open(os.path.join(HERE, "derived.md"), "w").write("\n".join(md) + "\n")
+    json.dump(D, open(os.path.join(args.out, "derived.json"), "w"), indent=1)
+    open(os.path.join(args.out, "derived.md"), "w").write("\n".join(md) + "\n")
     print("done", f"{time.time() - t0:.0f}s")
 
 

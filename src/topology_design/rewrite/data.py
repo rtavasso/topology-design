@@ -268,5 +268,5 @@ def summarize(records: list) -> dict:
         out[w] = {"n": n, "binding": sum(r["binding"] for r in rs) / n, "GP1": sum(r["first"]["GP1"] for r in rs) / n,
                   "k": {str(k): ks[k] / n for k in sorted(ks)}, "ball_mean": sum(r["ball"] for r in rs) / n,
                   "ladder": {d: sum(r["ladder"][d] for r in rs) / n for d in ("1", "2", "3")},
-                  "Dany": {str(d): sum(r["first"]["Dany"] == d for r in rs) / n for d in range(1, 8)}}
+                  "Dany": {str(d): sum(r["first"]["Dany"] == d for r in rs) / n for d in range(1, 10)}}
     return out

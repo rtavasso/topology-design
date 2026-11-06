@@ -46,7 +46,8 @@ INCLUDE = ["src", "tests/test_fleet.py", "tests/test_fleet_p5.py", "tests/test_p
 PTR_INCLUDE = ["tests/test_ptr.py", "experiments/ptr/run_ptr.py", "experiments/ptr/gate.py"]
 ROUTE_INCLUDE = ["tests/test_route.py", "tests/test_routefind.py", "tests/test_commit.py", "tests/test_ptr.py",
                  "experiments/route/run_route.py", "experiments/commit/gate.py"]
-REWRITE_INCLUDE = ["tests/test_rewrite.py", "experiments/rewrite/run_rewrite.py"]
+REWRITE_INCLUDE = ["tests/test_rewrite.py", "tests/fixtures/rewrite", "experiments/rewrite/run_rewrite.py",
+                   "experiments/rewrite/analyze.py"]          # the tests load analyze.py and the fixtures (review 2, B1)
 VALIDATE_EXTRA = ["experiments/paths/results_data/compact.json.gz"]
 
 
@@ -173,6 +174,13 @@ def main():
         data_files = sorted(f for f in os.listdir(args.data_dir) if f.endswith(".jsonl.gz") or f == "meta.json")
         if not any(f.startswith("train_") for f in data_files) or not any(f.startswith("eval5_") for f in data_files):
             sys.exit(f"--data-dir {args.data_dir} has no train_*/eval5_* files")
+        grid_cfgs = json.load(open(os.path.join(ROOT, grid_rel)))
+        all_worlds = ["A", "C", "I", "D", "AC", "AI", "AD", "CI", "CD", "ID", "ACI", "ACD", "AID", "CID", "ACID"]
+        need_train = all_worlds if any(c.get("arm") == "RT-all" for c in grid_cfgs) else ["A", "C", "I", "D", "AC", "AD", "CD", "ID"]
+        missing = [w for w in need_train if f"train_{w}.jsonl.gz" not in data_files]
+        missing += [f"eval5_{w}" for w in all_worlds if f"eval5_{w}.jsonl.gz" not in data_files]
+        if missing:
+            sys.exit(f"--data-dir {args.data_dir} is missing files the grid needs: {missing} (review 2, B3)")
         job = {"job": "rewrite", "grid": grid_rel, "per_gpu": args.per_gpu, "tests": not args.no_tests}
         include = INCLUDE + REWRITE_INCLUDE + [grid_rel]
     jp = os.path.join(tmp, "job.json")

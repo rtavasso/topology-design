@@ -31,6 +31,11 @@ N_ACTIONS = MAX_NODES * N_RULES + 1  # 105
 HALT_INDEX = N_ACTIONS - 1
 MAX_DEPTH = 8
 MAX_LEN = 128
+# the training range of the categorical structural features at size <= 5 (review 2, B4): a term of 5 leaves has depth <= 4,
+# subtree sizes <= 5, path levels 0..3 and ancestor distances <= 4; the structural router clamps its features to this range
+# so that no embedding row read at sizes 6-7 is untrained. The equal-path relation (full paths) is unaffected.
+TRAIN_MAX_DEPTH = 4
+TRAIN_MAX_SIZE = 5
 RULE_INDEX = {r: i for i, r in enumerate(RULES)}
 
 # vocabulary
@@ -162,13 +167,13 @@ def collate(encs: list, device="cpu") -> dict:
         size[b, :n] = np.minimum(e["size"], MAX_DEPTH)
         mask[b, :n] = True
         if "pathcode" not in e:
-            pc = np.zeros((n, MAX_DEPTH), dtype=np.int64)
+            pc = np.zeros((n, MAX_DEPTH), dtype=np.int8)
             for i, p in enumerate(e["path"]):
                 if p:
                     for lvl, ch in enumerate(p[:MAX_DEPTH]):
                         pc[i, lvl] = 1 if ch == "L" else 2
             e["pathcode"] = pc
-            e["rel"] = _relation_matrix(e["seg"], e["path"])
+            e["rel"] = _relation_matrix(e["seg"], e["path"]).astype(np.int16)        # N_REL = 475 fits int16 (review 2, B2)
         pathcode[b, :n] = e["pathcode"]
         rel[b, :n, :n] = e["rel"]
         k = len(e["term_paths"])
@@ -223,29 +228,46 @@ class Router(nn.Module):
         if cfg.structural:
             self.depth = nn.Embedding(MAX_DEPTH + 1, d)
             self.size = nn.Embedding(MAX_DEPTH + 1, d)
-            self.path = nn.Embedding(MAX_DEPTH * 3, d)        # (level, {none, L, R})
+            self.path = nn.Embedding(MAX_DEPTH * 3, d)        # (level, {none, L, R}); levels >= TRAIN_MAX_DEPTH unused
             self.relbias = nn.Embedding(N_REL, cfg.heads)
             self.rule_head = nn.Linear(d, N_RULES)
             self.halt_head = nn.Linear(d, 1)
         else:
-            self.pos = nn.Embedding(MAX_LEN, d)
+            # fixed sinusoidal absolute positions (review 2, B4): learned rows past the training length would be untrained
+            pe = torch.zeros(MAX_LEN, d)
+            pos = torch.arange(MAX_LEN).float()[:, None]
+            div = torch.exp(torch.arange(0, d, 2).float() * (-math.log(10000.0) / d))
+            pe[:, 0::2] = torch.sin(pos * div); pe[:, 1::2] = torch.cos(pos * div)
+            self.register_buffer("pos", pe * 0.1)
             self.cat_head = nn.Linear(d, N_ACTIONS)
         self.blocks = nn.ModuleList([Block(d, cfg.heads, cfg.d_ff, cfg.dropout) for _ in range(cfg.layers)])
         self.ln = nn.LayerNorm(d)
-        nn.init.normal_(self.tok.weight, std=0.02)
+        for emb in (self.tok, self.seg) + ((self.depth, self.size, self.path) if cfg.structural else ()):
+            nn.init.normal_(emb.weight, std=0.02)
         if cfg.structural:
             nn.init.zeros_(self.relbias.weight)
+
+    @staticmethod
+    def clamp_relations(rel: torch.Tensor) -> torch.Tensor:
+        """Ancestor / descendant distances beyond TRAIN_MAX_DEPTH map to TRAIN_MAX_DEPTH (the rows trained at size <= 5)."""
+        sp, pr = rel // N_PATHREL, rel % N_PATHREL
+        anc_hi, desc_lo = 2 + MAX_DEPTH - 1, 2 + MAX_DEPTH
+        pr = torch.where((pr >= 2) & (pr <= anc_hi), pr.clamp(max=2 + TRAIN_MAX_DEPTH - 1), pr)
+        pr = torch.where((pr >= desc_lo) & (pr <= desc_lo + MAX_DEPTH - 1), pr.clamp(max=desc_lo + TRAIN_MAX_DEPTH - 1), pr)
+        return sp * N_PATHREL + pr
 
     def encode(self, b: dict):
         x = self.tok(b["tok"]) + self.seg(b["seg"])
         B, L = b["tok"].shape
         if self.cfg.structural:
-            x = x + self.depth(b["depth"]) + self.size(b["size"])
+            x = x + self.depth(b["depth"].clamp(max=TRAIN_MAX_DEPTH)) + self.size(b["size"].clamp(max=TRAIN_MAX_SIZE))
             lvl = torch.arange(MAX_DEPTH, device=x.device)
-            x = x + self.path(lvl * 3 + b["pathcode"]).sum(2)
-            bias = self.relbias(b["rel"]).permute(0, 3, 1, 2)                     # (B, H, L, L)
+            pc = b["pathcode"].clone()
+            pc[:, :, TRAIN_MAX_DEPTH:] = 0                                          # deeper path levels are not read
+            x = x + self.path(lvl * 3 + pc).sum(2)
+            bias = self.relbias(self.clamp_relations(b["rel"])).permute(0, 3, 1, 2)   # (B, H, L, L)
         else:
-            x = x + self.pos(torch.arange(L, device=x.device))[None]
+            x = x + self.pos[:L][None]
             bias = torch.zeros(B, self.cfg.heads, L, L, device=x.device)
         pad = (~b["mask"])[:, None, None, :].float() * -1e9
         bias = bias + pad

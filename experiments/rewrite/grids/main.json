@@ -9,7 +9,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-canon_s1",
@@ -21,7 +22,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-canon_s2",
@@ -33,7 +35,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-canon_s3",
@@ -45,7 +48,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-canon_s4",
@@ -57,7 +61,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-canon_s5",
@@ -69,7 +74,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-canon_s6",
@@ -81,7 +87,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-canon_s7",
@@ -93,7 +100,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-canon_s8",
@@ -105,7 +113,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-canon_s9",
@@ -117,7 +126,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s0",
@@ -129,7 +139,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s1",
@@ -141,7 +152,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s2",
@@ -153,7 +165,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s3",
@@ -165,7 +178,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s4",
@@ -177,7 +191,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s5",
@@ -189,7 +204,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s6",
@@ -201,7 +217,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s7",
@@ -213,7 +230,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s8",
@@ -225,7 +243,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-post_s9",
@@ -237,7 +256,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-all_s0",
@@ -249,7 +269,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-all_s1",
@@ -261,7 +282,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-all_s2",
@@ -273,7 +295,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-absolute_s0",
@@ -285,7 +308,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-absolute_s1",
@@ -297,7 +321,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-absolute_s2",
@@ -309,7 +334,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-absolute_s3",
@@ -321,7 +347,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-absolute_s4",
@@ -333,7 +360,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "EI16_s0",
@@ -345,7 +373,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "EI16_s1",
@@ -357,7 +386,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "EI16_s2",
@@ -369,7 +399,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "EI16_s3",
@@ -381,7 +412,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "EI16_s4",
@@ -393,7 +425,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "PF_s0",
@@ -405,7 +438,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "PF_s1",
@@ -417,7 +451,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "PF_s2",
@@ -429,7 +464,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-examples_s0",
@@ -441,7 +477,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-examples_s1",
@@ -453,7 +490,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-examples_s2",
@@ -465,7 +503,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-shuffled_s0",
@@ -477,7 +516,8 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  },
  {
   "name": "RT-shuffled_s1",
@@ -489,6 +529,7 @@
   "inst": 32,
   "eval_every": 250,
   "warmup": 200,
-  "wd": 0.01
+  "wd": 0.01,
+  "curve_per_world": 100
  }
 ]

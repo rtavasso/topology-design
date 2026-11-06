@@ -40,7 +40,7 @@ from .term import nodes, parse, to_str
 TRAIN_WORLDS = ["A", "C", "I", "D", "AC", "AD", "CD", "ID"]
 ALL_WORLDS = ["A", "C", "I", "D", "AC", "AI", "AD", "CI", "CD", "ID", "ACI", "ACD", "AID", "CID", "ACID"]
 HELD_OUT = [w for w in ALL_WORLDS if w not in TRAIN_WORLDS]
-CURVE_PER_WORLD = 150
+CURVE_PER_WORLD = 100            # instances per world of each eval set on the curve (cfg["curve_per_world"] overrides)
 
 
 # ---------------- data ----------------
@@ -50,7 +50,8 @@ def read_jsonl(path):
         return [json.loads(line) for line in f]
 
 
-def load_set(data_dir: str, tag: str, worlds: list, limit: int | None = None) -> dict:
+def load_set(data_dir: str, tag: str, worlds: list, limit: int | None = None, keep_pf: bool = False) -> dict:
+    """Records per world. PF targets are dropped unless keep_pf (they are most of a training file; review 2, B2)."""
     out = {}
     for w in worlds:
         p = os.path.join(data_dir, f"{tag}_{w}.jsonl.gz")
@@ -61,6 +62,8 @@ def load_set(data_dir: str, tag: str, worlds: list, limit: int | None = None) ->
             recs = recs[:limit]
         for r in recs:
             prepare(r)
+            if not keep_pf:
+                r.pop("pf", None)
         out[w] = recs
     return out
 
@@ -79,8 +82,10 @@ def prepare(rec: dict):
         states.append(to_str(u))
     assert states[-1] == rec["s"]
     rec["canon_states"] = states
-    # the correct first actions: those on a shortest path from t (the RT-post target at t lists exactly them)
-    rec["first_actions"] = [a for p in rec["post"] if p["state"] == rec["t"] for a in p["target"]]
+    # the correct first actions: those on a shortest path from t (the RT-post target at t lists exactly them); the RT-post
+    # target at t itself is kept for the P6 reading
+    rec["target_first"] = next(p["target"] for p in rec["post"] if p["state"] == rec["t"])
+    rec["first_actions"] = list(rec["target_first"])
     return rec
 
 
@@ -110,12 +115,19 @@ def node_paths(t_str: str) -> list:
 _ENC = {}
 
 
+ENC_CAP = 150000
+
+
 def encode_cached(world, s_str, t_str, examples=None):
-    key = (world, s_str, t_str, tuple(examples) if examples else None)
+    """Encodings cached by (world, s, t); encodings that carry example proofs are not cached (every row is a new key —
+    review 2, B2). Cached entries hold int16 relation matrices and int8 path codes."""
+    if examples:
+        return encode(world, s_str, t_str, [(a, b, list(c)) for a, b, c in examples])
+    key = (world, s_str, t_str)
     e = _ENC.get(key)
     if e is None:
-        e = encode(world, s_str, t_str, [(a, b, list(c)) for a, b, c in examples] if examples else None)
-        if len(_ENC) < 400000:
+        e = encode(world, s_str, t_str, None)
+        if len(_ENC) < ENC_CAP:
             _ENC[key] = e
     return e
 
@@ -271,9 +283,17 @@ def rollout(model, recs, device, masked: bool, shown=None, examples=None, batch=
         visited = [r["t"] == r["s"] for r in chunk]
         first_ok = [None] * len(chunk)
         p_first = [None] * len(chunk)
+        first_canon = [None] * len(chunk)
         Ts = [2 * r["k"] + 2 for r in chunk]
         alive = list(range(len(chunk)))
         for t in range(max(Ts) + 1):
+            if not alive:
+                break
+            # the forced halt at T needs no forward pass
+            for i in [i for i in alive if t == Ts[i]]:
+                res[i] = {"ok": cur[i] == chunk[i]["s"], "steps": t,
+                          "category": "ok" if cur[i] == chunk[i]["s"] else ("no halt at goal" if visited[i] else "horizon")}
+            alive = [i for i in alive if t < Ts[i]]
             if not alive:
                 break
             rows = [(sh[i], chunk[i]["s"], cur[i], ex[i], None, None) for i in alive]
@@ -284,7 +304,7 @@ def rollout(model, recs, device, masked: bool, shown=None, examples=None, batch=
             if t == 0 and masked:
                 probs0 = torch.softmax(logits, 1).cpu().numpy()
             still = []
-            for i, c in zip(alive, choice):
+            for ri, (i, c) in enumerate(zip(alive, choice)):
                 rec = chunk[i]
                 u = cur[i]
                 a = slot_action(c, node_paths(u))
@@ -292,11 +312,8 @@ def rollout(model, recs, device, masked: bool, shown=None, examples=None, batch=
                     first_ok[i] = enc_action(a) in rec["first_actions"] if a != HALT and a[1] is not None else False
                     if masked:
                         pi = path_index(u)
-                        p_first[i] = {fa: float(probs0[alive.index(i), action_slot(dec_action(fa), pi)]) for fa in rec["first_actions"]}
-                if t == Ts[i]:
-                    # forced halt at T
-                    res[i] = {"ok": u == rec["s"], "steps": t, "category": "ok" if u == rec["s"] else ("no halt at goal" if visited[i] else "horizon")}
-                    continue
+                        p_first[i] = {fa: float(probs0[ri, action_slot(dec_action(fa), pi)]) for fa in rec["first_actions"]}
+                        first_canon[i] = enc_action(a) == rec["canon"][0]
                 if a == HALT:
                     res[i] = {"ok": u == rec["s"], "steps": t, "category": "ok" if u == rec["s"] else "wrong halt"}
                     continue
@@ -317,6 +334,7 @@ def rollout(model, recs, device, masked: bool, shown=None, examples=None, batch=
             r["visited_goal"] = bool(visited[i])
             if p_first[i] is not None:
                 r["p_first"] = p_first[i]
+                r["first_canon"] = bool(first_canon[i])
             out.append(r)
     return out
 
@@ -354,7 +372,7 @@ def evaluate(model, sets, cfg, device, rng, full: bool):
     for tag, by_world in sets.items():
         recs, shown, exs = [], [], []
         for w, rs in by_world.items():
-            use = rs if full else rs[:CURVE_PER_WORLD]
+            use = rs if full else rs[:int(cfg.get("curve_per_world", CURVE_PER_WORLD))]
             for r in use:
                 recs.append(r)
                 shown.append(None if cfg["arm"] == "RT-examples" else r["world"])      # RT-shuffled sees the true tokens at eval
@@ -369,7 +387,9 @@ def evaluate(model, sets, cfg, device, rng, full: bool):
                                             "GP1": r["first"]["GP1"], "Dany": r["first"]["Dany"], "size": r["size_t"],
                                             "ok_m": a["ok"], "ok_u": b["ok"], "cat_m": a["category"], "cat_u": b["category"],
                                             "steps_m": a["steps"], "first_ok": a["first_ok"], "ladder": r["ladder"],
-                                            "p_first": a.get("p_first"), "n_classes": r["n_trace_classes"]}
+                                            "visited_goal_m": a["visited_goal"], "visited_goal_u": b["visited_goal"],
+                                            "p_first": a.get("p_first"), "first_canon": a.get("first_canon"),
+                                            "target_first": r["target_first"], "n_classes": r["n_trace_classes"]}
                                            for r, a, b in zip(recs, om, ou)]
     model.train()
     return report
@@ -385,18 +405,19 @@ def make_model(cfg):
 
 def run(cfg: dict, data_dir: str, device: str = "cpu", log=print, sets=None) -> dict:
     """One run. cfg: arm, seed, lr, steps, rows (teacher-forced rows per step), inst (instances per step for EI16),
-    eval_every, warmup, worlds (training worlds; RT-all uses all fifteen), pf_only (restrict the stream to PF-labelled records)."""
+    eval_every, warmup, worlds (training worlds; RT-all uses all fifteen), curve_per_world. The PF arm's stream is the
+    PF-labelled records only."""
     t0 = time.time()
     seed = int(cfg.get("seed", 0))
     torch.manual_seed(seed); np.random.seed(seed)
     rng = random.Random(seed)
     arm = cfg["arm"]
     worlds = cfg.get("worlds") or (ALL_WORLDS if arm == "RT-all" else TRAIN_WORLDS)
-    train = load_set(data_dir, "train", worlds)
+    train = load_set(data_dir, "train", worlds, keep_pf=(arm == "PF"))
     if arm == "PF":
         train = {w: [r for r in rs if "pf" in r] for w, rs in train.items()}
     train = {w: rs for w, rs in train.items() if rs}
-    assert train, "no training data"
+    assert set(train) == set(worlds), f"training files missing for {sorted(set(worlds) - set(train))} (review 2, B3)"
     sets = sets or eval_sets_for(cfg, data_dir)
     model, rc = make_model(cfg)
     model.to(device)
@@ -406,7 +427,7 @@ def run(cfg: dict, data_dir: str, device: str = "cpu", log=print, sets=None) -> 
     inst_per_step = int(cfg.get("inst", 32))
     wlist = sorted(train)
     curve, losses = [], []
-    ei_found = [0, 0]
+    ei_found = [0, 0, 0]                 # routes found, instances tried, rows imitated (review 2, M7)
     log(f"run {cfg.get('name', arm)} arm={arm} params={n_params(model)} structural={rc.structural} worlds={wlist} "
         f"stream={ {w: len(rs) for w, rs in train.items()} }")
     for it in range(steps + 1):
@@ -437,6 +458,7 @@ def run(cfg: dict, data_dir: str, device: str = "cpu", log=print, sets=None) -> 
                 ei_found[0] += 1
                 for (u, a) in route:
                     rows.append((rec["world"], rec["s"], u, None, {action_slot(a, path_index(u)): 1.0}, 1.0))
+                ei_found[2] += len(route)
             if not rows:
                 losses.append(float("nan"))
                 continue

@@ -24,7 +24,7 @@ import torch  # noqa: E402
 
 from topology_design.rewrite import train as T  # noqa: E402
 
-COST = {"EI16": 4.0, "RT-post": 1.3, "RT-examples": 1.5}      # relative per step
+COST = {"EI16": 4.0, "RT-post": 1.1, "RT-examples": 4.0}      # relative per step (review 2 S6: RT-examples' context is 3x)
 
 
 def est_cost(cfg):

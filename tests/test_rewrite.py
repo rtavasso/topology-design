@@ -1,6 +1,7 @@
 """Tests for the rewrite carrier (experiments/rewrite/DESIGN.md §10, G1)."""
 
 import itertools
+import json
 import os
 import math
 import random
@@ -583,7 +584,7 @@ def _analyze():
 def test_analysis_on_real_fixtures_is_consistent():
     A = _analyze()
     runs = A.load_results(FIX)
-    assert {A.arm_of(r) for r in runs} == {"RT-canon", "RT-absolute", "EI16"}
+    assert {A.arm_of(r) for r in runs} == {"RT-canon", "RT-post", "PF", "EI16", "RT-all", "RT-absolute", "RT-examples", "RT-shuffled"}
     for r in runs:
         # the final cells' n equal the per-instance counts, and the cells' successes equal the per-instance successes
         for tag in ("eval5", "eval7", "evalk78"):
@@ -595,30 +596,65 @@ def test_analysis_on_real_fixtures_is_consistent():
                 w, b, g, k = key.split("|")
                 sel = A.instances(r, tag, world=w, binding=bool(int(b)), GP1=bool(int(g)), k=int(k))
                 assert len(sel) == c["n"] and sum(pi["ok_m"] for pi in sel) == c["ok_m"]
-        # the curve's last point has the same cells as the final (the final evaluation is the last point, full sets)
+        # the curve's last point is the final evaluation (full sets); the per-instance record carries the P6 fields
         xs, ys = A.curve_series(r, "eval5", A.TRAIN_WORLDS)
         assert xs[-1] == r["cfg"]["steps"] and all(0 <= y <= 1 for y in ys)
-    md = A.report(runs, None)
-    assert "## P2" in md and "## P4" in md and "Failure categories" in md
+        pi = A.instances(r, "eval5")[0]
+        assert abs(sum(pi["target_first"].values()) - 1) < 1e-9 and set(pi["p_first"]) == set(pi["target_first"])
+        assert "visited_goal_m" in pi and "first_canon" in pi
+    derived = json.load(open(os.path.join(FIX, "derived.json")))
+    md = A.report(runs, derived)
+    for sec in ("## P2", "## P3", "## P4", "## P5", "## P6", "## P7", "## P8", "Failure categories", "## P1"):
+        assert sec in md, sec
+    # every P3 row of RT-absolute carries the addressability split from the derived fixture
+    p3 = md[md.index("## P3"):md.index("## P4")]
+    assert "addressable" in [l for l in p3.splitlines() if l.startswith("| RT-absolute | train")][0]
     # ladder rates on a selection are read from the instances themselves
     sel = A.instances(runs[0], "eval5", world=["AC"], binding=True)
-    assert sel and 0 <= A.ladder_rate(sel, 1) <= A.ladder_rate(sel, 3) + 1e-9 or A.ladder_rate(sel, 1) <= 1
+    assert sel and 0 <= A.ladder_rate(sel, 1) <= 1
 
 
 def test_analysis_planted_outcomes():
     A = _analyze()
     runs = A.load_results(FIX)
     r = [x for x in runs if A.arm_of(x) == "RT-canon"][0]
-    # plant: every instance solved -> rate 1; P2's ≥ 0.7 count becomes 1/1
+    # plant: every instance solved -> rate 1; P2's joint condition becomes 1/1
     for pi in r["final"]["eval5"]["per_instance"]:
         pi["ok_m"] = True
     assert A.rate(A.instances(r, "eval5")) == 1.0
     md = A.report([r], None)
     p2 = md[md.index("## P2"):md.index("## P3")]
     row = [l for l in p2.splitlines() if l.startswith("| RT-canon | pair |")][0]
-    assert row.rstrip("|").strip().endswith("1/1")
+    cells = [c.strip() for c in row.strip("|").split("|")]
+    assert cells[7] == "1/1" and cells[8] == "1/1"
+    # P4 at zero success never passes: with the fixture's untrained router (success 0) the strict rule gives 0/1 or
+    # "rungs not separated", never a pass (review 2, B5)
+    r0 = A.load_results(FIX)
+    r0 = [x for x in r0 if A.arm_of(x) == "RT-canon"][0]
+    md0 = A.report([r0], None)
+    p4 = md0[md0.index("## P4"):md0.index("## P5") if "## P5" in md0 else md0.index("## P6")]
+    row = [l for l in p4.splitlines() if l.startswith("| RT-canon |")][0]
+    cells = [c.strip() for c in row.strip("|").split("|")]
+    assert cells[7] in ("0/1", "rungs not separated")
     # classification from curves cut from the real curve: a collapse and a learned run
     assert A.classify([0.0, 0.3, 0.8, 0.9, 0.9, 0.6]) == "learned-then-collapsed"
     assert A.classify([0.0, 0.3, 0.8, 0.9, 0.92, 0.91]) == "learned"
     assert A.classify([0.0, 0.02, 0.05, 0.1, 0.18, 0.3]) == "slow-rising"
     assert A.classify([0.0, 0.01, 0.0, 0.02, 0.01, 0.0]) == "flat"
+
+
+def test_matched_p3_ratio_and_separated_cells_on_planted_fixture():
+    A = _analyze()
+    r = [x for x in A.load_results(FIX) if A.arm_of(x) == "RT-canon"][0]
+    # plant: size-5 success 1 on every cell and sizes 6-7 success 1 on half the instances -> matched ratio 0.5 (cells all covered)
+    for pi in r["final"]["eval5"]["per_instance"]:
+        pi["ok_m"] = True
+    e7 = r["final"]["eval7"]["per_instance"]
+    for i, pi in enumerate(e7):
+        pi["ok_m"] = (i % 2 == 0)
+    md = A.report([r], None)
+    p3 = md[md.index("## P3"):md.index("## P4")]
+    row = [l for l in p3.splitlines() if l.startswith("| RT-canon | train")][0]
+    cells = [c.strip() for c in row.strip("|").split("|")]
+    med = float(cells[4].split()[0])                      # columns: arm, worlds, size<=5, sizes 6-7, matched ratio, ...
+    assert 0.35 <= med <= 0.65, cells

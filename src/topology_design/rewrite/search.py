@@ -154,7 +154,9 @@ def foata_form(actions) -> tuple:
     """Canonical representative of a proof's trace class: the Foata normal form, as a tuple of sorted steps (tuples of
     independent actions). Two action sequences are equivalent iff their Foata forms are equal. Dependence = overlapping
     paths (one node an ancestor of the other, or equal); independent actions commute because a rewrite at a node leaves
-    every disjoint subtree unchanged."""
+    every disjoint subtree unchanged — up to the size cap: a growing move at one node and a shrinking move at another may be
+    valid in one order only (Df then Db at cap), so a class may contain orderings the executor rejects; the class count of
+    valid shortest proofs is a count under this slightly coarser relation (review 2, M1)."""
     acts = list(actions)
     n = len(acts)
     done = [False] * n

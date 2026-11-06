@@ -79,18 +79,19 @@ def build_world(pool, wname, seed, n, sizes, cap, radius, k_set, secondary, pf_p
     # main
     recs_all = []
     j = 0
+    main_none = main_cand = 0
     while len(recs_all) < n:
         need = n - len(recs_all)
         per = max(1, min(chunk, (need + workers - 1) // workers))
+        n_pf = sum(1 for r in recs_all if "pf" in r)
+        pf_left = max(0, pf_per_world - n_pf)
         jobs = []
         for i in range(workers):
-            pf_first = 0
-            if pf_per_world:
-                pf_first = per            # PF on every record of these jobs until the per-world quota is met
+            pf_first = min(per, max(0, pf_left - i * per))          # PF only for what the quota still needs (review 2, S4)
             jobs.append((wname, (seed << 20) + 1000 + j * workers + i, per, 50 * per, sizes, cap, radius, k_set, secondary, pf_first, rates, multi))
         j += 1
-        n_pf = sum(1 for r in recs_all if "pf" in r)
         for recs, c, nn, nc in pool.map(_job, jobs):
+            main_none += nn; main_cand += nc
             for r in recs:
                 if "pf" in r and n_pf >= pf_per_world:
                     del r["pf"]
@@ -102,7 +103,39 @@ def build_world(pool, wname, seed, n, sizes, cap, radius, k_set, secondary, pf_p
     recs_all = recs_all[:n]
     rates["seconds"] = time.time() - t0
     rates["accepted"] = len(recs_all)
+    rates["main_none"] = main_none
+    rates["main_candidates"] = main_cand
     return recs_all, rates
+
+
+def _add_pf(args):
+    """PF targets for records that lack them (the --add-pf pass; review 2, S4)."""
+    rec = args
+    from topology_design.rewrite.data import complete_instance  # noqa: F401  (import kept local for the worker)
+    from topology_design.rewrite.posterior import pf_posterior
+    from topology_design.rewrite.rules import world_from_name as wfn
+    from topology_design.rewrite.search import bfs
+    from topology_design.rewrite.term import parse, to_str
+    from topology_design.rewrite.data import enc_action
+    if "pf" in rec:
+        return rec
+    W, cap = wfn(rec["world"]), rec["cap"]
+    t, s = parse(rec["t"]), parse(rec["s"])
+    T = 2 * rec["k"] + 2
+    _, succ_full, ok = bfs(t, W, cap)
+    if not ok:
+        return rec
+    r = pf_posterior(t, s, W, cap, T, succ_full)
+    states = sorted(r["states"].items(), key=lambda kv: -kv[1]["visits"])
+    total = sum(info["visits"] for _, info in states)
+    kept, acc = [], 0.0
+    for u, info in states:
+        kept.append({"state": to_str(u), "visits": info["visits"], "target": {enc_action(a): p for a, p in info["target"].items()}})
+        acc += info["visits"]
+        if acc >= 0.999 * total and len(kept) >= 8 or len(kept) >= 256:
+            break
+    rec["pf"] = {"p_success": r["p_success"], "n_states": len(r["states"]), "visits_total": total, "states": kept}
+    return rec
 
 
 def write_jsonl(path, records):
@@ -115,8 +148,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(ROOT, "data", "rewrite"))
     ap.add_argument("--n-train", type=int, default=10000, help="training instances per training world")
+    ap.add_argument("--n-train-heldout", type=int, default=5000, help="training instances per held-out world (RT-all's stream)")
+    ap.add_argument("--add-pf", action="store_true", help="add PF targets to every training-world record that lacks them, then exit")
     ap.add_argument("--n-eval", type=int, default=600, help="evaluation instances per world and size range")
-    ap.add_argument("--pf-per-world", type=int, default=2500, help="training instances per world with PF targets")
+    ap.add_argument("--pf-per-world", type=int, default=10000, help="training instances per training world with PF targets (all, review 2 S4)")
     ap.add_argument("--workers", type=int, default=max(1, os.cpu_count() or 1))
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--warmup", type=int, default=600)
@@ -128,8 +163,20 @@ def main():
     ap.add_argument("--smoke", action="store_true", help="tiny build for tests")
     args = ap.parse_args()
     if args.smoke:
-        args.n_train, args.n_eval, args.pf_per_world, args.warmup = 40, 20, 10, 40
+        args.n_train, args.n_train_heldout, args.n_eval, args.pf_per_world, args.warmup = 40, 20, 20, 40, 40
     os.makedirs(args.out, exist_ok=True)
+    if args.add_pf:
+        import gzip as _gz
+        with mp.Pool(args.workers) as pool:
+            for w in (args.worlds.split(",") if args.worlds else TRAIN_WORLDS):
+                path = os.path.join(args.out, f"train_{w}.jsonl.gz")
+                recs = [json.loads(l) for l in _gz.open(path, "rt")]
+                before = sum("pf" in r for r in recs)
+                t0 = time.time()
+                recs = pool.map(_add_pf, recs, chunksize=16)
+                write_jsonl(path, recs)
+                print(f"[add-pf {w}] pf {before} -> {sum('pf' in r for r in recs)} of {len(recs)} in {time.time() - t0:.0f}s", flush=True)
+        return
     only = set(args.only.split(",")) if args.only else {"train", "eval5", "eval7", "evalk78"}
     head = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip() or "?"
     meta_path = os.path.join(args.out, "meta.json")
@@ -141,6 +188,7 @@ def main():
     sets = []
     if "train" in only:
         sets.append(("train", TRAIN_WORLDS, range(1, 6), 5, 6, None, False, args.pf_per_world, args.n_train, args.target_binding, args.target_gp1))
+        sets.append(("train", HELD_OUT, range(1, 6), 5, 6, None, False, 0, args.n_train_heldout, args.target_binding, args.target_gp1))
     if "eval5" in only:
         sets.append(("eval5", [world_name(W) for W in WORLDS], range(1, 6), 5, 6, None, True, 0, args.n_eval, args.eval_binding, 0.0))
     if "eval7" in only:
@@ -151,7 +199,7 @@ def main():
     with mp.Pool(args.workers) as pool:
         for tag, worlds, sizes, cap, radius, k_set, secondary, pf_per_world, n, tb, tg in sets:
             if worlds_filter:
-                worlds = [w for w in [world_name(W) for W in WORLDS] if w in worlds_filter] if tag == "train" else [w for w in worlds if w in worlds_filter]
+                worlds = [w for w in worlds if w in worlds_filter]
             for wname in worlds:
                 wi = [world_name(W) for W in WORLDS].index(wname)
                 path = os.path.join(args.out, f"{tag}_{wname}.jsonl.gz")
