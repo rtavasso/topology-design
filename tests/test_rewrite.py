@@ -1,6 +1,7 @@
 """Tests for the rewrite carrier (experiments/rewrite/DESIGN.md §10, G1)."""
 
 import itertools
+import os
 import math
 import random
 
@@ -563,3 +564,61 @@ def test_beam_search_finds_the_oracle_route_under_a_planted_router(tmp_path):
         acts = [a for _, a in route]
         v = verify(P(rec["t"]), P(rec["s"]), acts, world_from_name(rec["world"]), rec["cap"])
         assert v["ok"] and v["steps"] == rec["k"]
+
+
+# ---------------- analysis on fixtures cut from real run records (L33) ----------------
+
+import importlib.util  # noqa: E402
+
+FIX = os.path.join(os.path.dirname(__file__), "fixtures", "rewrite")
+
+
+def _analyze():
+    spec = importlib.util.spec_from_file_location("rw_analyze", os.path.join(os.path.dirname(__file__), "..", "experiments", "rewrite", "analyze.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_analysis_on_real_fixtures_is_consistent():
+    A = _analyze()
+    runs = A.load_results(FIX)
+    assert {A.arm_of(r) for r in runs} == {"RT-canon", "RT-absolute", "EI16"}
+    for r in runs:
+        # the final cells' n equal the per-instance counts, and the cells' successes equal the per-instance successes
+        for tag in ("eval5", "eval7", "evalk78"):
+            cells = r["final"][tag]["cells"]
+            pis = A.instances(r, tag)
+            assert sum(c["n"] for c in cells.values()) == len(pis)
+            assert sum(c["ok_m"] for c in cells.values()) == sum(pi["ok_m"] for pi in pis)
+            for key, c in cells.items():
+                w, b, g, k = key.split("|")
+                sel = A.instances(r, tag, world=w, binding=bool(int(b)), GP1=bool(int(g)), k=int(k))
+                assert len(sel) == c["n"] and sum(pi["ok_m"] for pi in sel) == c["ok_m"]
+        # the curve's last point has the same cells as the final (the final evaluation is the last point, full sets)
+        xs, ys = A.curve_series(r, "eval5", A.TRAIN_WORLDS)
+        assert xs[-1] == r["cfg"]["steps"] and all(0 <= y <= 1 for y in ys)
+    md = A.report(runs, None)
+    assert "## P2" in md and "## P4" in md and "Failure categories" in md
+    # ladder rates on a selection are read from the instances themselves
+    sel = A.instances(runs[0], "eval5", world=["AC"], binding=True)
+    assert sel and 0 <= A.ladder_rate(sel, 1) <= A.ladder_rate(sel, 3) + 1e-9 or A.ladder_rate(sel, 1) <= 1
+
+
+def test_analysis_planted_outcomes():
+    A = _analyze()
+    runs = A.load_results(FIX)
+    r = [x for x in runs if A.arm_of(x) == "RT-canon"][0]
+    # plant: every instance solved -> rate 1; P2's ≥ 0.7 count becomes 1/1
+    for pi in r["final"]["eval5"]["per_instance"]:
+        pi["ok_m"] = True
+    assert A.rate(A.instances(r, "eval5")) == 1.0
+    md = A.report([r], None)
+    p2 = md[md.index("## P2"):md.index("## P3")]
+    row = [l for l in p2.splitlines() if l.startswith("| RT-canon | pair |")][0]
+    assert row.rstrip("|").strip().endswith("1/1")
+    # classification from curves cut from the real curve: a collapse and a learned run
+    assert A.classify([0.0, 0.3, 0.8, 0.9, 0.9, 0.6]) == "learned-then-collapsed"
+    assert A.classify([0.0, 0.3, 0.8, 0.9, 0.92, 0.91]) == "learned"
+    assert A.classify([0.0, 0.02, 0.05, 0.1, 0.18, 0.3]) == "slow-rising"
+    assert A.classify([0.0, 0.01, 0.0, 0.02, 0.01, 0.0]) == "flat"

@@ -323,14 +323,17 @@ def main():
             for r in rs:
                 for rule, pat, idx in decisions(r):
                     train_keys_abs.add((rule, pat, idx))
+        unaddr = {}
         for w, rs in ev["eval7"].items():
             un = pool.map(_unaddressable, rs, chunksize=8)
+            unaddr[w] = {f"{r['t']}|{r['s']}": bool(u) for r, u in zip(rs, un)}
             first = [decisions(r)[0] for r in rs]
             q2[w] = {"n": len(rs), "unaddressable_share": sum(un) / len(rs),
                      "first_decision_covered_struct": sum((f[0], f[1]) in train_keys_struct for f in first) / len(rs),
                      "first_decision_covered_abs": sum((f[0], f[1], f[2]) in train_keys_abs for f in first) / len(rs),
                      "first_decision_position_ge9": sum(f[2] >= 9 for f in first) / len(rs)}
         D["q2"] = q2
+        D["eval7_unaddressable"] = unaddr
         md.append("\n## 5. Q2 at sizes 6–7 (eval7): instances whose every shortest proof needs a prefix position ≥ 9; coverage of the first decision by training keys\n\n" +
                   md_table([[w, c["n"], f"{c['unaddressable_share']:.3f}", f"{c['first_decision_position_ge9']:.3f}", f"{c['first_decision_covered_struct']:.3f}", f"{c['first_decision_covered_abs']:.3f}"] for w, c in q2.items()],
                            ["world", "n", "unaddressable (all proofs)", "first decision at pos ≥ 9", "covered (pattern, rule)", "covered (pattern, position, rule)"]))

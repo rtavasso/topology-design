@@ -270,6 +270,7 @@ def rollout(model, recs, device, masked: bool, shown=None, examples=None, batch=
         cur = [r["t"] for r in chunk]
         visited = [r["t"] == r["s"] for r in chunk]
         first_ok = [None] * len(chunk)
+        p_first = [None] * len(chunk)
         Ts = [2 * r["k"] + 2 for r in chunk]
         alive = list(range(len(chunk)))
         for t in range(max(Ts) + 1):
@@ -280,6 +281,8 @@ def rollout(model, recs, device, masked: bool, shown=None, examples=None, batch=
             if masked:
                 logits = masked_logits(logits, [cur[i] for i in alive], [chunk[i]["world"] for i in alive], [chunk[i]["cap"] for i in alive])
             choice = logits.argmax(1).tolist()
+            if t == 0 and masked:
+                probs0 = torch.softmax(logits, 1).cpu().numpy()
             still = []
             for i, c in zip(alive, choice):
                 rec = chunk[i]
@@ -287,6 +290,9 @@ def rollout(model, recs, device, masked: bool, shown=None, examples=None, batch=
                 a = slot_action(c, node_paths(u))
                 if t == 0:
                     first_ok[i] = enc_action(a) in rec["first_actions"] if a != HALT and a[1] is not None else False
+                    if masked:
+                        pi = path_index(u)
+                        p_first[i] = {fa: float(probs0[alive.index(i), action_slot(dec_action(fa), pi)]) for fa in rec["first_actions"]}
                 if t == Ts[i]:
                     # forced halt at T
                     res[i] = {"ok": u == rec["s"], "steps": t, "category": "ok" if u == rec["s"] else ("no halt at goal" if visited[i] else "horizon")}
@@ -309,6 +315,8 @@ def rollout(model, recs, device, masked: bool, shown=None, examples=None, batch=
         for i, r in enumerate(res):
             r["first_ok"] = bool(first_ok[i])
             r["visited_goal"] = bool(visited[i])
+            if p_first[i] is not None:
+                r["p_first"] = p_first[i]
             out.append(r)
     return out
 
@@ -360,7 +368,8 @@ def evaluate(model, sets, cfg, device, rng, full: bool):
             report[tag]["per_instance"] = [{"world": r["world"], "t": r["t"], "s": r["s"], "k": r["k"], "binding": r["binding"],
                                             "GP1": r["first"]["GP1"], "Dany": r["first"]["Dany"], "size": r["size_t"],
                                             "ok_m": a["ok"], "ok_u": b["ok"], "cat_m": a["category"], "cat_u": b["category"],
-                                            "steps_m": a["steps"], "first_ok": a["first_ok"], "ladder": r["ladder"]}
+                                            "steps_m": a["steps"], "first_ok": a["first_ok"], "ladder": r["ladder"],
+                                            "p_first": a.get("p_first"), "n_classes": r["n_trace_classes"]}
                                            for r, a, b in zip(recs, om, ou)]
     model.train()
     return report
