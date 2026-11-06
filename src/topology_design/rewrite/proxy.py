@@ -104,9 +104,32 @@ def lookahead_value(v, s, W, cap, d, sigma):
     return best
 
 
+def lookahead_profile(v, s, W, cap, dmax, sigma):
+    """[V_1(v), ..., V_dmax(v)]: lookahead_value(v, ..., d, sigma) for every d ≤ dmax from one BFS (the prefix minimum of
+    (σ, steps) over the layers 0 .. d − 1)."""
+    best = (sigma(v, s), 0)
+    out = [best]
+    frontier, seen = {v}, {v}
+    for k in range(1, dmax):
+        nxt = set()
+        for u in frontier:
+            for w in successors(u, W, cap):
+                if w not in seen:
+                    seen.add(w); nxt.add(w)
+                    val = (sigma(w, s), k)
+                    if val < best:
+                        best = val
+        frontier = nxt
+        out.append(best)
+        if not frontier:
+            out.extend([best] * (dmax - 1 - k))
+            break
+    return out
+
+
 # ---------------- per-decision difficulty ----------------
 
-def decision(t, s, W, cap, dgoal, sigma=ted, dmax=None) -> dict:
+def decision(t, s, W, cap, dgoal, sigma=ted, dmax=None, depth: bool = True) -> dict:
     """At state t with goal s under W: the candidate set (valid state-changing successors), the correct ones (distance
     falls by one; dgoal gives the exact distance to s), and
       B1     the number of candidates in the one-step σ-argmin,
@@ -114,7 +137,8 @@ def decision(t, s, W, cap, dgoal, sigma=ted, dmax=None) -> dict:
       tie1   a σ-tie at depth 1 between a correct and an incorrect candidate,
       Dsep   the smallest d with argmin_(σ, steps) V_d ⊆ correct,
       Dany   the smallest d with argmin ∩ correct ≠ ∅.
-    dgoal must cover every candidate (a BFS from t to radius ≥ 1 with reverse distances, or the full graph)."""
+    dgoal must cover every candidate (a BFS from t to radius ≥ 1 with reverse distances, or the full graph).
+    depth=False stops after the depth-1 quantities (Dsep and Dany are then None): the cheap phase of generation."""
     dt = dgoal[t]
     cands = {v: acts for v, acts in successors(t, W, cap).items()}
     correct = {v for v in cands if dgoal.get(v) == dt - 1}
@@ -126,19 +150,21 @@ def decision(t, s, W, cap, dgoal, sigma=ted, dmax=None) -> dict:
     min_i = min((sig1[v] for v in cands if v not in correct), default=None)
     gp1 = min_i is not None and min_c > min_i
     tie1 = min_i is not None and min_c == min_i
-    limit = dmax if dmax is not None else dt
+    if not depth:
+        return {"d": dt, "n_cand": len(cands), "n_correct": len(correct), "B1": len(argmin1), "GP1": bool(gp1), "tie1": bool(tie1),
+                "Dsep": None, "Dany": None}
+    limit = max(dmax if dmax is not None else dt, 1)
+    # one BFS per candidate gives V_d for every d at once: V_d(v) = prefix minimum of (σ, steps) over the layers ≤ d − 1
+    profiles = {v: lookahead_profile(v, s, W, cap, limit, sigma) for v in cands}
     dsep = dany = None
-    d = 1
-    while d <= max(limit, 1):
-        vals = {v: lookahead_value(v, s, W, cap, d, sigma) for v in cands}
-        m = min(vals.values())
-        arg = {v for v in cands if vals[v] == m}
+    for d in range(1, limit + 1):
+        m = min(profiles[v][d - 1] for v in cands)
+        arg = {v for v in cands if profiles[v][d - 1] == m}
         if dany is None and arg & correct:
             dany = d
         if arg <= correct:
             dsep = d
             break
-        d += 1
     if dsep is None:
         dsep = limit + 1                       # not separated within the remaining distance (should not happen: at d = dt
     if dany is None:                           # the correct actions reach σ = 0 in dt − 1 steps and no incorrect one can)

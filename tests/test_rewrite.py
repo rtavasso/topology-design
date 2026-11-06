@@ -1,6 +1,7 @@
 """Tests for the rewrite carrier (experiments/rewrite/DESIGN.md §10, G1)."""
 
 import itertools
+import math
 import random
 
 import pytest
@@ -323,3 +324,242 @@ def test_shortest_posterior_weights_count_paths_not_actions():
     t, s = P("(a+0)"), P("(0+a)")              # C at root: one state sequence; IbL/If routes are longer
     sp = shortest_posterior(t, s, W, cap)
     assert set(sp) == {t, s} and sp[t]["target"] == {("C", ""): 1.0}
+
+
+# ---------------- generation: layer sampling, records, rejection ----------------
+
+from topology_design.rewrite.data import (make_instance, make_candidate, complete_instance, sample_term, sample_shape, acceptance_rates,  # noqa: E402
+                                          category, dec_action, enc_action, canonical_proof, CATALAN)
+
+
+def test_sample_shape_is_uniform_over_bracketings():
+    rng = random.Random(0)
+    counts = {}
+    for _ in range(4200):
+        counts[sample_shape(rng, 4)] = counts.get(sample_shape(rng, 4), 0) + 1
+    assert len(counts) == CATALAN[3] == 5
+    assert all(abs(c / 4200 - 0.2) < 0.03 for c in counts.values()), counts
+
+
+def test_instance_record_is_consistent():
+    rng = random.Random(5)
+    W = world_from_name("AC")
+    n = 0
+    while n < 15:
+        rec = make_instance(rng, W, 5, range(3, 6), pf=True, secondary=True)
+        if rec is None:
+            continue
+        n += 1
+        t, s = P(rec["t"]), P(rec["s"])
+        acts = [dec_action(a) for a in rec["canon"]]
+        v = verify(t, s, acts, W, 5)
+        assert v["ok"] and v["steps"] == rec["k"] == distance(t, s, W, 5)          # canonical proof is a shortest proof
+        assert acts[-1] == HALT and len(acts) == rec["k"] + 1
+        # the lexicographic choice at the first step: no shortest-path action is smaller
+        dist, succ, _ = bfs(t, W, 5)
+        dgoal = reverse_distances(succ, s)
+        dag = shortest_dag(succ, dgoal, t)
+        first_ok = [a for v_, aa in dag[t].items() for a in aa]
+        assert min(first_ok, key=lambda a: (RULES.index(a[0]), a[1])) == acts[0]
+        # posterior states include t and s with weight 1 and targets summing to one
+        states = {p["state"]: p for p in rec["post"]}
+        assert states[rec["t"]]["weight"] == 1.0 and states[rec["s"]]["weight"] == 1.0
+        assert all(abs(sum(p["target"].values()) - 1) < 1e-9 for p in rec["post"])
+        assert states[rec["s"]]["target"] == {HALT: 1.0}
+        # binding is consistent with the distances
+        dF = distance(t, s, W_ALL, 5)
+        assert rec["binding"] == (dF < rec["k"])
+        # first-decision quantities are in range; the secondary strata bound the first decision
+        f = rec["first"]
+        assert 1 <= f["Dany"] <= f["Dsep"] <= rec["k"] and f["n_correct"] >= 1
+        assert rec["secondary"]["canon_Dany_max"] >= f["Dany"] and rec["secondary"]["min_over_proofs_Dany_max"] >= 1
+        # the ladder at d = k succeeds (oracle); the stored rungs agree with a recomputation
+        assert ladder_rollout(t, s, W, 5, d=rec["k"], T=2 * rec["k"] + 2)["ok"]
+        assert rec["ladder"]["1"] == ladder_rollout(t, s, W, 5, d=1, T=2 * rec["k"] + 2)["ok"]
+        # PF targets sum to one; the kept states carry nearly all the visitation mass
+        pf = rec["pf"]
+        assert all(abs(sum(p["target"].values()) - 1) < 1e-9 for p in pf["states"])
+        assert sum(p["visits"] for p in pf["states"]) >= 0.99 * pf["visits_total"] or len(pf["states"]) == 256
+        assert 0 < pf["p_success"] <= 1
+
+
+def test_candidate_then_completion_matches_make_instance():
+    rng1, rng2 = random.Random(9), random.Random(9)
+    W = world_from_name("CI")
+    a = make_instance(rng1, W, 5, range(2, 6))
+    c = make_candidate(rng2, W, 5, range(2, 6))
+    b = complete_instance(c) if c is not None else None
+    assert a == b
+
+
+def test_acceptance_rates_hit_targets_when_feasible():
+    r = acceptance_rates({"B": 20, "BG": 5, "G": 30, "P": 50}, 0.3, 0.3)
+    assert r["feasible"] and r["expected_binding"] >= 0.3 - 1e-9 and r["expected_gp1"] >= 0.3 - 1e-9
+    # all-plain warm-up: nothing to do
+    r = acceptance_rates({"P": 50}, 0.0, 0.3)
+    assert not r["feasible"] and r["p_plain"] == 1.0
+    # binding target of zero with plenty of GP1: accept everything that keeps GP1 >= 0.3
+    r = acceptance_rates({"G": 40, "P": 60}, 0.0, 0.3)
+    assert r["feasible"] and r["q_gp1"] == 1.0 and abs(r["expected_gp1"] - 40 / (40 + r["p_plain"] * 60)) < 1e-9
+
+
+def test_generator_populates_strata_at_cap5():
+    # layer sampling in {A, C}: k >= 3 is the majority, binding and GP1 instances both appear (G1)
+    rng = random.Random(11)
+    W = world_from_name("AC")
+    recs = []
+    while len(recs) < 60:
+        c = make_candidate(rng, W, 5, range(1, 6))
+        if c is not None:
+            recs.append(c["rec"])
+    ks = [r["k"] for r in recs]
+    cats = [category(r) for r in recs]
+    assert sum(k >= 3 for k in ks) / len(ks) >= 0.5, ks
+    assert "B" in cats and ("G" in cats or any(r["first"]["GP1"] for r in recs)), cats
+    assert all(enc_action(dec_action(a)) == a for a in ("Af@", "C@LR", "IbL@R", HALT))
+
+
+# ---------------- model, rollouts, training harness ----------------
+
+import torch  # noqa: E402
+
+from topology_design.rewrite.model import (encode, collate, Router, matched_configs, action_slot, slot_action, HALT_INDEX,  # noqa: E402
+                                           N_ACTIONS, VOCAB, SEG, N_RULES, RULE_INDEX)
+from topology_design.rewrite import train as T  # noqa: E402
+
+
+def test_matched_configs_within_one_percent_and_pointer_addresses_size7():
+    cfg_s, cfg_a, n_s, n_a = matched_configs()
+    assert abs(n_s - n_a) / n_a <= 0.01
+    enc = encode("ACID", "(((a+b)+c)+((d+0)+(a+b)))", "((a+(b+(c+d)))+(0+(a+b)))")
+    assert len(enc["term_paths"]) == 13
+    b = collate([enc])
+    out = Router(cfg_s)(b)
+    assert out.shape == (1, N_ACTIONS) and torch.isfinite(out).all()            # every slot addressable at size 7
+    small = collate([encode("AC", "(a+b)", "(b+a)")])
+    out = Router(cfg_s)(small)
+    assert torch.isfinite(out[0, :3 * N_RULES]).all() and not torch.isfinite(out[0, 3 * N_RULES:HALT_INDEX]).any() and torch.isfinite(out[0, HALT_INDEX])
+    assert torch.isfinite(Router(cfg_a)(small)).all()                              # the categorical head addresses everything
+    paths = enc["term_paths"]
+    assert slot_action(action_slot(("C", "RL"), {p: i for i, p in enumerate(paths)}), paths) == ("C", "RL")
+    assert slot_action(HALT_INDEX, paths) == HALT and slot_action(12 * N_RULES + 7, ["", "L", "R"])[1] is None
+
+
+_INV = {v: k for k, v in VOCAB.items()}
+
+
+def _decode_tree(toks):
+    """Prefix tokens -> term."""
+    it = iter(toks)
+
+    def rec():
+        x = next(it)
+        if x == "+":
+            return (rec(), rec())
+        return x
+    return rec()
+
+
+class OracleRouter:
+    """A planted router for the harness: reads the batch back into (world, s, t) and emits the lexicographically first
+    shortest action (HALT at the goal). Acts through the same slots as the learned router."""
+    def __init__(self):
+        self.eval_calls = 0
+
+    def eval(self):
+        pass
+
+    def train(self):
+        pass
+
+    def __call__(self, b):
+        B = b["tok"].shape[0]
+        out = torch.full((B, N_ACTIONS), -10.0)
+        for i in range(B):
+            toks = [_INV[int(x)] for x, m in zip(b["tok"][i], b["mask"][i]) if m]
+            segs = [int(x) for x, m in zip(b["seg"][i], b["mask"][i]) if m]
+            world = "".join(tk[0] for tk in toks[:4] if tk.endswith("+"))
+            goal = _decode_tree([tk for tk, sg in zip(toks, segs) if sg == SEG["goal"]])
+            term = _decode_tree([tk for tk, sg in zip(toks, segs) if sg == SEG["term"]])
+            W = world_from_name(world)
+            if term == goal:
+                out[i, HALT_INDEX] = 10.0
+                continue
+            dist, succ, _ = bfs(term, W, 7)
+            dgoal = reverse_distances(succ, goal)
+            dag = shortest_dag(succ, dgoal, term)
+            a = canonical_proof(dag, term, goal)[0]
+            pi = {p: j for j, (p, _, _) in enumerate(nodes(term))}
+            out[i, action_slot(a, pi)] = 10.0
+        return out
+
+
+def _tiny_dataset(tmp_path, n=6):
+    import gzip, json
+    rng = random.Random(21)
+    recs_by = {}
+    for wn in ("AC", "CI"):
+        W = world_from_name(wn)
+        recs = []
+        while len(recs) < n:
+            r = make_instance(rng, W, 5, range(2, 6), pf=True)
+            if r is not None and r["k"] >= 2:
+                recs.append(r)
+        recs_by[wn] = recs
+        for tag in ("train", "eval5"):
+            with gzip.open(tmp_path / f"{tag}_{wn}.jsonl.gz", "wt") as f:
+                for r in recs:
+                    f.write(json.dumps(r) + "\n")
+    return recs_by
+
+
+def test_oracle_router_solves_every_instance_in_the_harness(tmp_path):
+    recs_by = _tiny_dataset(tmp_path)
+    recs = [T.prepare(r) for rs in recs_by.values() for r in rs]
+    for masked in (True, False):
+        outs = T.rollout(OracleRouter(), recs, "cpu", masked=masked)
+        assert all(o["ok"] and o["first_ok"] and o["category"] == "ok" and o["steps"] == r["k"] for o, r in zip(outs, recs))
+    # a router that always halts fails every instance with "wrong halt"; one that picks an out-of-world rule loops
+    class Halter(OracleRouter):
+        def __call__(self, b):
+            out = torch.full((b["tok"].shape[0], N_ACTIONS), -10.0); out[:, HALT_INDEX] = 10.0; return out
+    outs = T.rollout(Halter(), recs, "cpu", masked=False)
+    assert all(o["category"] == "wrong halt" and not o["ok"] for o in outs)
+
+    class OutOfWorld(OracleRouter):
+        def __call__(self, b):
+            out = torch.full((b["tok"].shape[0], N_ACTIONS), -10.0); out[:, RULE_INDEX["Db"]] = 10.0; return out   # Db at the root
+    outs = T.rollout(OutOfWorld(), [r for r in recs if r["world"] in ("AC", "CI")], "cpu", masked=False)
+    assert all(o["category"] == "invalid: out of world" for o in outs)
+    # masked: the same router cannot choose Db; it takes the best valid slot instead (some valid action), no invalid category
+    outs = T.rollout(OutOfWorld(), recs, "cpu", masked=True)
+    assert not any(o["category"].startswith("invalid") for o in outs)
+
+
+def test_training_rows_and_a_few_steps_of_every_arm(tmp_path):
+    recs_by = _tiny_dataset(tmp_path)
+    sets = {"eval5": T.load_set(str(tmp_path), "eval5", ["AC", "CI"])}
+    rng = random.Random(0)
+    rec = T.prepare(recs_by["AC"][0])
+    rows = T.rows_rt(rec, rec["world"], None, rng)
+    assert len(rows) == rec["k"] + 1 and all(sum(r[4].values()) == 1.0 for r in rows) and list(rows[-1][4]) == [HALT_INDEX]
+    rows = T.rows_post(rec, rec["world"], None, rng)
+    assert abs(sum(r[5] for r in rows) - (rec["k"] + 1)) < 1e-9 or len(rows) == 24
+    rows = T.rows_pf(rec, rec["world"], None, rng)
+    assert len(rows) == rec["k"] + 1 and abs(sum(r[5] for r in rows) - (rec["k"] + 1)) < 1e-9
+    for arm in ("RT-canon", "RT-post", "PF", "RT-absolute", "RT-examples", "RT-shuffled", "EI16"):
+        cfg = {"arm": arm, "seed": 1, "lr": 1e-3, "steps": 2, "rows": 16, "inst": 4, "eval_every": 2, "warmup": 1, "worlds": ["AC", "CI"]}
+        res = T.run(cfg, str(tmp_path), device="cpu", log=lambda *a: None, sets=sets)
+        assert len(res["curve"]) == 2 and "per_instance" in res["final"]["eval5"]
+        assert all(math.isfinite(l) for l in res["losses"]) or arm == "EI16"
+
+
+def test_beam_search_finds_the_oracle_route_under_a_planted_router(tmp_path):
+    recs_by = _tiny_dataset(tmp_path)
+    recs = [T.prepare(r) for r in recs_by["AC"]]
+    found = T.beam_search(OracleRouter(), recs, "cpu", W=4, eps=0.0)
+    for rec, route in zip(recs, found):
+        assert route is not None
+        acts = [a for _, a in route]
+        v = verify(P(rec["t"]), P(rec["s"]), acts, world_from_name(rec["world"]), rec["cap"])
+        assert v["ok"] and v["steps"] == rec["k"]

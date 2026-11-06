@@ -6,3 +6,4 @@ artifacts/
 results/
 kaggle.json
 .kaggle/
+data/
