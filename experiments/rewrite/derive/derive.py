@@ -306,6 +306,8 @@ def main():
         # 4. recombination table (Q1)
         train_dec = {}
         for w, rs in train.items():
+            if w not in TRAIN_WORLDS:                 # the held-out worlds' files are RT-all's stream, not the training worlds'
+                continue
             for r in rs:
                 for rule, pat, idx in decisions(r):
                     train_dec.setdefault((rule, pat), set()).add(w)
@@ -337,6 +339,8 @@ def main():
         train_keys_struct = {(rule, pat) for (rule, pat) in train_dec}
         train_keys_abs = set()
         for w, rs in train.items():
+            if w not in TRAIN_WORLDS:
+                continue
             for r in rs:
                 for rule, pat, idx in decisions(r):
                     train_keys_abs.add((rule, pat, idx))
@@ -360,6 +364,8 @@ def main():
         import math
         pt = {}
         for w, rs in train.items():
+            if w not in TRAIN_WORLDS:
+                continue
             ents, n = 0.0, 0
             for r in rs:
                 for p in r["post"]:
@@ -398,6 +404,8 @@ def main():
     # 8. wandering mass
     wm = {}
     for w, rs in train.items():
+        if w not in TRAIN_WORLDS:
+            continue
         for r in rs:
             if "pf" in r:
                 c = wm.setdefault(str(r["k"]), [0.0, 0])
