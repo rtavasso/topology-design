@@ -1,123 +1,149 @@
-# The rewrite carrier — a proof-shaped toy for the road to Lean (design, revision 2, 6 Nov 2026)
+# The rewrite carrier — a proof-shaped toy for the road to Lean (design, revision 3, 6 Nov 2026)
 
-**Status: revision 2, for independent design review.** Revision 1 (same day) is in git; its §12 choices were fixed by the researcher at the recommended defaults (§12 below records them), and its reading of depth was corrected the same day (§0). Supersedes [programs/DESIGN.md](../programs/DESIGN.md). Nothing here is implemented.
+**Status: revision 3, after independent design review 1** ([review/review1_design.md](review/review1_design.md)). The reviewer implemented the carrier in miniature and found it sound and not greedy-solvable, and found revision 2's generator unable to populate its strata and three of its four core predictions foregone for reasons unrelated to the hypotheses (B1–B6). This revision adopts every blocking fix and the should-fix items; §14 lists the handling. Revisions 1–2 are in git. Supersedes [programs/DESIGN.md](../programs/DESIGN.md). Nothing here is implemented; implementation follows the researcher's go-ahead.
 
 ## 0. What the carrier is for, and what "depth" means here
 
 **The real-model target is Lean** (history Entry 75): a proof is a sequence of tactic applications, each transforming an explicit proof state, each checked by an exact kernel; the file's hypotheses and imports are the world; premise selection is the lookup part, structurally separate from tactic choice. The toy has that shape so that rungs 4 and 5 and the scaled run share one structure.
 
-**Depth is per decision, not proof length.** Proof length is the *external* loop — the kernel runs it, and a scratchpad externalizes it. The thesis's depth is what happens inside one decision: at each next step the model branches over candidate next steps, rolls each forward in the latent stream with its own routing and halting (breadth and lookahead both elastic), and selects — internal search that is meant to beat chain-of-thought at matched exploration because a latent rollout step costs one expert application rather than a forward pass plus decoding. So the carrier's primary strata are **per-decision difficulty** (§1, (B\*, D\*)); proof length is a closure check.
+**Depth is per decision, not proof length.** Proof length is the external loop (the kernel's, or a scratchpad's). The thesis's depth is what happens inside one decision: branching over candidate next steps, rolling each forward in the latent stream with its own routing and halting, selecting — internal search meant to beat chain-of-thought at matched exploration. The carrier's primary strata are therefore per-decision difficulty (§1); proof length is a secondary stratum.
 
-**Held open (the researcher, 6 Nov; ledger I36):** whether a branch's rollout is latent only (A), executor-stepped (B: tree search with a learned prior and value), or split (C: the executor validates and applies candidates one step, the latent rollout supplies the lookahead). Rung 4 (this document's core) does not depend on it: it tests the *prior* — under B that is the whole claim about worlds, under A / C half of it, with the learned dynamics the other half — and its results are reported under both readings. Rung 5 (§7) measures it instead of assuming it.
+**Held open (the researcher; ledger I36):** whether a rollout is latent only (A), executor-stepped (B), or split (C). Rung 4 tests the *prior* and is reported under both readings; rung 5 measures the question (§7).
 
-**Why not the route carrier.** Rungs 1–3 did their job on it (F30, F37, F45); their results transfer to Lean only by analogy. The rewrite carrier keeps everything the method depends on — an exact verifier, exact oracle routes, exact posteriors over routes by dynamic programming on the reachable graph, planted routers, ties — in the Lean shape.
+**Two facts from the review that shape everything below.** (i) The world *rarely binds* on naive generation: in 96–100 % of random-walk instances the shortest proof under all four axioms already lies inside W, so a world-blind planner plus a validity mask would pass a recombination test — Q1 is only a question on the **binding stratum**, where a missing axiom lengthens the proof (d_W > d_full), which is exactly the Lean situation (a missing lemma). (ii) The carrier has deep garden paths under a syntactic proxy (greedy succeeds in 0–0.4 of layer-sampled instances at k ≥ 5), but random-walk generation selects the easy ones (71–83 % one-step instances) — so instances are **layer-sampled** and the hard strata are generated deliberately, with the weights written down here.
+
+**Why not the route carrier.** Rungs 1–3 did their job on it (F30, F37, F45); their results transfer to Lean only by analogy. The rewrite carrier keeps the method — exact verifier, exact oracle routes, exact posteriors, planted references, ties — in the Lean shape.
 
 ## 1. The carrier
 
-**Signature.** Atoms a, b, c, d and the constant 0; one binary operation ⊕. Terms are binary trees over the atoms and 0, written in prefix order as tokens (`⊕ ⊕ a b 0`); a position is a node index in prefix order. Term size (leaves) **≤ 5 in training, ≤ 7 in evaluation** (§12.5).
+**Signature.** Atoms a, b, c, d and the constant 0; one binary operation ⊕. Terms are binary trees, written in prefix order as tokens; **positions are structural** (depth and left/right path), never a flat index (B4). Term size (leaves) ≤ 5 in training, ≤ 7 in evaluation.
 
-**Rules — the primitives (§12.1).** A→ (x⊕y)⊕z → x⊕(y⊕z) and A←; C x⊕y → y⊕x (self-inverse); I→ x⊕0 → x and 0⊕x → x, and I← x → x⊕0 (bounded by the size cap); D→ x⊕x → x and D← x → x⊕x (bounded). Seven directed rules. An action is (rule, position) or HALT; with ≤ 7 leaves there are ≤ 13 positions, ≤ 92 actions. A rule that does not match at its position is a no-op that costs a step (untyped semantics, as the route carrier's: errors are detected only by the goal).
+**Rules — the primitives (eight directed).** A→ (x⊕y)⊕z → x⊕(y⊕z) and A←; C x⊕y → y⊕x; I→ x⊕0 → x or 0⊕x → x (whichever matches; x⊕0 first); **I←R x → x⊕0 and I←L x → 0⊕x** (both directions of identity, so I is invertible in every world — S9); D→ x⊕x → x and D← x → x⊕x (bounded by the size cap). An action is (rule, node) or HALT; ≤ 8 × 13 + 1 = 105 at size 7. A rule that does not match is a no-op that costs a step. (In Lean a failing tactic is an observed error; the no-op semantics make the toy harder in that respect — no feedback — and easier in that a wasted step costs one of T; M3.) **Candidates** for every per-decision quantity below are the valid, state-changing actions (C at x⊕x and other self-loops excluded).
 
-**Worlds (§12.2).** A world is the set of axioms in force, W ⊆ {A, C, I, D}, W ≠ ∅ — fifteen worlds. A rule may be applied only if its axiom is in W; applying one outside W is a no-op that costs a step and is marked invalid by the verifier. **W is written in the context as axiom tokens**, as a Lean file states its hypotheses: the world is read, not guessed. Inferring it from example proofs is one arm (§4, RT-examples).
+**Worlds.** W ⊆ {A, C, I, D}, W ≠ ∅: fifteen. A rule may be applied only if its axiom is in W; out-of-world applications are no-ops marked invalid. W is written in the context as **four presence tokens** (one per axiom, present/absent; M1), as a Lean file states its hypotheses. The **binding test** for an instance: d_W(t, s) > d_full(t, s), where d_full is the distance under all four axioms — the world changes the proof.
 
-**Instances.** Sample a term t of size ≤ 5; apply k valid random rewrites under W to obtain s; keep the instance if the BFS distance from t to s under W is exactly k; k ~ Zipf(1.5) on 1 … 6 in training, 1 … 10 in evaluation. The task: given (W, s, t), rewrite t into s and HALT. An episode is one instance; batches mix worlds uniformly.
+**Instances — layer sampling (B1).** Sample t (size 1–5); BFS from t under W to radius 6 (and under the full set, for the binding test); sample k from the target distribution **restricted to the non-empty layers** (k = 1 … 6 with weights 1 : 1 : 2 : 2 : 2 : 2, so k ≥ 3 is ≥ 70 % where it exists); draw s uniformly from layer k. Stratum weights in the training stream, by rejection: **binding instances ≥ 30 %** of the multi-axiom-world stream; **GP1 instances ≥ 30 %** (defined below). Evaluation sets: per world and stratum, fixed, ≥ 200 instances each, with **binding ≥ 50 %** in every multi-axiom world and the realized (world, k, binding, GP1) table preregistered from the derive step and printed with every results table. Batches mix worlds uniformly by *instance*; the per-world count of distinct (t, s) pairs in the stream is recorded (M6). Proof length k = 7–8 exists at size ≤ 5 only in {A, C}; it is a reported stratum there and nowhere else (B1).
 
-**Per-decision difficulty (the primary strata).** At a state t with goal s under W, let d(·) be the BFS distance to s; the correct next actions are those with d(a(t)) = d(t) − 1. Let σ(u, s) be a **syntactic progress proxy** that needs no search — the tree-edit distance between u and s (the derive step fixes it, §5). Define, for the decision at t:
-- **B\*** — the number of next actions whose one-step σ is minimal (how many candidates look equally good greedily);
-- **D\*** — the smallest lookahead d ≥ 1 at which choosing by "min σ over the best d-step continuation" picks only correct actions (D\* = 1: greedy by σ is right; D\* ≥ 2: a garden path — the right move looks worse than a wrong one for d − 1 steps).
-Both are instance properties computed by the generator; evaluation reports success by (B\*, D\*) of the *first* decision and by the maximum D\* along the oracle proof. Proof length k is reported too, as the closure stratum.
+**Per-decision difficulty (the primary strata; B5).** With d(·) the BFS distance to s and the candidates as above, the correct actions at a state are those with d(a(t)) = d(t) − 1. Progress proxy σ = tree-edit distance to s (Zhang–Shasha), with string-edit distance as the sensitivity proxy; both are **proxy-relative** and labelled so. Three exact quantities per decision:
+- **GP1** — a strict garden path at depth 1: every correct action has σ strictly greater than some wrong action's (the right move looks worse);
+- **D\*_sep** — the smallest d at which the argmin of "σ after the best d-step continuation, ordered by (σ, steps)" contains only correct actions;
+- **D\*_any** — the smallest d at which some correct action is in that argmin (where a random tie-breaker has a chance).
+The **primary per-decision stratum is the first decision** of the instance; the maximum along the canonical proof and the minimum over shortest proofs of that maximum are secondary (S5, S8). The lookahead ordering by (σ, steps) is what keeps the quantity defined past the remaining distance.
 
-**Executor, oracle, posteriors.** Exact rewriting on term trees; the verifier checks each step's validity (match, in-world) and the final equality; BFS from t under W gives the distance, the set of shortest proofs (the ties), and the reachable graph within T steps. **Exact posteriors** over routes — under the router's own policy (EX) or under a flat prior over valid actions (PF) — are forward–backward passes over the reachable graph (small at size ≤ 5; a per-episode sparse CPU computation for the derive step, the PF arm and checks).
+**Executor, oracle, posteriors.** Exact rewriting on term trees; the verifier checks validity (match, in-world) and the final equality; BFS gives distances, the shortest proofs (ties) and the reachable graph (≤ 6k nodes at cap 5 in every world; at cap 7 only the radius-k ball is needed at evaluation — the full graph of worlds with A and C reaches 10⁵ nodes there, so **no exact-posterior arm runs at size 6–7** in those worlds). All labels and targets are **precomputed with the dataset** (≈ 10⁵ instances; BFS 0.3–0.5 s per instance in Python at cap 5, so a compiled or multiprocess build; S1, M4). The PF target is router-independent and precomputed; an own-policy exact posterior (EX) would need the router at every reachable state and is not an arm (S1).
 
-**The router.** A small transformer encoder (d 128, 3 layers, 4 heads) over `[axioms of W] [goal s] [SEP] [current term t]`, with a head over (rule, position) + HALT, applied once per step; the executor applies the rewrite and the router runs again on the new term. Markov in (t, context); no rollouts in rung 4 — this is the amortized prior ("the PFN over tactics"), and how far it reaches in D\* without search is one of rung 4's readings.
+**The router (B4).** A small transformer encoder (d 128, 3 layers, 4 heads) over `[axiom presence ×4] [goal s] [SEP] [current term t]` with **tree-structural position features** on term tokens (depth, left/right path, size of subtree) and relative attention, and a **pointer head**: for each term token one logit per rule (eight) from that token's final representation, plus HALT from the SEP token. Position is never a category, so sizes 6–7 are addressable. Markov in (t, context); no rollouts in rung 4. **Identical-architecture control:** the same encoder with learned absolute positions and a categorical (rule, flat position) head, parameter-matched within 1 %.
 
-**Loss.** Per-step cross-entropy on labels (RT); the route-level signals as in rung 2. Success: the committed route reaches s and halts within T = 2·k_max + 2.
+**Loss.** Per-step cross-entropy on labels (RT); route-level signals as in rung 2. Success: the committed route reaches s and halts within T = 2k + 2. The committed route is read **unmasked** (the thesis reading: an invalid action repeats to T) and **masked** (valid actions only; the fair comparison with EI16); both are reported (S5).
 
 ## 2. Rung 4's questions (symbolic executor; the prior)
 
-- **Q1 (core) — recombination across worlds.** Trained on some axiom sets, tested on axiom sets never seen: does the router plan with rules it never saw together?
-- **Q2 (core) — term-size extrapolation.** Sizes 6–7 at test: positions and subterm shapes never seen. Rules against tables: a rewrite decision learned as a pattern over subterms extrapolates; one learned as a table over whole terms does not.
-- **Q3 (core, new in revision 2) — the prior's reach in lookahead.** Success by D\* with no search: how much garden-path lookahead the amortized prior absorbs from data. This is the baseline rung 5's rollouts have to beat, and under reading B it is the quantity that sets how much search the prior saves.
-- **Q4 (check) — depth closure.** Proofs of length 7–10 within training worlds (F30).
-- **Q5 (reference) — labels against search.** EI16 (beam with the verifier) against RT: do search-found routes compose across worlds as well as labelled ones? The toy form of Lean's human-proofs-versus-expert-iteration choice.
-- **Q6 (ties).** Worlds with A and C have several shortest proofs. RT on a canonical proof commits to one strategy; RT on the posterior over shortest proofs and PF keep a mixture. Which strategy each signal commits to per world, and whether it transfers to held-out worlds.
-- **Q7 (PFN inference, one arm).** Axioms unstated, two example proofs from the world in the context: does attention over examples identify the world?
+- **Q1 (core) — recombination across worlds, on the binding stratum.** Trained on some axiom sets, tested on axiom sets never seen, on instances where the missing axiom changes the proof: does the router plan a detour around an absence it never saw in that combination? Off the binding stratum the question is derivable (a world-free map plus a mask; B2) and is reported as the cue-blind ceiling's territory.
+- **Q2 (core) — term-size extrapolation, as a contrast of position representations.** Structural positions against absolute positions, same parameters: which extrapolates to sizes 6–7, and does either learn a table over whole terms? Both outcomes are informative; the symbolic references (§5) match the two hypotheses.
+- **Q3 (core) — the prior's reach in lookahead.** Success per k and per GP1 against the symbolic ladder (greedy-σ, lookahead-2, lookahead-3, oracle): the largest d at which the no-search router matches the lookahead-d rung is how much search the amortized prior absorbs from data. Under reading B this is the quantity that sets how much search the prior saves; under A / C it is the baseline rung 5's rollouts must beat.
+- **Q4 (stratum) — length 7–8 in {A, C}**: depth generalization is an *extrapolation* on this carrier (a longer proof is a new (t, s) relation; F30's closure does not apply), reported, not predicted.
+- **Q5 (reference) — labels against search.** EI16 against RT: do search-found routes compose on the binding stratum as well as labelled ones?
+- **Q6 (ties).** Strategies are shortest proofs **modulo commuting moves** (Mazurkiewicz traces: proofs equivalent if they differ by swapping adjacent moves at non-overlapping positions; S3). RT-canon (lexicographic by rule order then position — the same rule in every world, which is said) commits to one; RT-post and PF spread. Reported: the trace classes each signal commits to and whether they transfer.
+- **Q7 (PFN inference, one arm).** Axioms unstated, two example proofs in context, with the **derived ceiling** — the share of episodes whose needed axioms are among those the examples use (S4) — and the known fact that (t, s) alone reveals the needed axioms in most non-binding instances, so the arm is read on the binding stratum.
 
-## 3. Held-out structure
+## 3. Held-out structure (S6)
 
-**Training: eight worlds** — {A}, {C}, {I}, {D}, {A,C}, {A,I}, {C,D}, {I,D}. **Held out: {A,D}, {C,I}, the four triples, {A,C,I,D}** — every held-out world recombines axioms seen singly and in pairs. Size: train ≤ 5, test 6–7. Length: train ≤ 6, test 7–10. Strata: world class (train / held-out pair / triple / full) × (B\*, D\*) × size × length.
+**Training: eight worlds** — {A}, {C}, {I}, {D}, {A,C}, {A,D}, {C,D}, {D,I}. **Held out: {A,I}, {C,I}** (the binding-rich pairs: 0.26–0.94 and 0.24–0.79 of layer-sampled states bind at k = 4–6), **the four triples, {A,C,I,D}** (cross-axiom garden paths 10–52 % of first decisions at k ≥ 3). Size: train ≤ 5, test 6–7. Strata: world class × binding × GP1 × k × size.
 
-## 4. Arms (§12.3–4)
+## 4. Arms
 
 | arm | signal | role | seeds |
 |---|---|---|---|
-| **RT-canon** | teacher forcing on one canonical shortest proof per instance (lexicographically first) | core | 10 |
-| **RT-post** | teacher forcing on the posterior over shortest proofs (soft targets; the tie-aware label) | core | 10 |
-| **EI16** | beam (W 16, ε 0.1) over valid actions with the verifier, hard EM | reference Q5 | 3 |
-| **PF** | exact flat-prior posterior over routes reaching s (DP on the reachable graph) | reference Q6 | 3 |
-| **RT-examples** | RT, axioms unstated, two example proofs in context | Q7 | 3 |
-| **RT-shuffled-axioms** | axiom tokens permuted across episodes | null: the axioms are read | 2 |
-| **RT-single-world** × 8 | RT on one training world each | reference: each world's program unmixed | 1 each |
-| planted router | hand-written: match rule patterns at positions; choose by the oracle's distance table | expressivity reference (L17) | – |
-| planted table router | lookup over whole training terms | the "tables" outcome of Q2, planted | – |
+| **RT-canon** | teacher forcing on the lexicographically first shortest proof | core | 10 |
+| **RT-post** | teacher forcing on the posterior over shortest proofs: uniform over shortest proofs **as state sequences**; every state on every shortest proof is a teacher-forced state, weighted by the number of shortest proofs through it; the pooled fixed point derived (S2, L28) | core | 10 |
+| **RT-all** | RT-canon on all fifteen worlds | **in-distribution ceiling** for every held-out world and stratum (B6) | 3 |
+| **RT-absolute** | RT-canon with the categorical / absolute-position router | identical-architecture control for Q2 (B4) | 5 |
+| **EI16** | beam (W 16, ε 0.1) over valid actions with the verifier, hard EM | reference Q5 | 5 |
+| **PF** | exact flat-prior posterior over routes reaching s (precomputed DP), size ≤ 5 worlds only | reference Q6 | 3 |
+| **RT-examples** | RT-canon, axioms unstated, two example proofs in context | Q7 | 3 |
+| **RT-shuffled-axioms** | presence tokens permuted across episodes | null, read against the **derived cue-blind ceiling** per world (B2) | 2 |
+| symbolic ladder | greedy-σ + mask, lookahead-2, lookahead-3 (ordered by (σ, steps), lexicographic tie-break; random tie-break in brackets), oracle | reference policies on every stratum (B3, B5) | – |
+| symbolic references for Q2 | a pattern-at-absolute-position table and a pattern-at-structural-position rule, both built from the training stream | the two hypotheses of Q2, planted (B4) | – |
+| planted neural pieces | the HALT / equality circuit and the mask read, one attention each, with their reach from the init checked (L24) | expressivity of the parts that have hand-writable weights (B6) | – |
 
-Same router, same parameter count, in every learned arm; lr from the pilot per arm.
+Every learned arm has the same encoder; lr per arm from the pilot. The oracle is the evaluation reference, not a planted router (B6). No single-world arms (S8).
 
 ## 5. Derived before measuring (`derive/`)
 
-- Reachable-graph sizes and BFS distances per world and term size; tie multiplicity per instance; the share of instances whose correct first action is unique.
-- **The (B\*, D\*) distribution per world** under the chosen σ, and the proxy's choice: σ must make D\* ≥ 2 common enough to populate the strata (if garden paths are rare under {A, C, I, D}, the generator oversamples them or the proxy is reconsidered — decided here, before the pilot).
-- The closure table (Q4) and the recombination table (Q1): which (subterm pattern, rule) decisions each held-out world needs and in which training worlds each was taken.
-- The planted router exact on every world, size and depth; the planted table router failing size 6–7 as predicted.
-- Wandering mass at init under a uniform policy per depth (the answer-only signals' starting gradient).
+- The realized (world, k, binding, GP1, D\*_any) table of the generator at the stated weights; reachable-graph sizes; tie multiplicity and trace-class counts per instance.
+- **The cue-blind ceiling** per world: the share of instances that do not bind times the share of full-world shortest proofs that stay inside W (the review's §0.6 numbers under naive generation; recomputed under the stated weights). P8 is read against it.
+- **The symbolic ladder's success** per world × k × binding × GP1 (the review's §0.4–0.5 under naive generation; recomputed): the floors for P2 and the rungs for P4.
+- The recombination table for Q1 on the binding stratum: which (subterm pattern, rule) decisions each held-out world needs and in which training worlds each was taken; the share of binding instances whose detour uses a decision never taken in any training world (those are not recombination and are reported apart).
+- The two Q2 symbolic references evaluated at sizes 6–7; the share of size-6–7 instances whose every shortest proof needs a node the absolute design cannot address.
+- RT-post's pooled fixed point on the training worlds (S2); RT-examples' ceiling per world (S4).
+- Wandering mass at init under a uniform policy per depth.
 
-## 6. Predictions (fixed here; counts over seeds)
+## 6. Predictions (fixed here; counts over seeds; every stratum printed with its instance count)
 
 | # | prediction | falsifier | type |
 |---|---|---|---|
-| P1 (check) | Within training worlds, RT-canon ≥ 0.95 success at lengths 7–10 in ≥ 9/10 seeds. | ≤ 7/10 | expressivity / optimization (derivable) |
-| **P2 (core, Q1)** | RT generalizes to the held-out **pairs** in ≥ 6/10 seeds (≥ 0.9 success at in-range length and size), to the triples in fewer, to the full set least. | ≤ 3/10 on the pairs: no composition across axiom sets; the labelled prior must cover combinations. | optimization |
-| **P3 (core, Q2)** | Size-6–7 extrapolation in ≤ 3/10 seeds, failures at unseen positions (the table signature). | ≥ 7/10: pattern rules; the stronger PFN claim. | optimization |
-| **P4 (core, Q3)** | Success falls with D\*: ≥ 0.9 at D\* = 1, ≤ 0.5 at D\* ≥ 3 for RT-canon within training worlds — the prior absorbs one step of lookahead, not three. | flat in D\* (≥ 0.9 at D\* = 3): the amortized prior does the search's work from data, and rung 5's rollouts have less to add. | optimization |
-| P5 (reference, Q5) | EI16 generalizes to held-out worlds in no fewer seeds than RT-canon's rate. | 0/3 where RT ≥ 6/10 | reported |
-| P6 (Q6) | RT-canon commits to the canonical strategy in every world; RT-post and PF keep a mixture; committed strategies differ by world. | — | reported |
-| P7 (Q7) | RT-examples ≥ 0.9 on training worlds; fewer held-out seeds than stated-axiom RT. | RT-examples ≥ stated RT on held-out worlds: attention reads the generator's signature directly. | reported |
-| P8 (null) | RT-shuffled-axioms at the single-world baseline. | — | check |
+| **P2 (core, Q1)** | On the **binding stratum** of the held-out pairs, RT-canon's success exceeds the greedy-σ rung's by ≥ 0.2 and reaches ≥ 0.7 in ≥ 6/10 seeds; on the binding stratum of the triples and the full set it exceeds the greedy rung in ≥ 6/10 seeds; and RT-all's ceiling on the same strata is ≥ 0.9 (so the gap to it is recombination, not reachability). | ≤ 3/10 seeds above the greedy rung on the held-out pairs' binding stratum while RT-all is ≥ 0.9 there: the router does not compose axioms it never saw together; the labelled prior must cover combinations. | optimization |
+| **P3 (core, Q2)** | The structural router extrapolates to sizes 6–7 at ≥ 0.9 of its size-5 success in ≥ 7/10 seeds; the absolute router fails exactly the instances whose shortest proofs need an unaddressable node (the review's 3–40 %) and no more. | structural ≤ 3/10: the structural router also learned a table (the structural-rule reference will have shown the rule is expressible); or absolute failing *more* than the unaddressable share: a table beyond the artefact. | optimization / expressivity |
+| **P4 (core, Q3)** | Within training worlds, per k and per GP1 stratum, RT-canon matches the lookahead-2 rung and not the lookahead-3 rung: on GP1 instances at k ≥ 4 its success lies between the d = 2 and d = 3 rungs' preregistered numbers in ≥ 7/10 seeds. | ≥ the d = 3 rung on GP1 at k ≥ 4 in ≥ 7/10 seeds: the amortized prior does three steps of search's work from data, and rung 5's rollouts have less to add; ≤ the d = 1 rung: the prior absorbs no lookahead. | optimization |
+| P1 (stratum) | Length 7–8 in {A, C}: reported with the ladder; no prediction (extrapolation, not closure). | — | reported |
+| P5 (reference, Q5) | EI16 on the held-out binding stratum within 0.1 of RT-canon's seed-median (5 seeds against 10; rates with bootstrap intervals, M5). | EI16 below the greedy rung where RT-canon is above it: labels matter for composition. | reported |
+| P6 (check, Q6) | RT-post ends at the derived pooled fixed point on training worlds (a mixture over trace classes); RT-canon at the lexicographic class. | — | check (derivable) |
+| P7 (Q7) | RT-examples reaches its derived ceiling on training worlds' binding stratum within 0.1 and falls below stated-axiom RT on held-out binding instances. | RT-examples ≥ stated RT on held-out binding instances: the examples carry more than W (which examples, is then the question). | reported |
+| P8 (null) | RT-shuffled-axioms within 0.05 of the derived cue-blind ceiling in every world, and well below RT on the binding stratum. | shuffled ≈ RT on the binding stratum: the presence tokens are not what carries the world. | check |
 
-**Reading under the two rollout readings (I36).** Under B (exact lookahead at inference), P2–P4 bound how much the prior saves the search and recombination is nearly free from the executor's side; under A / C, P2 and P4 are half the claim and the latent dynamics' generalization is the other half, measured in rung 5.
+**Protocol (S5).** Fixed held-out sets per stratum evaluated every 250 steps; runs classified from the curve (learned / learned-then-collapsed / slow-rising / flat); failure categories per episode (invalid-action loop, out-of-world or non-matching; wrong halt; no halt at goal; wandering among valid moves; horizon); masked and unmasked readings; every count with its denominator.
 
-## 7. Rung 5 on the same data (outline; its own design after rung 4)
+**Under the two rollout readings (I36).** Under B, P2–P4 bound how much the prior saves exact search and recombination is nearly free from the executor's side; under A / C, P2 and P4 are half the claim and the latent dynamics' generalization is the other half (rung 5).
 
-What the symbolic rung cannot test: learning the primitives and the router together (risk 2; F22–F23, F32), and the per-decision search itself. Rung 5 keeps the data, the verifier and the (B\*, D\*) strata and adds:
+## 7. Rung 5 on the same data (outline; its own design after rung 4; S7)
 
-- **Arms.** Dense transformers of depth L predicting the next step from (W, s, t) with no scratchpad; dense **with a scratchpad** (best-of-B chains with D-step written lookahead — the chain-of-thought opponent, matched in exploration budget); the **library**: m small experts (attention and MLP), a router with explicit state, and the **propose → per-branch rollout → value → select** structure, in the three rollout forms of I36 — (A) latent-only, (B) executor-stepped, (C) split — each trained on labels, by verifier-guided search, and by end-to-end gating with load balancing (the SUT / MoEUT regime). Planted experts and router as the ceiling. In the toy the latent rollouts can be supervised against the executor's real consequences; an unsupervised variant measures what that supervision is worth, since at scale the kernel is available at training time only.
-- **Endpoints.** Next-step accuracy and success by (B\*, D\*), never the mean; **the latent-against-exact lookahead curve** — the share of (B)'s gain over the no-rollout prior that (A) and (C) capture, per D\*, at what cost in forward passes — which is the measurement that decides I36; compute per solved problem in the lookahead tail at matched success, against the scratchpad at matched forward passes and matched tokens; parameters at matched tail accuracy against the dense family; a functional probe of each learned expert; **distillation calibration** — distill the dense-L arms and the planted library into libraries and recover m(L) before the instrument is used on a real teacher.
-- **Predictions, to be fixed in its own design.** Dense-L cliffs at a D\* set by L; the scratchpad extrapolates at token cost; the library extrapolates under labels and search; the gating-trained library matches in range and does not extrapolate, with blended experts under the probe (the chains-against-bags explanation owed for MoEUT); (A) tracks (B) at small D\* and loses to it as D\* grows, with the crossover the number that matters; the value head does not collapse because breadth is built in (F40's missing exploration) — preregistered, not assumed.
+Adds learned primitives and the per-decision search. **Strata** are instance properties only — k, binding, GP1, D\*_any — never a quantity read through a learned value. **Arms:** dense transformers of depth L predicting the next step with no scratchpad; dense **with a scratchpad** whose training data (written rollouts from the executor) and selection rule are stated — selection by the executor's goal test is form B in disguise, by its own judgement form A — matched to the library in **expansions** (candidates × depth) as the primary unit and tokens as the secondary; the **library** with propose → per-branch rollout → value → select in the three forms (A latent, B executor-stepped, C split), each trained on labels, by verifier-guided search, and by end-to-end gating with load balancing (the SUT / MoEUT regime), with the terminal evaluation per form stated (goal test + σ for B; the learned value for A; both for C) and a step count in every value. **Endpoints:** success by stratum; the **latent-against-exact lookahead curve** at matched expansions per k and GP1, with cells where B's gain over the no-rollout prior is < 0.1 left blank rather than ratioed; compute per solved problem in the lookahead tail; parameters at matched tail success; a functional probe of each expert; distillation calibration (recover a planted m). **Predictions** to be fixed there, against the symbolic ladder rather than a proxy-relative D\*: dense-L's cliff; the scratchpad's extrapolation at token cost; the library's under labels and search; the gating-trained library in range only, with blended experts (the chains-against-bags explanation owed for MoEUT); A tracking B at small lookahead and losing as it grows; the value head not collapsing because breadth is built in.
 
 ## 8. After the toys
 
-Synthetic symbolic math with derivation traces for the first real model; Lean tactic traces (Mathlib via LeanDojo) as the real-data step — RT is supervised traces, EI16 is verifier-guided search, premise selection is the lookup part, the ambient theory is the world, and the Lean-level endpoint is **kernel calls and tokens per proof at matched success**; natural-language math as a benchmark only. The distillation instrument, calibrated in rung 5, measures m(L) on a math-trained dense teacher first.
+Synthetic symbolic math with derivation traces for the first real model; Lean tactic traces (Mathlib via LeanDojo) as the real-data step — RT is supervised traces, EI16 is verifier-guided search, premise selection is the lookup part, the ambient theory is the world, the endpoint is kernel calls and tokens per proof at matched success; natural-language math as a benchmark only. The distillation instrument, calibrated in rung 5, measures m(L) on a math-trained dense teacher first.
 
 ## 9. Budget
 
-Rung 4: 10 + 10 + 3 + 3 + 3 + 2 + 8 = 39 runs; small router, cheap executor, but the executor runs in the training loop — vectorized term rewriting (or a CPU worker pool) is the pilot's first measurement; ≈ 10–20k steps per run; one Kaggle session if vectorized, two otherwise. Building the carrier (terms, rules, BFS, verifier, DP posteriors, generator with (B\*, D\*), router, beam, analysis), tests first, is the main cost: on the order of a week of agent work.
+Rung 4: 10 + 10 + 3 + 5 + 5 + 3 + 3 + 2 = **41 runs**, small router, ≈ 10–20k steps each; the executor is cheap in the loop (≈ 50 µs per step per episode), **the dataset build is the cost** (≈ 10⁵ instances with BFS under W and under the full set, binding and GP1 rejection, ladder evaluations and PF targets: a compiled or multiprocess build before the pilot; M4). One Kaggle session for the grid.
 
 ## 10. Gates
 
-G1 tests: rewriting on hand-built terms; BFS distances against brute force; the verifier rejecting invalid and out-of-world steps; DP posteriors summing to one and matching enumeration on tiny instances; (B\*, D\*) on hand-built garden paths; the planted router exact on every world; the table router failing size 6–7 as predicted; generator strata populated. G2 derive (§5), including the σ decision. G3 pilot (lr, steps, executor cost; one seed; reads nothing, L30). G4 independent design review of this revision, then a code review before the grid.
+G1 tests: rewriting on hand-built terms; BFS distances against brute force; the verifier rejecting invalid and out-of-world steps; DP posteriors summing to one and matching enumeration on tiny instances; GP1 / D\*_sep / D\*_any on hand-built garden paths and ties, including the (σ, steps) ordering past the remaining distance; the ladder's rungs on fixed instances; the pointer head addressing size-7 nodes; the trace-class equivalence on hand-built proof pairs; generator strata populated at the stated weights. G2 derive (§5). G3 pilot (lr, steps; one seed; reads nothing, L30). G4 code review before the grid.
 
 ## 11. What this rung does not answer
 
-Learning the primitives and the per-decision search (rung 5); chains against bags in a trained model (rung 5); the rollout form (I36; rung 5); where labels come from at scale beyond what Q5 says; worlds as hidden latents with piecewise constancy; the prior over proofs at Lean scale (this carrier's PF arm can only gesture at it).
+Learning the primitives and the per-decision search (rung 5); the rollout form (I36); chains against bags in a trained model; where labels come from at scale beyond Q5; worlds as hidden latents with piecewise constancy; the prior over proofs at Lean scale.
 
-## 12. Choices fixed (the researcher, 6 Nov, "good with defaults")
+## 12. Choices fixed (the researcher, 6 Nov, "good with defaults"; the held-out pairs changed by review 1 S6)
 
-1. Axiom set {A, C, I, D} with the directions of §1; inverse / cancellation deferred.
-2. Worlds stated in the context as the core; inference from example proofs as one arm.
-3. Labelled core: both RT-canon and RT-post at 10 seeds.
-4. Rung 4 (symbolic) before rung 5 (neural, same data).
-5. Term size: train ≤ 5 leaves, test ≤ 7; exact-posterior arms kept.
+1. Axiom set {A, C, I, D}, eight directed rules with I invertible; inverse / cancellation deferred.
+2. Worlds stated as the core; inference from example proofs as one arm — with the review's qualification that the core is the binding stratum, where the stated world changes the proof.
+3. Labelled core: RT-canon and RT-post at 10 seeds.
+4. Rung 4 before rung 5.
+5. Train ≤ 5 leaves, test ≤ 7; exact-posterior arms at size ≤ 5 only.
 
 ## 13. Prior work
 
-PFNs and in-context learning of algorithms; equational reasoning and rewriting-based theorem proving; neural tactic prediction and search in Lean (LeanDojo / ReProver; HTPS; AlphaProof; the DeepSeek-Prover line); compositional generalization benchmarks; model-based search in latent spaces (MuZero's value-equivalent models) for the rung-5 rollouts; DreamCoder's recognition model; the routed, layer-shared, halting transformer family ([literature.md](../../docs/literature.md)). New here, to our reading: per-decision difficulty (B\*, D\*) as the stratification of a proof task, worlds as stated axiom sets with recombination held out, and a toy in which the three forms of internal search can be compared against an exact executor.
+PFNs and in-context learning of algorithms; equational and rewriting-based theorem proving, including learned term-rewriting heuristics and e-graph guidance, where the gap between syntactic distance and rewrite distance is the known reason greedy heuristics fail (M7); neural tactic prediction and search in Lean (LeanDojo / ReProver, HTPS, AlphaProof, the DeepSeek-Prover line); compositional generalization benchmarks; model-based search in latent spaces (value-equivalent models) for rung 5; DreamCoder's recognition model; the routed, layer-shared, halting transformer family ([literature.md](../../docs/literature.md)). New here, to our reading: the binding stratum as the operational definition of "the world changes the proof," per-decision difficulty (GP1, D\*) as the stratification of a proof task with a symbolic lookahead ladder as the reference, and a toy in which the three forms of internal search can be compared against an exact executor.
+
+## 14. Review 1 handling
+
+| item | handling |
+|---|---|
+| B1 generator cannot populate the length axis; random walks select easy instances | Layer sampling with k restricted to non-empty layers and stated weights; binding ≥ 30 % / GP1 ≥ 30 % of the training stream, binding ≥ 50 % of held-out evaluation sets; realized table preregistered; Q4 restated as length 7–8 in {A, C}, reported. |
+| B2 the world almost never binds; Q1 a mask; P8 undefined | The binding stratum is Q1's core; the cue-blind ceiling derived per world and P8 read against it; P2 stratified by binding and cross-axiom garden paths; §12.2 kept with the qualification. |
+| B3 P2's bar met by greedy-σ + mask | The symbolic ladder as reference policies on every stratum; P2 preregistered above the greedy rung on the binding stratum with RT-all's ceiling alongside. |
+| B4 P3 foregone by the categorical head and absolute positions | Pointer head with tree-structural positions as the designed router; the categorical / absolute design as the identical-architecture control; the table router replaced by absolute-table and structural-rule references; P3 rewritten as the contrast. |
+| B5 (B\*, D\*) tie-dominated, proxy-relative; lookahead ill-defined past the remaining distance | GP1, D\*_sep, D\*_any with the candidate set stated and lookahead ordered by (σ, steps); first decision as the primary stratum; TED labelled proxy-relative with SED as sensitivity; P4 operational against the ladder per k and GP1. |
+| B6 no reachability ceiling; the planted router is the oracle | RT-all (3 seeds) as the in-distribution ceiling; the oracle is the evaluation reference; planted neural pieces limited to the circuits that have hand-writable weights. |
+| S1 posterior arms and cost | Dataset and all targets precomputed; PF at size ≤ 5 only; EX not an arm. |
+| S2 RT-post under-specified | Posterior as state sequences, visitation and weights stated; pooled fixed point derived; P6 a check. |
+| S3 strategies = orderings | Trace-class equivalence; the lexicographic canonical rule named as such. |
+| S4 RT-examples ceiling | Derived per world; read on the binding stratum. |
+| S5 protocol | Curves every 250 steps, run classification from curves, stratum counts, masked / unmasked readings, failure categories, primary per-decision stratum fixed. |
+| S6 split | Held-out pairs {A, I}, {C, I}; triples and full set carry P2's second row. |
+| S7 rung 5 | Strata as instance properties; expansions as the unit; terminal evaluation per form; CoT training signal and selection rule stated; cliffs against the ladder; undefined cells blank. |
+| S8 regrets | Each named quantity now has a derived floor or ceiling and a stratum count; single-world arms dropped. |
+| S9 I← asymmetry | I←L added; I invertible. |
+| M1–M7 | Presence tokens; realized distribution and resampling rule; no-op semantics against Lean stated; dataset plan; EI16 at 5 seeds with intervals; per-world diversity recorded; rewriting-heuristics literature line. |
