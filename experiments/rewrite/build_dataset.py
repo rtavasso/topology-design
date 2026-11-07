@@ -139,9 +139,11 @@ def _add_pf(args):
 
 
 def write_jsonl(path, records):
-    with gzip.open(path, "wt") as f:
+    """Atomic: the --add-pf pass rewrites a training file in place, and a kill mid-write must not corrupt it."""
+    with gzip.open(path + ".tmp", "wt") as f:
         for r in records:
             f.write(json.dumps(r) + "\n")
+    os.replace(path + ".tmp", path)
 
 
 def main():
