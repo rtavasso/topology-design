@@ -51,8 +51,17 @@ HELD_OUT = [w for w in ALL_WORLDS if w not in TRAIN_WORLDS]
 
 
 def read(path):
+    """PF targets are cut down to their p_success at load: this step reads only their count and that scalar, and the full
+    targets (≈ 4 GB over the training worlds) copied into the forked workers exhausted an 8 GB machine (a worker was
+    OOM-killed and Pool.map then waited forever)."""
+    out = []
     with gzip.open(path, "rt") as f:
-        return [json.loads(l) for l in f]
+        for l in f:
+            r = json.loads(l)
+            if "pf" in r:
+                r["pf"] = {"p_success": r["pf"]["p_success"]}
+            out.append(r)
+    return out
 
 
 def load(data, tag, worlds):
