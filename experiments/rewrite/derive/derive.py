@@ -302,10 +302,71 @@ def main():
                 d = {dd: sum(r["ladder"][str(dd)] for r in cell) / len(cell) for dd in (1, 2, 3)}
                 sep[f"{w}|{k}"] = {"n": len(cell), "d1": d[1], "d2": d[2], "d3": d[3], "separated": bool(d[2] - d[1] >= 0.1 and d[3] - d[2] >= 0.1)}
         D["p4_cells"] = sep
-        md.append("\n### P4 cells (eval5, training worlds, GP1, k ≥ 4; lexicographic rungs; separated = d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1)\n\n" +
+        md.append("\n### P4 cells as preregistered in §6 (eval5, training worlds, GP1, k ≥ 4, by (world, k); lexicographic rungs; separated = d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1)\n\n" +
                   md_table([[key, c["n"], f"{c['d1']:.2f}", f"{c['d2']:.2f}", f"{c['d3']:.2f}", "yes" if c["separated"] else "no"] for key, c in sep.items()],
                            ["world|k", "n", "d=1", "d=2", "d=3", "separated"]) +
-                  f"\n\nSeparated cells: {sum(c['separated'] for c in sep.values())} of {len(sep)}; P4 is read on them (DESIGN §6).")
+                  f"\n\nSeparated cells: {sum(c['separated'] for c in sep.values())} of {len(sep)}.")
+        # P4's amended cells (DESIGN §16, set from this table before any run): the same rule on every (world, binding, GP1, k)
+        # cell of the training worlds at k >= 4 with n >= 10 — on GP1 cells the d = 1 and d = 2 rungs both sit near zero, so
+        # the lower separation never holds there and the cells where it does are the binding non-GP1 ones
+        sep2 = {}
+        for w in TRAIN_WORLDS:
+            rs = ev["eval5"].get(w, [])
+            for k in (4, 5, 6):
+                for b in (0, 1):
+                    for g in (0, 1):
+                        cell = [r for r in rs if int(bool(r["binding"])) == b and int(bool(r["first"]["GP1"])) == g and r["k"] == k]
+                        if len(cell) < 10:
+                            continue
+                        d = {dd: sum(r["ladder"][str(dd)] for r in cell) / len(cell) for dd in (1, 2, 3)}
+                        sep2[f"{w}|{b}|{g}|{k}"] = {"n": len(cell), "d1": d[1], "d2": d[2], "d3": d[3], "separated": bool(d[2] - d[1] >= 0.1 and d[3] - d[2] >= 0.1)}
+        D["p4_cells_amended"] = sep2
+        chosen = [key for key, c in sep2.items() if c["separated"]]
+        pooled = [r for key in chosen for r in ev["eval5"][key.split("|")[0]]
+                  if f"{key.split('|')[0]}|{int(bool(r['binding']))}|{int(bool(r['first']['GP1']))}|{r['k']}" == key]
+        D["p4_amended_pooled"] = {"cells": chosen, "n": len(pooled),
+                                  **{f"d{dd}": (sum(r["ladder"][str(dd)] for r in pooled) / len(pooled) if pooled else None) for dd in (1, 2, 3)}}
+        # the same cells under the random tie-break (review of §16: the lower separation is tie-break-dependent)
+        fr = lambda x: "—" if x is None else f"{x:.2f}"
+        for key, c in sep2.items():
+            lc = lad["eval5"][key.split("|")[0]].get(key, {})
+            c.update({f"d{dd}r": lc.get(f"d{dd}r") for dd in (1, 2, 3)})
+            c["separated_random"] = bool(c["d1r"] is not None and c["d2r"] - c["d1r"] >= 0.1 and c["d3r"] - c["d2r"] >= 0.1)
+        nsum = sum(sep2[key]["n"] for key in chosen) or 1
+        D["p4_amended_pooled"].update({f"d{dd}r": (sum((sep2[key][f"d{dd}r"] or 0.0) * sep2[key]["n"] for key in chosen) / nsum if chosen else None) for dd in (1, 2, 3)})
+        D["p4_amended_pooled"]["cells_lower_separation_fails_random"] = [key for key in chosen if not sep2[key]["separated_random"]]
+        md.append("\n### P4 cells as amended in §16 (eval5, training worlds, every (world, binding, GP1, k) cell at k ≥ 4 with n ≥ 10; same rungs and separation rule; [random tie-break] beside)\n\n" +
+                  md_table([[key, c["n"], f"{c['d1']:.2f} [{fr(c['d1r'])}]", f"{c['d2']:.2f} [{fr(c['d2r'])}]", f"{c['d3']:.2f} [{fr(c['d3r'])}]", "yes" if c["separated"] else "no", "yes" if c["separated_random"] else "no"] for key, c in sep2.items()],
+                           ["world|binding|GP1|k", "n", "d=1", "d=2", "d=3", "separated", "separated [random]"]) +
+                  f"\n\nSeparated cells: {len(chosen)} of {len(sep2)} ({', '.join(chosen)}); pooled n = {len(pooled)}, rungs "
+                  + (", ".join(f"d={dd} {D['p4_amended_pooled'][f'd{dd}']:.2f} [{fr(D['p4_amended_pooled'][f'd{dd}r'])}]" for dd in (1, 2, 3)) if pooled else "—")
+                  + f"; under the random tie-break the lower separation fails on {len(D['p4_amended_pooled']['cells_lower_separation_fails_random'])} of these cells. P4 is read on them.")
+        # unscored sensitivity sets (review of §16): upper separation only; garden path anywhere on the canonical proof
+        def pooled_rungs(cells_):
+            rs_ = [r for key in cells_ for r in ev["eval5"][key.split("|")[0]]
+                   if f"{key.split('|')[0]}|{int(bool(r['binding']))}|{int(bool(r['first']['GP1']))}|{r['k']}" == key]
+            return {"cells": cells_, "n": len(rs_), **{f"d{dd}": (sum(r["ladder"][str(dd)] for r in rs_) / len(rs_) if rs_ else None) for dd in (1, 2, 3)}}
+        upper = [key for key, c in sep2.items() if c["d3"] - c["d2"] >= 0.1]
+        D["p4_upper_only"] = pooled_rungs(upper)
+        gpa = {}
+        for w in TRAIN_WORLDS:
+            rs = ev["eval5"].get(w, [])
+            for k in (4, 5, 6):
+                for b in (0, 1):
+                    cell = [r for r in rs if int(bool(r["binding"])) == b and r.get("secondary", {}).get("canon_GP1_any") and r["k"] == k]
+                    if len(cell) < 10:
+                        continue
+                    d = {dd: sum(r["ladder"][str(dd)] for r in cell) / len(cell) for dd in (1, 2, 3)}
+                    gpa[f"{w}|{b}|gp-any|{k}"] = {"n": len(cell), "d1": d[1], "d2": d[2], "d3": d[3], "separated": bool(d[2] - d[1] >= 0.1 and d[3] - d[2] >= 0.1)}
+        gpa_chosen = [key for key, c in gpa.items() if c["separated"]]
+        gpa_rs = [r for key in gpa_chosen for r in ev["eval5"][key.split("|")[0]]
+                  if int(bool(r["binding"])) == int(key.split("|")[1]) and r.get("secondary", {}).get("canon_GP1_any") and r["k"] == int(key.split("|")[3])]
+        D["p4_gp_anywhere"] = {"cells": gpa_chosen, "n_cells_total": len(gpa), "n": len(gpa_rs),
+                               **{f"d{dd}": (sum(r["ladder"][str(dd)] for r in gpa_rs) / len(gpa_rs) if gpa_rs else None) for dd in (1, 2, 3)}}
+        md.append("\n### P4 sensitivity sets (unscored; §16): upper separation only (d3 − d2 ≥ 0.1): "
+                  + f"{len(upper)} of {len(sep2)} cells, n = {D['p4_upper_only']['n']}, rungs " + (", ".join(f"{D['p4_upper_only'][f'd{dd}']:.2f}" for dd in (1, 2, 3)) if upper else "—")
+                  + f". Garden path anywhere on the canonical proof, cells (world, binding, k) with n ≥ 10 under the same rule: {len(gpa_chosen)} of {len(gpa)} cells ({', '.join(gpa_chosen)}), n = {D['p4_gp_anywhere']['n']}, rungs "
+                  + (", ".join(f"{D['p4_gp_anywhere'][f'd{dd}']:.2f}" for dd in (1, 2, 3)) if gpa_rs else "—") + ".")
         # oracle check on a sample
         sample = [r for rs in ev["eval5"].values() for r in [x for x in rs if x["k"] <= 5][:10]]      # the deep lookahead is costly
         oc = pool.map(_oracle_check, sample, chunksize=8)

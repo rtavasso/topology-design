@@ -17,6 +17,7 @@ import gzip
 import json
 import os
 import statistics
+import sys
 
 TRAIN_WORLDS = ["A", "C", "I", "D", "AC", "AD", "CD", "ID"]
 PAIRS_HELD = ["AI", "CI"]
@@ -237,55 +238,80 @@ def report(runs, derived=None):
     md.append(table(rows, ["arm", "worlds", "size ≤ 5, k ≤ 4", "sizes 6–7", "matched ratio", "eval7 n matched", "ratio ≥ 0.9", "RT-absolute split"]))
     md.append("P3 passes when the structural RT-canon's matched ratio on the training worlds is ≥ 0.9 in ≥ 7/10 seeds, and RT-absolute's failures are the unaddressable instances (success on addressable ≈ its size-5 success, ≈ 0 on unaddressable).")
 
-    # P4 — on cells where the rungs are separated (review 2, B5/S7): cells (world, k, GP1) of the training worlds with
-    # d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1 on the eval instances themselves; strict inequalities; unmasked alongside
-    md.append("\n## P4 (Q3): training worlds, GP1 instances at k ≥ 4 (eval5), on cells whose rungs are separated (d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1); masked is the pass reading")
+    # P4 — on cells where the rungs are separated (review 2, B5/S7): d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1 on the eval instances
+    # themselves; strict inequalities; unmasked alongside. The pass reading is on the cells amended in DESIGN §16 from the
+    # derive step, before any run: every (world, binding, GP1, k) cell of the training worlds at k ≥ 4 with n ≥ 10. The §6
+    # preregistered set (GP1 instances by (world, k)) is printed beside it; on it the d = 1 and d = 2 rungs tie near zero.
+    md.append("\n## P4 (Q3): training worlds at k ≥ 4 (eval5), on cells whose rungs are separated (d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1); pass reading on the §16 cells (all strata, (world, binding, GP1, k), n ≥ 10), masked; the §6 cells (GP1 by (world, k)) beside it")
 
-    def separated_cells(r):
+    def separated_cells(r, prereg=False, upper_only=False, with_keys=False):
         cells = {}
-        for pi in instances(r, "eval5", world=TRAIN_WORLDS, GP1=True, k=[4, 5, 6]):
-            cells.setdefault((pi["world"], pi["k"]), []).append(pi)
-        out = []
+        pool = instances(r, "eval5", world=TRAIN_WORLDS, GP1=True, k=[4, 5, 6]) if prereg else instances(r, "eval5", world=TRAIN_WORLDS, k=[4, 5, 6])
+        for pi in pool:
+            key = (pi["world"], pi["k"]) if prereg else (pi["world"], int(bool(pi["binding"])), int(bool(pi["GP1"])), pi["k"])
+            cells.setdefault(key, []).append(pi)
+        out, keys = [], []
         for key, rows_ in cells.items():
+            if len(rows_) < 10:
+                continue
             d1, d2, d3 = ladder_rate(rows_, 1), ladder_rate(rows_, 2), ladder_rate(rows_, 3)
-            if d2 - d1 >= 0.1 and d3 - d2 >= 0.1:
+            if (d3 - d2 >= 0.1) if upper_only else (d2 - d1 >= 0.1 and d3 - d2 >= 0.1):
                 out.extend(rows_)
-        return out
+                keys.append("|".join(str(x) for x in key))
+        return (out, sorted(keys)) if with_keys else out
+
+    # the cell set must be the one the derive step fixed before the runs (DESIGN §16); a drift of the data would move it silently
+    expected = sorted((derived or {}).get("p4_amended_pooled", {}).get("cells", []))
+    if expected and "RT-canon" in arms:
+        got = sorted(separated_cells(by_seed(runs, "RT-canon")[0], with_keys=True)[1])
+        if got != expected:
+            md.append(f"\n**P4 CELL SET MISMATCH** — derive step fixed {expected}; the run records give {got}. The dataset or the records drifted; P4 is not read until this is explained.\n")
+            print("P4 CELL SET MISMATCH", expected, got, file=sys.stderr)
+        else:
+            md.append(f"\nThe §16 cells recomputed from the run records equal the derive step's ({len(expected)} cells).")
+    # the rungs under the random tie-break on the same cells, from the derive step (the lower separation is tie-break-dependent, §16)
+    pr = (derived or {}).get("p4_amended_pooled", {})
+    if pr.get("d1r") is not None:
+        md.append(f"\nRandom-tie-break rungs on the §16 cells (derive step): d=1 {pr['d1r']:.2f}, d=2 {pr['d2r']:.2f}, d=3 {pr['d3r']:.2f}; the lower separation fails under it on {len(pr.get('cells_lower_separation_fails_random', []))} of {len(pr.get('cells', []))} cells.")
 
     rows = []
     for a in arms:
-        per = []
-        for r in by_seed(runs, a):
-            sel = separated_cells(r)
-            per.append((rate(sel), ladder_rate(sel, 1), ladder_rate(sel, 2), ladder_rate(sel, 3), len(sel), rate(sel, "ok_u")))
-        between = sum(1 for s_, d1, d2, d3, n, _ in per if s_ is not None and d2 < s_ < d3)
-        ge3 = sum(1 for s_, d1, d2, d3, n, _ in per if s_ is not None and s_ >= d3)
-        le1 = sum(1 for s_, d1, d2, d3, n, _ in per if s_ is not None and s_ <= d1)
-        n_cells = per[0][4] if per else 0
-        rows.append([a, n_cells, summarize_seeds([p[0] for p in per]), summarize_seeds([p[5] for p in per]), fmt(per[0][1] if per else None), fmt(per[0][2] if per else None), fmt(per[0][3] if per else None),
-                     f"{between}/{len(per)}" if n_cells else "rungs not separated", f"{ge3}/{len(per)}", f"{le1}/{len(per)}"])
-    md.append(table(rows, ["arm", "n/seed (separated cells)", "masked", "unmasked", "d=1", "d=2", "d=3", "strictly between d=2 and d=3", "≥ d=3", "≤ d=1"]))
-    md.append("P4 passes when RT-canon lies strictly between the d = 2 and d = 3 rungs in ≥ 7/10 seeds on the separated cells; ≥ d = 3 in ≥ 7/10 falsifies toward 'three steps absorbed', ≤ d = 1 toward 'none'.")
+        for label, kw in (("§16 cells", {}), ("§6 cells (GP1)", {"prereg": True}), ("upper separation only (sensitivity)", {"upper_only": True})):
+            per = []
+            for r in by_seed(runs, a):
+                sel = separated_cells(r, **kw)
+                per.append((rate(sel), ladder_rate(sel, 1), ladder_rate(sel, 2), ladder_rate(sel, 3), len(sel), rate(sel, "ok_u"), bootstrap_ci(sel) if sel else (None, None)))
+            between = sum(1 for s_, d1, d2, d3, n, _, _ in per if s_ is not None and d2 < s_ < d3)
+            ge3 = sum(1 for s_, d1, d2, d3, n, _, _ in per if s_ is not None and s_ >= d3)
+            le1 = sum(1 for s_, d1, d2, d3, n, _, _ in per if s_ is not None and s_ <= d1)
+            n_cells = per[0][4] if per else 0
+            los = [p[6][0] for p in per if p[6][0] is not None]; his = [p[6][1] for p in per if p[6][1] is not None]
+            ci = f"[{min(los):.2f}, {max(his):.2f}]" if los else "—"
+            rows.append([a, label, n_cells, summarize_seeds([p[0] for p in per]), ci, summarize_seeds([p[5] for p in per]), fmt(per[0][1] if per else None), fmt(per[0][2] if per else None), fmt(per[0][3] if per else None),
+                         f"{between}/{len(per)}" if n_cells else "rungs not separated", f"{ge3}/{len(per)}", f"{le1}/{len(per)}"])
+    md.append(table(rows, ["arm", "cells", "n/seed (separated cells)", "masked", "instance bootstrap 95 % (seeds' envelope)", "unmasked", "d=1", "d=2", "d=3", "strictly between d=2 and d=3", "≥ d=3", "≤ d=1"]))
+    md.append("P4 passes when RT-canon lies strictly between the d = 2 and d = 3 rungs in ≥ 7/10 seeds on the §16 cells; ≥ d = 3 in ≥ 7/10 falsifies toward 'three steps absorbed', ≤ d = 1 in ≥ 7/10 toward 'none'; if no count reaches 7/10 (the router within ≈ 0.03 of a rung), P4 is **undecided** and reported so. The seed count covers training variance only (the instances are fixed); the instance bootstrap column is the envelope over seeds of each seed's 95 % interval. The §6 row is the preregistered GP1-only reading and the upper-only row a sensitivity set; both reported, not scored.")
     # Q3's quantity per cell: the largest d whose rung RT-canon matches (0 = below greedy), with the rungs
     if "RT-canon" in arms:
         rows = []
         for k in (2, 3, 4, 5, 6):
-            for g in (0, 1):
-                per = [instances(r, "eval5", world=TRAIN_WORLDS, GP1=bool(g), k=k) for r in by_seed(runs, "RT-canon")]
-                if not per or not per[0]:
-                    continue
-                d1, d2, d3 = ladder_rate(per[0], 1), ladder_rate(per[0], 2), ladder_rate(per[0], 3)
-                reach = []
-                for p_ in per:
-                    s_ = rate(p_)
-                    # the largest d whose rung is matched, counting a rung only where it rises above the one below (ties at
-                    # zero would otherwise be "matched" by a router that solves nothing; review 2, B5)
-                    rungs = [0.0, d1, d2, d3]
-                    reach.append(max([d for d in (1, 2, 3) if s_ >= rungs[d] and rungs[d] > rungs[d - 1]], default=0))
-                rows.append([k, g, len(per[0]), summarize_seeds([rate(p_) for p_ in per]), summarize_seeds([rate(p_, "ok_u") for p_ in per]), fmt(d1), fmt(d2), fmt(d3),
-                             f"median {statistics.median(reach)} (min {min(reach)}, max {max(reach)})", "yes" if (d2 - d1 >= 0.1 and d3 - d2 >= 0.1) else "no"])
-        md.append("\nRT-canon by k × GP1 (training worlds, eval5): reach = the largest d whose rung RT-canon matches\n\n" +
-                  table(rows, ["k", "GP1", "n/seed", "masked", "unmasked", "d=1", "d=2", "d=3", "reach over seeds", "separated"]))
+            for b in (0, 1):
+                for g in (0, 1):
+                    per = [instances(r, "eval5", world=TRAIN_WORLDS, binding=lambda pi, b=b: int(bool(pi["binding"])) == b, GP1=bool(g), k=k) for r in by_seed(runs, "RT-canon")]
+                    if not per or not per[0]:
+                        continue
+                    d1, d2, d3 = ladder_rate(per[0], 1), ladder_rate(per[0], 2), ladder_rate(per[0], 3)
+                    reach = []
+                    for p_ in per:
+                        s_ = rate(p_)
+                        # the largest d whose rung is matched, counting a rung only where it rises above the one below (ties at
+                        # zero would otherwise be "matched" by a router that solves nothing; review 2, B5)
+                        rungs = [0.0, d1, d2, d3]
+                        reach.append(max([d for d in (1, 2, 3) if s_ >= rungs[d] and rungs[d] > rungs[d - 1]], default=0))
+                    rows.append([k, b, g, len(per[0]), summarize_seeds([rate(p_) for p_ in per]), summarize_seeds([rate(p_, "ok_u") for p_ in per]), fmt(d1), fmt(d2), fmt(d3),
+                                 f"median {statistics.median(reach)} (min {min(reach)}, max {max(reach)})", "yes" if (d2 - d1 >= 0.1 and d3 - d2 >= 0.1) else "no"])
+        md.append("\nRT-canon by k × binding × GP1 (training worlds pooled, eval5): reach = the largest d whose rung RT-canon matches\n\n" +
+                  table(rows, ["k", "binding", "GP1", "n/seed", "masked", "unmasked", "d=1", "d=2", "d=3", "reach over seeds", "separated"]))
 
     # P5
     if "EI16" in arms and "RT-canon" in arms:

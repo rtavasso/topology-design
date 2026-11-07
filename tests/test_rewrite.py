@@ -633,9 +633,11 @@ def test_analysis_planted_outcomes():
     r0 = [x for x in r0 if A.arm_of(x) == "RT-canon"][0]
     md0 = A.report([r0], None)
     p4 = md0[md0.index("## P4"):md0.index("## P5") if "## P5" in md0 else md0.index("## P6")]
-    row = [l for l in p4.splitlines() if l.startswith("| RT-canon |")][0]
-    cells = [c.strip() for c in row.strip("|").split("|")]
-    assert cells[7] in ("0/1", "rungs not separated")
+    p4_rows = [l for l in p4.splitlines() if l.startswith("| RT-canon |")]
+    assert len(p4_rows) == 3                                   # the §16 cells, the §6 (GP1-only) cells, the upper-only sensitivity set
+    for row in p4_rows:
+        cells = [c.strip() for c in row.strip("|").split("|")]
+        assert cells[9] in ("0/1", "rungs not separated")
     # classification from curves cut from the real curve: a collapse and a learned run
     assert A.classify([0.0, 0.3, 0.8, 0.9, 0.9, 0.6]) == "learned-then-collapsed"
     assert A.classify([0.0, 0.3, 0.8, 0.9, 0.92, 0.91]) == "learned"
@@ -658,3 +660,38 @@ def test_matched_p3_ratio_and_separated_cells_on_planted_fixture():
     cells = [c.strip() for c in row.strip("|").split("|")]
     med = float(cells[4].split()[0])                      # columns: arm, worlds, size<=5, sizes 6-7, matched ratio, ...
     assert 0.35 <= med <= 0.65, cells
+
+
+def test_p4_amended_cells_on_planted_fixture():
+    """P4's pass reading (DESIGN §16): a (world, binding, GP1, k) cell of n ≥ 10 whose rungs separate; a router strictly
+    between the d = 2 and d = 3 rungs passes, one at the d = 3 rung does not; the §6 (GP1-only) row stays unreadable
+    when the separated cell is a non-GP1 one. Built from real records of the fixture with planted ladder outcomes."""
+    import copy
+    A = _analyze()
+    r = [x for x in A.load_results(FIX) if A.arm_of(x) == "RT-canon"][0]
+    base = [pi for pi in r["final"]["eval5"]["per_instance"] if pi["world"] == "ID" and pi["k"] == 4 and pi["binding"] and not pi["GP1"]]
+    assert base, "the fixture has an ID binding non-GP1 k=4 instance"
+    cell = []
+    for i in range(10):                                       # rungs 0.2 / 0.5 / 0.9 on ten copies: separated
+        pi = copy.deepcopy(base[0])
+        pi["ladder"] = {"1": i < 2, "2": i < 5, "3": i < 9}
+        pi["ok_m"] = i < 7                                    # 0.7: strictly between d = 2 and d = 3
+        cell.append(pi)
+    others = [pi for pi in r["final"]["eval5"]["per_instance"] if not (pi["world"] == "ID" and pi["k"] == 4)]
+    r["final"]["eval5"]["per_instance"] = others + cell
+    md = A.report([r], None)
+    p4 = md[md.index("## P4"):md.index("## P5") if "## P5" in md else md.index("## P6")]
+    rows = {l.split("|")[2].strip(): [c.strip() for c in l.strip("|").split("|")] for l in p4.splitlines() if l.startswith("| RT-canon |")}
+    assert rows["§16 cells"][2] == "10" and rows["§16 cells"][9] == "1/1", rows["§16 cells"]
+    assert rows["§6 cells (GP1)"][9] == "rungs not separated"
+    for pi in cell:                                           # at the d = 3 rung: not strictly between
+        pi["ok_m"] = True
+    md = A.report([r], None)
+    p4 = md[md.index("## P4"):md.index("## P5") if "## P5" in md else md.index("## P6")]
+    row = [c.strip() for c in [l for l in p4.splitlines() if l.startswith("| RT-canon | §16")][0].strip("|").split("|")]
+    assert row[9] == "0/1" and row[10] == "1/1", row
+    # the derive step's cell set is checked against the records: a matching set is acknowledged, a different one flagged
+    md = A.report([r], {"p4_amended_pooled": {"cells": ["ID|1|0|4"], "d1r": 0.2, "d2r": 0.5, "d3r": 0.9, "cells_lower_separation_fails_random": []}})
+    assert "recomputed from the run records equal the derive step's (1 cells)" in md and "Random-tie-break rungs" in md
+    md = A.report([r], {"p4_amended_pooled": {"cells": ["AC|1|0|4"]}})
+    assert "P4 CELL SET MISMATCH" in md
