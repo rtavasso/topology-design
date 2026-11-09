@@ -226,17 +226,32 @@ def goal_distances(s, U, cap, actions=None) -> dict:
     return dist
 
 
-def trainworld_policy(u, s, W, cap, dist: dict):
+def trainworld_policy(u, s, W, cap, dist: dict, fallback: str = "nearest", sigma=None):
     """One decision of the training-world reference: among the actions valid in W (the mask), take one that lies on a
     shortest proof to s inside some *training* world — the smallest such world first, then the shorter proof, then the
-    world's name; if no valid action does, the one whose successor is nearest to s in any training world's metric; if no
-    successor can reach s inside a training world, the first by (rule, path). `dist` = {training world name: distances to
-    s inside it}. It never plans with a set of axioms it was not 'trained' on and never reads which world it is in — it
-    is what a router scores that acts at every state as some training world would and lets the executor's mask choose."""
+    world's name. `dist` = {training world name: distances to s inside it}. It never plans with a set of axioms it was
+    not 'trained' on and never reads which world it is in — it is what a router scores that acts at every state as some
+    training world would and lets the executor's mask choose.
+
+    When no valid action lies on a training world's shortest proof, `fallback` decides:
+      "nearest" (the floor of P2's falsifier, DESIGN §17): the action whose successor is nearest to s in any training
+                world's metric; if no successor can reach s inside a training world, the first by (rule, path);
+      "greedy"  (the *glued* reference): the greedy-σ rung's move — single-world plans glued by syntactic moves. Review 5
+                found this variant above P2's pass bar on the pairs' stratum, which bounds what a masked pass can claim."""
     from .rules import RULE_AX
     cand = valid_actions(u, W, cap)
     if not cand:
         return None
+    if fallback == "greedy":
+        on_plan = []
+        for a in cand:
+            rule, path, v = a
+            ks = [(len(name), d[u], name) for name, d in dist.items() if RULE_AX[rule] in name and u in d and d.get(v) == d[u] - 1]
+            if ks:
+                on_plan.append((min(ks), RULE_INDEX[rule], path, a))
+        if on_plan:
+            return min(on_plan)[3]
+        return ladder_policy(u, s, W, cap, 1, sigma or ted, "lex")
 
     def key(a):
         rule, path, v = a
@@ -261,12 +276,12 @@ def trainworld_policy(u, s, W, cap, dist: dict):
     return min(cand, key=key)
 
 
-def trainworld_rollout(t, s, W, cap, T, dist: dict) -> bool:
+def trainworld_rollout(t, s, W, cap, T, dist: dict, fallback: str = "nearest") -> bool:
     u = t
     for _ in range(T):
         if u == s:
             return True
-        a = trainworld_policy(u, s, W, cap, dist)
+        a = trainworld_policy(u, s, W, cap, dist, fallback)
         if a is None:
             return False
         u = a[2]

@@ -606,9 +606,10 @@ def test_analysis_on_real_fixtures_is_consistent():
     md = A.report(runs, derived)
     for sec in ("## P2", "## P3", "## P4", "## P5", "## P6", "## P7", "## P8", "Failure categories", "## P1"):
         assert sec in md, sec
-    # every P3 row of RT-absolute carries the addressability split from the derived fixture
+    # RT-absolute's training-world row carries the split by the categorical head's labelled slots (derive §9c; the fixture's
+    # derived.json holds those flags for the fixture runs' own instances)
     p3 = md[md.index("## P3"):md.index("## P4")]
-    assert "addressable" in [l for l in p3.splitlines() if l.startswith("| RT-absolute | train")][0]
+    assert "a shortest proof on labelled slots" in [l for l in p3.splitlines() if l.startswith("| RT-absolute | train")][0]
     # ladder rates on a selection are read from the instances themselves
     sel = A.instances(runs[0], "eval5", world=["AC"], binding=True)
     assert sel and 0 <= A.ladder_rate(sel, 1) <= 1
@@ -769,9 +770,10 @@ def _vinst(world, i, n_ok_m, n_ok_u=None, k=4, binding=True, lad=(0, 0, 0), **kw
             "ladder": {"1": i < lad[0], "2": i < lad[1], "3": i < lad[2]}, **kw}
 
 
-def _p2_fixture(canon_pair_m, canon_pair_u, canon_tri_m, all_pair_m, greedy=40, trainw=53):
+def _p2_fixture(canon_pair_m, canon_pair_u, canon_tri_m, all_pair_m, greedy=40, trainw=53, canon_seeds=None, all_seeds=None, all_pair_u=None, all_tri_m=95):
     """100 pair instances (AI, CI) and 100 triple instances (ACD) that need the unseen combination, plus 60 binding pair
-    instances that do not (always solved — they must not count)."""
+    instances that do not (always solved — they must not count). canon_seeds / all_seeds override single seeds:
+    {seed: (pair_m, pair_u, tri_m)}."""
     flags = {"AI": {}, "CI": {}, "ACD": {}}
 
     def rows(n_pair_m, n_pair_u, n_tri_m):
@@ -779,121 +781,197 @@ def _p2_fixture(canon_pair_m, canon_pair_u, canon_tri_m, all_pair_m, greedy=40, 
         for i in range(100):
             w = "AI" if i % 2 else "CI"
             pi = _vinst(w, i, n_pair_m, n_pair_u, lad=(greedy, 44, 73))
-            flags[w][f"{pi['t']}|{pi['s']}"] = {"comb": True, "trainw": i < trainw}
+            flags[w][f"{pi['t']}|{pi['s']}"] = {"comb": True, "trainw": i < trainw, "glue": i < 75}
             out.append(pi)
         for i in range(100):
             pi = _vinst("ACD", i, n_tri_m, lad=(15, 25, 50))
-            flags["ACD"][f"{pi['t']}|{pi['s']}"] = {"comb": True, "trainw": i < 21}
+            flags["ACD"][f"{pi['t']}|{pi['s']}"] = {"comb": True, "trainw": i < 21, "glue": i < 50}
             out.append(pi)
         for i in range(60):
             pi = _vinst("AI", 1000 + i, 2000, lad=(0, 0, 0))
-            flags["AI"][f"{pi['t']}|{pi['s']}"] = {"comb": False, "trainw": True}
+            flags["AI"][f"{pi['t']}|{pi['s']}"] = {"comb": False, "trainw": True, "glue": True}
             out.append(pi)
         return out
 
-    runs = [_vrun("RT-canon", s, rows(canon_pair_m, canon_pair_u, canon_tri_m)) for s in range(10)]
-    runs += [_vrun("RT-all", s, rows(all_pair_m, all_pair_m, 90)) for s in range(3)]
+    all_pair_u = all_pair_m if all_pair_u is None else all_pair_u
+    runs = [_vrun("RT-canon", s, rows(*(canon_seeds or {}).get(s, (canon_pair_m, canon_pair_u, canon_tri_m)))) for s in range(10)]
+    runs += [_vrun("RT-all", s, rows(*(all_seeds or {}).get(s, (all_pair_m, all_pair_u, all_tri_m)))) for s in range(3)]
     return runs, {"p2_comb": flags}
 
 
 def test_p2_verdict_on_planted_outcomes():
     """P2 (§17): scored on the binding instances that need the unseen combination; pass = ≥ greedy + 0.2 and ≥ 0.7 on the
     pairs and above the non-composing floor on the triples, each in ≥ 6/10 seeds; falsified = above the floor in ≤ 3/10
-    while RT-all's median meets the pair conditions; the unmasked reading names what a masked pass means."""
+    while RT-all's median meets the pair conditions; the unmasked reading names what a masked pass means. Every count,
+    threshold and reading is pinned at its boundary (review 5: 42 of 60 mutants of the first version survived)."""
     A = _analyze()
-    v = A.verdicts(*_p2_fixture(75, 75, 30, 90))["P2"]
+    P = lambda *a, **k: A.verdicts(*_p2_fixture(*a, **k))["P2"]
+    v = P(75, 75, 30, 95)
     assert v["pairs"]["n"] == 100 and abs(v["pairs"]["floor"] - 0.53) < 1e-9 and v["triples"]["floor"] == 0.21     # the 60 non-combination instances are out
-    assert v["verdict"] == "pass" and v["cue"] == "composes under the stated cue" and v["ok_m"]["pair_ok"] == 10
-    v = A.verdicts(*_p2_fixture(75, 40, 30, 90))["P2"]
+    assert v["pairs"]["glue"] == 0.75 and v["beyond_glue_n"] == {"pairs": 25, "triples": 50, "pairs_d3": 0.0, "triples_d3": 0.0}
+    assert v["verdict"] == "pass" and v["cue"] == "composes under the stated cue" and v["ok_m"]["pair_ok"] == 10 and v["ok_m"]["ceiling_06"]
+    v = P(75, 75, 30, 80)                                              # RT-all below §6's 0.9: still a pass under §17, and labelled
+    assert v["verdict"] == "pass" and "§6's further requirement" in v["cue"] and not v["ok_m"]["ceiling_06"]
+    assert not P(75, 75, 30, 95, all_tri_m=80)["ok_m"]["ceiling_06"]    # the §6 clause is on both strata
+    v = P(75, 40, 30, 95)
     assert v["verdict"] == "pass" and v["cue"].startswith("composes decisions when the executor supplies the action set")
-    v = A.verdicts(*_p2_fixture(50, 50, 30, 90))["P2"]                 # at the training-world floor, above greedy: no composition shown
+    assert P(40, 75, 30, 95)["verdict"] != "pass"                      # the verdict is the masked reading's, not the unmasked one's
+    # the bar: ≥ 0.7 and ≥ greedy + 0.2, jointly per seed
+    assert P(70, 70, 30, 95)["ok_m"]["pair_ok"] == 10 and P(69, 69, 30, 95)["ok_m"]["pair_ok"] == 0
+    assert P(80, 80, 30, 95, greedy=60, trainw=10)["ok_m"]["pair_ok"] == 10 and P(79, 79, 30, 95, greedy=60, trainw=10)["ok_m"]["pair_ok"] == 0
+    # the counts: 6/10 on the pairs, 6/10 on the triples
+    six = {s: (75, 75, 30) for s in range(6)}
+    assert P(60, 60, 30, 95, canon_seeds=six)["verdict"] == "pass"
+    assert P(60, 60, 30, 95, canon_seeds={s: (75, 75, 30) for s in range(5)})["verdict"] == "not met, not falsified"
+    assert P(75, 75, 21, 95, canon_seeds={s: (75, 75, 22) for s in range(6)})["verdict"] == "pass"            # triples: strictly above the floor (0.21) in 6
+    assert P(75, 75, 21, 95, canon_seeds={s: (75, 75, 22) for s in range(5)})["verdict"] == "not met, not falsified"
+    # the floor is the larger of greedy and the training-world reference, and the falsifier counts seeds strictly above it
+    assert abs(P(50, 50, 30, 95, greedy=60, trainw=10)["pairs"]["floor"] - 0.60) < 1e-9
+    v = P(53, 53, 30, 95)                                              # at the floor, above greedy: no composition shown
     assert v["verdict"] == "falsified" and v["ok_m"]["pair_above_floor"] == 0
-    v = A.verdicts(*_p2_fixture(50, 50, 30, 50))["P2"]                 # the same, but RT-all does not reach the bar either
-    assert v["verdict"] == "undecided" and "reachability" in v["why"]
-    v = A.verdicts(*_p2_fixture(62, 62, 30, 90))["P2"]                 # above the floor, below 0.7
-    assert v["verdict"] == "undecided" and v["ok_m"]["pair_above_floor"] == 10 and v["ok_m"]["pair_ok"] == 0
-    v = A.verdicts(*_p2_fixture(75, 75, 20, 90))["P2"]                 # the pairs pass, the triples sit below their floor (0.21)
-    assert v["verdict"] == "undecided" and v["ok_m"]["pair_ok"] == 10 and v["ok_m"]["triple_above_floor"] == 0
-    v = A.verdicts(*_p2_fixture(75, 75, 30, 90, greedy=60, trainw=10))["P2"]      # ≥ 0.7 but only 0.15 above greedy: both conditions are per seed
-    assert v["ok_m"]["pair_ok"] == 0 and v["verdict"] == "undecided"
-    assert A.verdicts(_p2_fixture(75, 75, 30, 90)[0], None)["P2"]["verdict"] == "not readable"
+    assert P(53, 53, 30, 95, canon_seeds={s: (54, 54, 30) for s in range(3)})["verdict"] == "falsified"       # 3/10 above the floor
+    v = P(53, 53, 30, 95, canon_seeds={s: (54, 54, 30) for s in range(4)})                                    # 4/10: no longer falsified
+    assert v["verdict"] == "not met, not falsified" and "more than 3/10" in v["why"]
+    # RT-all gates the falsifier through its seed-median on the masked reading, at the pair conditions
+    v = P(50, 50, 30, 50)
+    assert v["verdict"] == "not met, not falsified" and "reachability" in v["why"]
+    assert P(50, 50, 30, 50, all_seeds={0: (95, 95, 95)})["verdict"] == "not met, not falsified"              # one good seed is not the median
+    assert P(50, 50, 30, 50, all_seeds={0: (95, 95, 95), 1: (95, 95, 95)})["verdict"] == "falsified"
+    assert P(50, 50, 30, 50, all_pair_u=95)["verdict"] == "not met, not falsified"                            # unmasked success does not open the gate
+    assert P(50, 50, 30, 75, greedy=60, trainw=10)["verdict"] == "not met, not falsified"                     # ≥ 0.7 but not greedy + 0.2
+    v = P(62, 62, 30, 95)                                              # above the floor, below 0.7
+    assert v["verdict"] == "not met, not falsified" and v["ok_m"]["pair_above_floor"] == 10 and v["ok_m"]["pair_ok"] == 0
+    v = P(75, 75, 20, 95)                                              # the pairs pass, the triples sit below their floor
+    assert v["verdict"] == "not met, not falsified" and v["ok_m"]["pair_ok"] == 10 and v["ok_m"]["triple_above_floor"] == 0
+    assert A.verdicts(_p2_fixture(75, 75, 30, 95)[0], None)["P2"]["verdict"] == "not readable"
+    # beyond the glued reference: reported on the instances it does not solve (i ≥ 75 of the pairs: none solved at 75)
+    assert P(75, 75, 30, 95)["ok_m"]["beyond_glue_pairs"][0] == 0.0 and P(100, 100, 30, 95)["ok_m"]["beyond_glue_pairs"][0] == 1.0
 
 
-def _p3_fixture(canon7, abs_rest7_u):
-    """One cell (AC, k = 2, non-binding): size <= 5 success 50/100 for the router and the greedy rung; the rung scores
-    60/100 at sizes 6–7, so a size-blind policy of the router's strength has ratio 1.2. RT-absolute's eval7 adds 20
-    must-fail instances that the mask would solve and the unmasked reading does not."""
-    e5 = lambda n: [_vinst("AC", i, n, k=2, binding=False, lad=(50, 80, 95)) for i in range(100)]
+def _p3_fixture(canon7, abs_rest7_u, canon_seeds=None, abs_seeds=None, abs5=50, must_u=0, detour_u=0):
+    """One cell (AC, k = 2, non-binding): size <= 5 success 50/100 for the router and for the greedy rung; the rungs score
+    60 / 85 / 97 at sizes 6–7 against 50 / 80 / 95, so a size-blind policy of greedy strength has ratio 1.2. RT-absolute's
+    eval7 adds 20 must-fail instances (which the mask would solve) and 30 detour-only ones."""
+    e5 = lambda n_m, n_u=None: [_vinst("AC", i, n_m, n_u, k=2, binding=False, lad=(50, 80, 95)) for i in range(100)]
     e7 = lambda n_m, n_u=None: [_vinst("AC", i, n_m, n_u, k=2, binding=False, lad=(60, 85, 97)) for i in range(100)]
-    must = [dict(_vinst("AC", 500 + i, 2000, 0, k=2, binding=False, lad=(0, 0, 0))) for i in range(20)]
-    runs = [_vrun("RT-canon", s, e5(50), e7(canon7)) for s in range(10)]
-    runs += [_vrun("RT-absolute", s, e5(50), e7(abs_rest7_u) + must) for s in range(5)]
-    return runs, {"eval7_mustfail": {"AC": {f"{pi['t']}|{pi['s']}": True for pi in must}}}
+    must = [_vinst("AC", 500 + i, 2000, 500 + must_u, k=2, binding=False, lad=(0, 0, 0)) for i in range(20)]
+    detour = [_vinst("AC", 700 + i, 2000, 700 + detour_u, k=2, binding=False, lad=(0, 0, 0)) for i in range(30)]
+    grp = {**{f"{pi['t']}|{pi['s']}": "mustfail" for pi in must}, **{f"{pi['t']}|{pi['s']}": "detour" for pi in detour},
+           **{f"{pi['t']}|{pi['s']}": "shortest" for pi in e7(0)}}
+    runs = [_vrun("RT-canon", s, e5(50), e7((canon_seeds or {}).get(s, canon7))) for s in range(10)]
+    runs += [_vrun("RT-absolute", s, e5(100, abs5), e7(100, (abs_seeds or {}).get(s, abs_rest7_u)) + must + detour) for s in range(5)]
+    return runs, {"eval7_abs_group": {"AC": grp}}
 
 
 def test_p3_verdict_on_planted_outcomes():
-    """P3 (§17): the structural router's matched ratio against 0.9 × the nearest rung's own ratio (sizes 6–7 are easier on
-    matched cells, so the bare ≥ 0.9 of §6 passes a router that lost a sixth of its success); the absolute router on the
-    instances its head can address, unmasked."""
+    """P3 (§17): the structural router's matched ratio against 0.9 × the size-blind ratio at its own strength (sizes 6–7
+    are easier on matched cells, so the bare ≥ 0.9 of §6 passes a router that lost a sixth of its success); the absolute
+    router, unmasked, on the instances with a shortest proof on the slots its head was trained on."""
     A = _analyze()
-    v = A.verdicts(*_p3_fixture(58, 56))["P3"]
+    P = lambda *a, **k: A.verdicts(*_p3_fixture(*a, **k))["P3"]
+    v = P(58, 56)
     c = v["clause1"]["per_seed"][0]
-    assert c["rung"] == 1 and abs(c["rho"] - 1.2) < 1e-9 and abs(c["R"] - 1.16) < 1e-9
-    assert v["clause1"]["verdict"] == "pass" and v["verdict"] == "pass"
-    assert v["clause2"]["verdict"] == "holds" and v["clause2"]["per_seed"][0]["must_fail_n"] == 20 and v["clause2"]["per_seed"][0]["must_fail_rate"] == 0.0
-    v = A.verdicts(*_p3_fixture(50, 10))["P3"]                          # R = 1.0: the unnormalised rule passes it, the normalised one does not
+    assert abs(c["base"] - 0.5) < 1e-9 and abs(c["rho"] - 1.2) < 1e-9 and abs(c["R"] - 1.16) < 1e-9
+    assert v["clause1"]["verdict"] == "pass" and v["clause2"]["verdict"] == "holds" and v["verdict"] == "pass"
+    x = v["clause2"]["per_seed"][0]
+    assert (x["must_fail_n"], x["detour_n"], x["rest_n"]) == (20, 30, 100) and x["must_fail_rate"] == 0.0 and v["clause2"]["artefact_ok"] == 5
+    # the factor: 0.9 × 1.2 = 1.08 → 54/100 is the last passing count
+    assert P(54, 54)["clause1"]["ok"] == 10 and P(53, 53)["clause1"]["ok"] == 0 and P(53, 53)["clause2"]["ok"] == 0
+    v = P(50, 10)                                                      # R = 1.0: the unnormalised rule passes it, the normalised one does not
     assert v["clause1"]["raw_ok"] == 10 and v["clause1"]["ok"] == 0 and v["clause1"]["verdict"] == "falsified"
-    assert v["clause2"]["verdict"] == "falsified"                      # the absolute router fails far more than its must-fail set
-    runs, d = _p3_fixture(58, 56)
-    for r in runs[:5]:                                                 # half the structural seeds lose the extrapolation: neither 7/10 nor 3/10
-        for pi in r["final"]["eval7"]["per_instance"]:
-            pi["ok_m"] = False
-    assert A.verdicts(runs, d)["P3"]["clause1"]["verdict"] == "undecided"
+    assert v["clause2"]["verdict"] == "falsified" and v["verdict"] == "structural: falsified; absolute: falsified"
+    # the counts: 7/10 passes, 6/10 and 4/10 are neither, 3/10 falsifies; 4/5 holds, 3/5 and 2/5 are neither, 1/5 falsifies
+    cnt = lambda n: P(50, 56, canon_seeds={s: 58 for s in range(n)})["clause1"]["verdict"]
+    assert [cnt(7), cnt(6), cnt(4), cnt(3)] == ["pass", "not met, not falsified", "not met, not falsified", "falsified"]
+    cnt2 = lambda n: P(58, 10, abs_seeds={s: 56 for s in range(n)})["clause2"]["verdict"]
+    assert [cnt2(4), cnt2(3), cnt2(2), cnt2(1)] == ["holds", "not met, not falsified", "not met, not falsified", "falsified"]
+    assert P(58, 56)["verdict"] == "pass" and P(58, 10)["verdict"] == "structural: pass; absolute: falsified"
+    # clause 2 is read unmasked at both sizes, on the 'shortest' group only; the must-fail tolerance is 0.05
+    assert P(58, 56, abs5=100)["clause2"]["ok"] == 0                   # size <= 5 unmasked 1.0 → R = 0.56
+    assert P(58, 56, detour_u=30)["clause2"]["per_seed"][0]["rest_R"] == P(58, 56)["clause2"]["per_seed"][0]["rest_R"] and P(58, 56, detour_u=30)["clause2"]["per_seed"][0]["detour_rate"] == 1.0
+    assert P(58, 56, must_u=1)["clause2"]["artefact_ok"] == 5 and P(58, 56, must_u=2)["clause2"]["artefact_ok"] == 0
+    # the factor at a finer grain (200 instances: the bar 0.9 × 1.2 = 1.08 is 108 / 100; 107 is short of it, and would pass at 0.89)
+    c5 = [_vinst("AC", i, 100, k=2, binding=False, lad=(100, 160, 190)) for i in range(200)]
+    c7 = lambda n: [_vinst("AC", i, n, k=2, binding=False, lad=(120, 170, 194)) for i in range(200)]
+    assert A.normalised_ratio(c7(108), c5, "ok_m")["ok"] and not A.normalised_ratio(c7(107), c5, "ok_m")["ok"] and A.normalised_ratio(c7(107), c5, "ok_m")["raw_ok"]
+    # the size-blind ratio: straight lines between the rungs' (success, ratio) points, the end rungs outside, never above 1 / success
+    rungs = [(0.5, 1.2), (0.8, 1.0625), (0.95, 97 / 95)]
+    assert abs(A.rho_for(0.3, rungs) - 1.2) < 1e-9 and abs(A.rho_for(0.65, rungs) - (1.2 + 1.0625) / 2) < 1e-9
+    assert abs(A.rho_for(0.97, rungs) - 97 / 95) < 1e-9 and abs(A.rho_for(1.0, rungs) - 1.0) < 1e-9 and abs(A.rho_for(0.99, rungs) - 1 / 0.99) < 1e-9
+    assert A.rho_for(0.8, rungs) == 1.0625 and A.rho_for(0.8001, rungs) < 1.0625 < A.rho_for(0.7999, rungs)      # continuous across a rung
 
 
 def test_p5_to_p8_verdicts_on_planted_outcomes():
+    """P5–P8 (§17), each count, threshold, statistic and reading at its boundary."""
     A = _analyze()
-    # P5: EI16's seed-median within 0.1 of RT-canon's on the held-out binding stratum; falsified when below greedy where RT is above
-    hb = lambda n: [_vinst("AI", i, n, lad=(50, 60, 70)) for i in range(100)]
-    mk5 = lambda n_rt, n_ei: [_vrun("RT-canon", s, hb(n_rt)) for s in range(10)] + [_vrun("EI16", s, hb(n_ei)) for s in range(5)]
-    assert A.verdicts(mk5(60, 55))["P5"]["verdict"] == "holds"
-    assert A.verdicts(mk5(75, 55))["P5"]["verdict"] == "differs by more than 0.1"
-    assert A.verdicts(mk5(60, 40))["P5"]["verdict"] == "falsified"
-    # P6: RT-post nearer the target than the uniform-over-shortest-actions policy; RT-canon on the canonical action
+    # ---- P5 (masked): EI16's seed-median within 0.1 of RT-canon's on the held-out binding stratum; falsified when EI16's
+    # median is below the greedy rung while RT-canon's is above it
+    hb = lambda n_m, n_u=None: [_vinst("AI", i, n_m, n_u, lad=(50, 60, 70)) for i in range(100)]
+    def mk5(rt, ei, rt_u=None, ei_seeds=None):
+        return [_vrun("RT-canon", s, hb(rt, rt_u)) for s in range(10)] + [_vrun("EI16", s, hb((ei_seeds or {}).get(s, ei))) for s in range(5)]
+    P5 = lambda *a, **k: A.verdicts(mk5(*a, **k))["P5"]["verdict"]
+    assert P5(60, 55) == "holds" and P5(65, 55) == "holds" and P5(66, 55) == "differs by more than 0.1" and P5(55, 66) == "differs by more than 0.1"
+    assert P5(60, 40) == "falsified" and P5(45, 40) == "holds"                 # below greedy matters only where RT-canon is above it
+    assert P5(60, 50) == "holds"                                               # at the greedy rung is not below it
+    assert P5(60, 55, rt_u=20) == "holds"                                      # the masked reading
+    assert P5(60, 55, ei_seeds={0: 95, 1: 95}) == "holds" and P5(60, 55, ei_seeds={0: 95, 1: 95, 2: 95}) == "differs by more than 0.1"   # the median over seeds
+    # ---- P6: RT-post nearer the target than the uniform-over-shortest-actions policy in ≥ 7/10; RT-canon's first decision canonical on ≥ 0.9 in ≥ 7/10
     def p6rows(p_first, n_canon):
         return [dict(_vinst("AC", i, 100, binding=False), p_first=dict(p_first), target_first={"a": 0.8, "b": 0.2}, n_classes=2, first_canon=i < n_canon) for i in range(100)]
-    mk6 = lambda p_post, n_canon: [_vrun("RT-post", s, p6rows(p_post, 50)) for s in range(10)] + [_vrun("RT-canon", s, p6rows({"a": 0.97, "b": 0.01}, n_canon)) for s in range(10)]
-    v = A.verdicts(mk6({"a": 0.78, "b": 0.2}, 95))["P6"]
+    good, bad = {"a": 0.78, "b": 0.2}, {"a": 0.45, "b": 0.45}                 # TV 0.004 and 0.30 (the uniform reference itself is 0.30)
+    def mk6(n_post_good=10, n_canon_good=10, canon_share=95, post_good=good):
+        return [_vrun("RT-post", s, p6rows(post_good if s < n_post_good else bad, 50)) for s in range(10)] + \
+               [_vrun("RT-canon", s, p6rows({"a": 0.97, "b": 0.01}, canon_share if s < n_canon_good else 50)) for s in range(10)]
+    v = A.verdicts(mk6())["P6"]
     assert v["verdict"] == "holds" and abs(v["post"][0]["tv_uniform"] - 0.3) < 1e-9 and v["post"][0]["tv"] < 0.01
-    assert A.verdicts(mk6({"a": 0.45, "b": 0.45}, 95))["P6"]["verdict"] == "does not hold"      # the support, not the weights
-    assert A.verdicts(mk6({"a": 0.78, "b": 0.2}, 60))["P6"]["verdict"] == "does not hold"       # RT-canon off the canonical action
-    # P7 (unmasked): RT-examples at ceiling × RT-canon on the training binding stratum; below stated RT on the held-out one
+    assert A.verdicts(mk6(n_post_good=7))["P6"]["verdict"] == "holds" and A.verdicts(mk6(n_post_good=6))["P6"]["verdict"] == "does not hold"
+    assert A.verdicts(mk6(n_canon_good=7))["P6"]["verdict"] == "holds" and A.verdicts(mk6(n_canon_good=6))["P6"]["verdict"] == "does not hold"
+    assert A.verdicts(mk6(canon_share=90))["P6"]["verdict"] == "holds" and A.verdicts(mk6(canon_share=89))["P6"]["verdict"] == "does not hold"
+    assert A.verdicts(mk6(post_good={"a": 0.52, "b": 0.48}))["P6"]["verdict"] == "holds"            # TV 0.28, just inside the reference
+    assert A.verdicts(mk6(post_good={"a": 0.45, "b": 0.55}))["P6"]["verdict"] == "does not hold"    # TV 0.35: the support, not the weights
+    # ---- P7 (unmasked): RT-examples within 0.1 of ceiling × RT-canon's median on the training binding stratum (3/3); below
+    # RT-canon's median by more than 0.05 on the held-out one (3/3); falsified when ≥ RT-canon's median in ≥ 2/3
     exc = {"examples_ceiling": {"AC": {"ceiling_canon_binding": 0.9, "binding_n": 100}}}
     def p7rows(n_train_u, n_held_u):
         return [_vinst("AC", i, 100, n_train_u) for i in range(100)] + [_vinst("AI", i, 100, n_held_u) for i in range(100)]
-    mk7 = lambda ex_t, ex_h: [_vrun("RT-canon", s, p7rows(80, 60)) for s in range(10)] + [_vrun("RT-examples", s, p7rows(ex_t, ex_h)) for s in range(3)]
-    v = A.verdicts(mk7(70, 40), exc)["P7"]
-    assert abs(v["target"] - 0.72) < 1e-9 and v["clause1"] == "holds" and v["clause2"] == "holds" and v["verdict"] == "holds"
-    assert A.verdicts(mk7(70, 65), exc)["P7"]["verdict"] == "falsified"                        # the examples carry more than W
-    assert A.verdicts(mk7(90, 40), exc)["P7"]["clause1"].startswith("above")
-    assert A.verdicts(mk7(40, 40), exc)["P7"]["clause1"].startswith("below")
-    # P8: RT-shuffled against RT-canon on the training worlds' binding stratum, each reading on its own
+    def mk7(ex, rt=(80, 60)):                                                  # ex: three (train, held-out) unmasked counts
+        return [_vrun("RT-canon", s, p7rows(*rt)) for s in range(10)] + [_vrun("RT-examples", s, p7rows(*x)) for s, x in enumerate(ex)] + \
+               [_vrun("RT-shuffled", s, p7rows(50, 30)) for s in range(2)]
+    P7 = lambda ex, **k: A.verdicts(mk7(ex, **k), exc)["P7"]
+    v = P7([(70, 40)] * 3)
+    assert abs(v["target"] - 0.72) < 1e-9 and v["clause1"] == "holds" and v["clause2"] == "holds" and v["verdict"] == "holds" and v["shuffled_train_u"] == [0.5, 0.5]
+    assert P7([(82, 40)] * 3)["clause1"] == "holds" and P7([(62, 40)] * 3)["clause1"] == "holds"     # the band is ± 0.1 around 0.72, not around 0.80
+    assert P7([(83, 40)] * 3)["clause1"].startswith("above") and P7([(61, 40)] * 3)["clause1"].startswith("below")
+    assert P7([(70, 40), (70, 40), (83, 40)])["clause1"] == "undecided" and P7([(70, 40), (83, 40), (83, 40)])["clause1"].startswith("above")
+    assert P7([(70, 54)] * 3)["clause2"] == "holds" and P7([(70, 55)] * 3)["clause2"] == "undecided"                 # more than 0.05 below 0.60
+    assert P7([(70, 54), (70, 54), (70, 57)])["clause2"] == "undecided"                                              # 3/3, not 2/3
+    assert P7([(70, 60), (70, 60), (70, 40)])["verdict"] == "falsified" and P7([(70, 60), (70, 40), (70, 40)])["clause2"] == "undecided"
+    assert P7([(70, 59)] * 3)["clause2"] == "undecided"                                                              # below the median is not ≥ it
+    # ---- P8: RT-canon's seed-median minus each RT-shuffled seed on the training worlds' binding stratum; > 0.05 in 2/2
+    # holds, in 0/2 falsifies; each reading on its own, the masked one the verdict
     def p8rows(n_m, n_u):
         return [_vinst("AC", i, n_m, n_u) for i in range(100)]
-    mk8 = lambda sh: [_vrun("RT-canon", s, p8rows(80, 78)) for s in range(10)] + [_vrun("RT-shuffled", s, p8rows(*x)) for s, x in enumerate(sh)]
+    def mk8(sh, rt_seeds=None):
+        return [_vrun("RT-canon", s, p8rows(*(rt_seeds or {}).get(s, (80, 78)))) for s in range(10)] + [_vrun("RT-shuffled", s, p8rows(*x)) for s, x in enumerate(sh)]
     v = A.verdicts(mk8([(79, 50), (78, 52)]))["P8"]
     assert v["verdict"] == "falsified" and v["verdict_unmasked"] == "holds" and v["reading"].startswith("under the mask the action set")
     v = A.verdicts(mk8([(60, 50), (62, 52)]))["P8"]
-    assert v["verdict"] == "holds" and v["verdict_unmasked"] == "holds"
+    assert v["verdict"] == "holds" and v["verdict_unmasked"] == "holds" and v["reading"].startswith("the presence tokens carry the world")
     v = A.verdicts(mk8([(79, 77), (78, 76)]))["P8"]
     assert v["verdict"] == "falsified" and v["verdict_unmasked"] == "falsified"
     assert A.verdicts(mk8([(79, 50), (60, 52)]))["P8"]["verdict"] == "undecided"
+    assert A.verdicts(mk8([(75, 50), (75, 50)]))["P8"]["verdict"] == "falsified" and A.verdicts(mk8([(74, 50), (74, 50)]))["P8"]["verdict"] == "holds"   # a gap of 0.05 is not more than 0.05
+    assert A.verdicts(mk8([(77, 50), (77, 50)], rt_seeds={0: (95, 95), 1: (95, 95)}))["P8"]["verdict"] == "falsified"                                 # RT-canon's median, not its best seed
 
 
 def test_verdict_section_renders_on_real_fixtures():
     A = _analyze()
-    md = A.report(A.load_results(FIX), {"p2_comb": {}, "eval7_mustfail": {}})
-    assert "## Verdicts under the amended pass rules (DESIGN §17)" in md and "| P8 |" in md
+    runs = A.load_results(FIX)
+    md = A.report(runs, json.load(open(os.path.join(FIX, "derived.json"))))
+    assert "## Verdicts under the amended pass rules (DESIGN §17)" in md and "| P8 |" in md and "printed, **not scored**" in md
+    V = A.verdicts(runs, json.load(open(os.path.join(FIX, "derived.json"))))
+    assert V["P2"]["pairs"]["n"] > 0 and V["P3"]["clause2"]["per_seed"][0]["rest_n"] > 0          # the fixture's flags reach its instances
+    assert "not readable" in A.verdicts(runs, {})["P2"]["verdict"]
 
 
 def test_trainworld_reference_policy():

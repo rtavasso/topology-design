@@ -29,7 +29,7 @@
 | RT-examples | 1e-3 | 0.871 | 53 min |
 | RT-shuffled | 1e-3 | 0.934 | 21 min |
 
-Every arm still rising at 3,000 → **12,000 steps**. 27 process-hours for the 41 runs → four shards and a 10.5 h session budget (a run that cannot finish is left for a resume; relaunching the same command resumes). Harness sanity passed on all four counts. **Main grid launch** (after `git pull`; not before history Entry 79's handling of the pass-rule audit is committed):
+Every arm still rising at 3,000 → **12,000 steps**. 27 process-hours for the 41 runs → four shards and a 10.5 h session budget (a run that cannot finish is left for a resume; relaunching the same command resumes). Harness sanity passed on all four counts. **Main grid launch** (after `git pull`; scored on the pass rules of DESIGN §17 / §17a — history Entry 79; every run also saves its router to `results/kaggle_rewrite-main/ckpt/`):
 
     caffeinate -i .venv/bin/python experiments/fleet/kaggle/launch.py --user riley9 --rewrite-grid experiments/rewrite/grids/main.json --data-dir data/rewrite --per-gpu 2
 

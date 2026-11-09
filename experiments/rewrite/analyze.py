@@ -144,6 +144,7 @@ def report(runs, derived=None):
     md = []
     arms = sorted({arm_of(r) for r in runs}, key=lambda a: ["RT-canon", "RT-post", "RT-all", "RT-absolute", "EI16", "PF", "RT-examples", "RT-shuffled"].index(a) if a in ["RT-canon", "RT-post", "RT-all", "RT-absolute", "EI16", "PF", "RT-examples", "RT-shuffled"] else 99)
     md.append(f"runs: { {a: len(by_seed(runs, a)) for a in arms} }")
+    md.append("\nThe sections P2–P8 below are §6's readings as preregistered: printed, **not scored**. The scored verdicts, under the pass rules as amended before the main grid (DESIGN §17), are the last section.")
 
     # run classification
     rows = []
@@ -188,11 +189,11 @@ def report(runs, derived=None):
             rows.append([a, cls, per[0][2] if per else 0, summarize_seeds([p[0] for p in per]), summarize_seeds([p[3] for p in per]),
                          fmt(per[0][1] if per else None), f"{above0}/{len(per)}", f"{joint}/{len(per)}", f"{ge09}/{len(per)}"])
     md.append(table(rows, ["arm", "worlds", "n/seed", "masked (median [min,max])", "unmasked", "greedy d=1", "> greedy", "≥ greedy+0.2 and ≥ 0.7 (same seed)", "≥ 0.9"]))
-    md.append("P2 passes when RT-canon on the pairs meets both conditions in ≥ 6/10 seeds, exceeds greedy on triples+full in ≥ 6/10, and RT-all is ≥ 0.9 on the same strata.")
+    md.append("(§6's rule as preregistered, printed and not scored — the scored rule is in the Verdicts section, DESIGN §17: P2 passes when RT-canon on the pairs meets both conditions in ≥ 6/10 seeds, exceeds greedy on triples+full in ≥ 6/10, and RT-all is ≥ 0.9 on the same strata.)")
 
     # P3 — matched on (world, k, binding) cells reweighted to eval7's composition (review 2, S1); training worlds primary
-    md.append("\n## P3 (Q2): sizes 6–7 (eval7, k ≤ 4) against size ≤ 5 on the same (world, k, binding) cells reweighted to eval7's composition, masked; RT-absolute split by addressability")
-    un = (derived or {}).get("eval7_unaddressable", {})
+    md.append("\n## P3 (Q2): sizes 6–7 (eval7, k ≤ 4) against size ≤ 5 on the same (world, k, binding) cells reweighted to eval7's composition, masked")
+    grp_abs = (derived or {}).get("eval7_abs_group", {})
 
     def matched_ratio(r, worlds):
         e7 = instances(r, "eval7", world=worlds)
@@ -223,20 +224,21 @@ def report(runs, derived=None):
             for r in by_seed(runs, a):
                 ratio, n_used, n7 = matched_ratio(r, worlds)
                 ratios.append(ratio); covered = (n_used, n7)
-                if un:
+                if grp_abs and cls == "train":
                     e7 = instances(r, "eval7", world=worlds)
-                    flag = [un.get(pi["world"], {}).get(f"{pi['t']}|{pi['s']}") for pi in e7]
-                    addr = [pi for pi, f in zip(e7, flag) if f is False]
-                    unad = [pi for pi, f in zip(e7, flag) if f is True]
+                    flag = [grp_abs.get(pi["world"], {}).get(f"{pi['t']}|{pi['s']}") for pi in e7]
+                    addr = [pi for pi, f in zip(e7, flag) if f == "shortest"]
+                    unad = [pi for pi, f in zip(e7, flag) if f in ("detour", "mustfail")]
                     abs_rows.append((rate(addr), rate(unad), len(addr), len(unad)))
             n_ok = sum(1 for x in ratios if x is not None and x >= 0.9)
             extra = ""
             if abs_rows:
-                extra = f"addressable {summarize_seeds([x[0] for x in abs_rows])} (n {abs_rows[0][2]}); unaddressable {summarize_seeds([x[1] for x in abs_rows])} (n {abs_rows[0][3]})"
+                extra = f"a shortest proof on labelled slots {summarize_seeds([x[0] for x in abs_rows])} (n {abs_rows[0][2]}); none {summarize_seeds([x[1] for x in abs_rows])} (n {abs_rows[0][3]})"
             rows.append([a, cls, summarize_seeds([rate(instances(r, 'eval5', world=worlds, k=[1, 2, 3, 4])) for r in by_seed(runs, a)]),
                          summarize_seeds([rate(instances(r, 'eval7', world=worlds)) for r in by_seed(runs, a)]),
                          summarize_seeds(ratios), f"{covered[0]}/{covered[1]}" if covered else "–", f"{n_ok}/{len(ratios)}", extra])
-    md.append(table(rows, ["arm", "worlds", "size ≤ 5, k ≤ 4", "sizes 6–7", "matched ratio", "eval7 n matched", "ratio ≥ 0.9", "RT-absolute split"]))
+    md.append(table(rows, ["arm", "worlds", "size ≤ 5, k ≤ 4", "sizes 6–7", "matched ratio", "eval7 n matched", "ratio ≥ 0.9", "split by the categorical head's labelled slots (masked)"]))
+    md.append("(§6's reading, printed and not scored: the bare ratio ≥ 0.9 passes a router that lost a sixth of its success, DESIGN §17.)")
     md.append("P3 passes when the structural RT-canon's matched ratio on the training worlds is ≥ 0.9 in ≥ 7/10 seeds, and RT-absolute's failures are the unaddressable instances (success on addressable ≈ its size-5 success, ≈ 0 on unaddressable).")
 
     # P4 — on cells where the rungs are separated (review 2, B5/S7): d2 − d1 ≥ 0.1 and d3 − d2 ≥ 0.1 on the eval instances
@@ -417,6 +419,15 @@ def _median(vals):
     return statistics.median(vals) if vals else None
 
 
+def _ge(a, b):
+    """a >= b up to rounding: thresholds are stated in decimals and rates are ratios of counts (0.8 - 0.6 is not 0.2 in floats)."""
+    return a >= b - 1e-9
+
+
+def _gt(a, b):
+    return a > b + 1e-9
+
+
 def _count(n_ok, n, need_frac):
     """A count over seeds against a preregistered fraction (6/10, 7/10, …) of the seeds actually present."""
     return n > 0 and n_ok >= math.ceil(need_frac * n - 1e-9)
@@ -442,20 +453,40 @@ def matched_stat(cells, okf):
     return (num / den if den else None), (den / n if n else None), int(n)
 
 
+def rho_for(base, rungs):
+    """The size-blind ratio expected of a policy whose size-<=5 success on the matched cells is `base`: the symbolic
+    rungs' own (success, ratio) points joined by straight lines (the end rungs' ratios outside them), and never above
+    1 / base — a policy cannot gain more at sizes 6–7 than its headroom (review 5: the nearest rung flipped
+    discontinuously, and above the top rung the bar exceeded what an oracle-strength router could score)."""
+    pts = {}
+    for b_, r_ in rungs:
+        pts.setdefault(round(b_, 9), []).append(r_)
+    pts = sorted((b_, sum(v) / len(v)) for b_, v in pts.items())
+    if base <= pts[0][0]:
+        rho = pts[0][1]
+    elif base >= pts[-1][0]:
+        rho = pts[-1][1]
+    else:
+        for (b0, r0), (b1, r1) in zip(pts, pts[1:]):
+            if b0 <= base <= b1:
+                rho = r0 + (r1 - r0) * (base - b0) / (b1 - b0)
+                break
+    return min(rho, 1.0 / base) if base > 0 else rho
+
+
 def normalised_ratio(rows7, rows5, key):
-    """The router's matched ratio R and the same statistic rho for the symbolic rung whose size-<=5 success on these cells
-    is nearest the router's (the rungs are rules over structure: rho is what a size-blind policy of that strength scores,
-    and it is above 1 where eval7's matched cells are easier). ok = R >= 0.9 rho."""
+    """The router's matched ratio R, and rho — what a size-blind policy of the router's strength scores on the same cells
+    (rho_for; above 1 where eval7's matched cells are easier). ok = R >= 0.9 rho; raw_ok = the bare R >= 0.9 of §6."""
     cells = matched_cells(rows7, rows5)
     R, base, n = matched_stat(cells, lambda pi: pi[key])
     if R is None:
-        return {"R": None, "rho": None, "rung": None, "n": n, "ok": None, "raw_ok": None}
-    rungs = {d: matched_stat(cells, lambda pi, d=d: pi["ladder"][str(d)]) for d in (1, 2, 3)}
-    usable = {d: v for d, v in rungs.items() if v[0] is not None}
+        return {"R": None, "rho": None, "base": base, "n": n, "ok": None, "raw_ok": None}
+    rungs = [matched_stat(cells, lambda pi, d=d: pi["ladder"][str(d)]) for d in (1, 2, 3)]
+    usable = [(v[1], v[0]) for v in rungs if v[0] is not None]
     if not usable:
-        return {"R": R, "rho": None, "rung": None, "n": n, "ok": None, "raw_ok": R >= 0.9}
-    d = min(usable, key=lambda d: (abs(usable[d][1] - base), d))
-    return {"R": R, "rho": usable[d][0], "rung": d, "n": n, "ok": R >= 0.9 * usable[d][0], "raw_ok": R >= 0.9}
+        return {"R": R, "rho": None, "base": base, "n": n, "ok": None, "raw_ok": _ge(R, 0.9)}
+    rho = rho_for(base, usable)
+    return {"R": R, "rho": rho, "base": base, "n": n, "ok": _ge(R, 0.9 * rho), "raw_ok": _ge(R, 0.9)}
 
 
 def verdicts(runs, derived=None):
@@ -473,11 +504,15 @@ def verdicts(runs, derived=None):
 
     def refs(rows):
         tw = sum(bool(flags[pi["world"]][_key(pi)]["trainw"]) for pi in rows) / len(rows) if rows else None
-        return {"n": len(rows), "greedy": ladder_rate(rows, 1), "d3": ladder_rate(rows, 3), "trainw": tw,
+        gl = sum(bool(flags[pi["world"]][_key(pi)].get("glue")) for pi in rows) / len(rows) if rows else None
+        return {"n": len(rows), "greedy": ladder_rate(rows, 1), "d3": ladder_rate(rows, 3), "trainw": tw, "glue": gl,
                 "floor": max(ladder_rate(rows, 1), tw) if rows else None}
 
+    def beyond(run, worlds):                     # the instances the glued reference does not solve
+        return [pi for pi in comb(run, worlds) if not flags[pi["world"]][_key(pi)].get("glue")]
+
     def pair_ok(rate_, g):
-        return rate_ is not None and g is not None and rate_ - g >= 0.2 and rate_ >= 0.7
+        return rate_ is not None and g is not None and _ge(rate_ - g, 0.2) and _ge(rate_, 0.7)
 
     p2 = {"verdict": "not readable", "why": "no p2_comb flags in derived.json" if not flags else None}
     rc, ra = by_seed(runs, "RT-canon"), by_seed(runs, "RT-all")
@@ -491,24 +526,34 @@ def verdicts(runs, derived=None):
                 pr = [rate(comb(r, PAIRS_HELD), rd) for r in rc]
                 tr = [rate(comb(r, TRIPLES), rd) for r in rc]
                 n_pair = sum(pair_ok(x, rp["greedy"]) for x in pr)
-                n_tri = sum(x is not None and rt_["floor"] is not None and x > rt_["floor"] for x in tr)
-                n_above = sum(x is not None and x > rp["floor"] for x in pr)
+                n_tri = sum(x is not None and rt_["floor"] is not None and _gt(x, rt_["floor"]) for x in tr)
+                n_above = sum(x is not None and _gt(x, rp["floor"]) for x in pr)
                 allp = [rate(comb(r, PAIRS_HELD), rd) for r in ra]
+                allt = [rate(comb(r, TRIPLES), rd) for r in ra]
                 p2[rd] = {"pair_rates": pr, "triple_rates": tr, "pair_ok": n_pair, "triple_above_floor": n_tri, "pair_above_floor": n_above, "n_seeds": len(rc),
                           "rt_all_pair_rates": allp, "rt_all_median": _median(allp), "rt_all_reaches": pair_ok(_median(allp), rp["greedy"]),
+                          "rt_all_triple_median": _median(allt),
+                          # §6's ceiling clause, kept as a label on a pass: RT-all's seed-median >= 0.9 on both strata
+                          "ceiling_06": _median(allp) is not None and _ge(_median(allp), 0.9) and (rt_["n"] == 0 or (_median(allt) is not None and _ge(_median(allt), 0.9))),
                           "ci": [bootstrap_ci(comb(r, PAIRS_HELD), rd) for r in rc],
+                          "beyond_glue_pairs": [rate(beyond(r, PAIRS_HELD), rd) for r in rc], "beyond_glue_triples": [rate(beyond(r, TRIPLES), rd) for r in rc],
+                          "per_world": {w: {"n": len(comb(rc[0], [w])), "rates": [rate(comb(r, [w]), rd) for r in rc], "greedy": ladder_rate(comb(rc[0], [w]), 1), "d3": ladder_rate(comb(rc[0], [w]), 3)}
+                                        for w in held_b if comb(rc[0], [w])},
                           "passes": _count(n_pair, len(rc), 0.6) and (rt_["n"] == 0 or _count(n_tri, len(rc), 0.6))}
+            p2["beyond_glue_n"] = {"pairs": len(beyond(rc[0], PAIRS_HELD)), "triples": len(beyond(rc[0], TRIPLES)),
+                                   "pairs_d3": ladder_rate(beyond(rc[0], PAIRS_HELD), 3), "triples_d3": ladder_rate(beyond(rc[0], TRIPLES), 3)}
             m = p2["ok_m"]
             few_above = m["pair_above_floor"] <= math.floor(0.3 * m["n_seeds"] + 1e-9)
             if m["passes"]:
                 p2["verdict"] = "pass"
-                p2["cue"] = "composes under the stated cue" if p2["ok_u"]["passes"] else "composes decisions when the executor supplies the action set; the cue alone does not carry the unseen combination"
+                p2["cue"] = ("composes under the stated cue" if p2["ok_u"]["passes"] else "composes decisions when the executor supplies the action set; the cue alone does not carry the unseen combination") \
+                    + ("" if m["ceiling_06"] else "; §6's further requirement (RT-all ≥ 0.9 on the same strata) is not met — under §6 as written this would not be a pass")
             elif few_above and m["rt_all_reaches"]:
                 p2["verdict"] = "falsified"
             elif few_above:
-                p2["verdict"] = "undecided"; p2["why"] = "RT-canon is not above the non-composing floor, but RT-all does not reach the pair conditions either: reachability not shown"
+                p2["verdict"] = "not met, not falsified"; p2["why"] = "RT-canon is not above the non-composing floor, but RT-all does not reach the pair conditions either: reachability not shown"
             else:
-                p2["verdict"] = "undecided"; p2["why"] = "above the non-composing floor in more than 3/10 seeds, short of the pair conditions in 6/10 (or of the triples' clause)"
+                p2["verdict"] = "not met, not falsified"; p2["why"] = "above the non-composing floor in more than 3/10 seeds, short of the pair conditions in 6/10 (or of the triples' clause)"
     V["P2"] = p2
 
     # ---- P3: sizes 6–7 against size <= 5, normalised by the matched rung; the categorical head's must-fail set
@@ -520,22 +565,25 @@ def verdicts(runs, derived=None):
         p3["clause1"] = {"per_seed": c1, "ok": ok1, "n_seeds": len(c1), "raw_ok": sum(bool(x["raw_ok"]) for x in c1),
                          "single_axiom": [normalised_ratio(instances(r, "eval7", world=["A", "C", "I", "D"]), instances(r, "eval5", world=["A", "C", "I", "D"]), "ok_m") for r in rc],
                          "pairs": [normalised_ratio(instances(r, "eval7", world=["AC", "AD", "CD", "ID"]), instances(r, "eval5", world=["AC", "AD", "CD", "ID"]), "ok_m") for r in rc],
-                         "verdict": "not readable" if not readable1 else ("pass" if _count(ok1, len(c1), 0.7) else ("falsified" if ok1 <= math.floor(0.3 * len(c1) + 1e-9) else "undecided"))}
-        p3["verdict"] = p3["clause1"]["verdict"]
-    rab, mf = by_seed(runs, "RT-absolute"), derived.get("eval7_mustfail")
-    if rab and mf is not None:
+                         "verdict": "not readable" if not readable1 else ("pass" if _count(ok1, len(c1), 0.7) else ("falsified" if ok1 <= math.floor(0.3 * len(c1) + 1e-9) else "not met, not falsified"))}
+    rab, grp = by_seed(runs, "RT-absolute"), derived.get("eval7_abs_group")
+    if rab and grp is not None:
         per = []
         for r in rab:
             e7 = instances(r, "eval7", world=TRAIN_WORLDS)
-            must = [pi for pi in e7 if mf.get(pi["world"], {}).get(_key(pi)) is True]
-            rest = [pi for pi in e7 if mf.get(pi["world"], {}).get(_key(pi)) is not True]
+            g = lambda pi: grp.get(pi["world"], {}).get(_key(pi))
+            must, detour, rest = [pi for pi in e7 if g(pi) == "mustfail"], [pi for pi in e7 if g(pi) == "detour"], [pi for pi in e7 if g(pi) == "shortest"]
             nr = normalised_ratio(rest, instances(r, "eval5", world=TRAIN_WORLDS), "ok_u")
-            per.append({"must_fail_n": len(must), "must_fail_rate": rate(must, "ok_u"), "rest_n": len(rest), "rest_rate": rate(rest, "ok_u"), **{f"rest_{k_}": v for k_, v in nr.items()}})
+            per.append({"must_fail_n": len(must), "must_fail_rate": rate(must, "ok_u"), "detour_n": len(detour), "detour_rate": rate(detour, "ok_u"),
+                        "rest_n": len(rest), "rest_rate": rate(rest, "ok_u"), **{f"rest_{k_}": v for k_, v in nr.items()}})
         ok2 = sum(bool(x["rest_ok"]) for x in per)
-        art = sum(x["must_fail_rate"] is not None and x["must_fail_rate"] <= 0.05 for x in per)
+        art = sum(x["must_fail_rate"] is not None and _ge(0.05, x["must_fail_rate"]) for x in per)
         readable2 = all(x["rest_ok"] is not None for x in per)
         p3["clause2"] = {"per_seed": per, "ok": ok2, "artefact_ok": art, "n_seeds": len(per),
-                         "verdict": "not readable" if not readable2 else ("holds" if _count(ok2, len(per), 0.8) else ("falsified" if ok2 <= math.floor(0.2 * len(per) + 1e-9) else "undecided"))}
+                         "verdict": "not readable" if not readable2 else ("holds" if _count(ok2, len(per), 0.8) else ("falsified" if ok2 <= math.floor(0.2 * len(per) + 1e-9) else "not met, not falsified"))}
+    v1, v2 = p3.get("clause1", {}).get("verdict"), p3.get("clause2", {}).get("verdict")
+    if v1 or v2:
+        p3["verdict"] = "pass" if (v1 == "pass" and v2 == "holds") else f"structural: {v1 or 'not readable'}; absolute: {v2 or 'not readable'}"
     V["P3"] = p3
 
     # ---- P5: EI16 against RT-canon on the held-out binding stratum (masked), seed-medians
@@ -549,7 +597,7 @@ def verdicts(runs, derived=None):
             p5 = {"n": len(sel(rc[0])), "rt_median": m_rt, "ei_median": m_ei, "greedy": g, "diff": m_ei - m_rt,
                   "rt_median_u": _median([rate(sel(r), "ok_u") for r in rc]), "ei_median_u": _median([rate(sel(r), "ok_u") for r in rei]),
                   "comb": {"n": len(comb(rc[0], held_b)), "rt_median": _median([rate(comb(r, held_b)) for r in rc]), "ei_median": _median([rate(comb(r, held_b)) for r in rei])} if flags else None,
-                  "verdict": "falsified" if (m_ei < g < m_rt) else ("holds" if abs(m_ei - m_rt) <= 0.1 else "differs by more than 0.1")}
+                  "verdict": "falsified" if (_gt(g, m_ei) and _gt(m_rt, g)) else ("holds" if _ge(0.1, abs(m_ei - m_rt)) else "differs by more than 0.1")}
     V["P5"] = p5
 
     # ---- P6: RT-post at the target mixture, RT-canon at the canonical class (first decision, multi-class training instances)
@@ -572,8 +620,8 @@ def verdicts(runs, derived=None):
     if rpo and rc:
         sp, sc = [p6_stats(r) for r in rpo], [p6_stats(r) for r in rc]
         if any(x["n"] for x in sp) and any(x["n"] for x in sc):
-            okp = sum(x["tv"] is not None and x["tv"] < x["tv_uniform"] for x in sp)
-            okc = sum(x["canon"] is not None and x["canon"] >= 0.9 for x in sc)
+            okp = sum(x["tv"] is not None and _gt(x["tv_uniform"], x["tv"]) for x in sp)
+            okc = sum(x["canon"] is not None and _ge(x["canon"], 0.9) for x in sc)
             p6 = {"post": sp, "canon": sc, "post_ok": okp, "canon_ok": okc,
                   "verdict": "holds" if (_count(okp, len(sp), 0.7) and _count(okc, len(sc), 0.7)) else "does not hold"}
     V["P6"] = p6
@@ -590,13 +638,14 @@ def verdicts(runs, derived=None):
         ex_t, ex_h = [rate(tb(r), "ok_u") for r in rex], [rate(hb(r), "ok_u") for r in rex]
         if ceil is not None and m_t is not None and all(x is not None for x in ex_t + ex_h) and m_h is not None:
             target = ceil * m_t
-            within = sum(abs(x - target) <= 0.1 for x in ex_t)
-            above = sum(x - target > 0.1 for x in ex_t)
-            below_h = sum(x < m_h - 0.05 for x in ex_h)
-            ge_h = sum(x >= m_h for x in ex_h)
+            within = sum(_ge(0.1, abs(x - target)) for x in ex_t)
+            above = sum(_gt(x - target, 0.1) for x in ex_t)
+            below_h = sum(_gt(m_h - 0.05, x) for x in ex_h)
+            ge_h = sum(_ge(x, m_h) for x in ex_h)
             c1 = "holds" if within == len(ex_t) else ("above: W is read from more than the examples" if above * 3 >= 2 * len(ex_t) else ("below: the examples are not used to the ceiling" if (len(ex_t) - within - above) * 3 >= 2 * len(ex_t) else "undecided"))
             c2 = "holds" if below_h == len(ex_h) else ("falsified" if ge_h * 3 >= 2 * len(ex_h) else "undecided")
             p7 = {"ceiling": ceil, "rt_train_median_u": m_t, "target": target, "examples_train_u": ex_t, "clause1": c1, "rt_heldout_median_u": m_h, "examples_heldout_u": ex_h, "clause2": c2,
+                  "shuffled_train_u": [rate(tb(r), "ok_u") for r in by_seed(runs, "RT-shuffled")],
                   "train_n": len(tb(rc[0])), "heldout_n": len(hb(rc[0])),
                   "verdict": "holds" if (c1 == "holds" and c2 == "holds") else ("falsified" if c2 == "falsified" else "does not hold as stated")}
     V["P7"] = p7
@@ -614,7 +663,7 @@ def verdicts(runs, derived=None):
                 out = None
                 break
             gaps = [m - x for x in sh]
-            n_gap = sum(g > 0.05 for g in gaps)
+            n_gap = sum(_gt(g, 0.05) for g in gaps)
             out[rd] = {"rt_median": m, "shuffled": sh, "gaps": gaps, "verdict": "holds" if n_gap == len(gaps) else ("falsified" if n_gap == 0 else "undecided")}
         if out:
             vm, vu = out["ok_m"]["verdict"], out["ok_u"]["verdict"]
@@ -635,8 +684,10 @@ def render_verdicts(V):
     p2 = V["P2"]
     if "ok_m" in p2:
         rp, rt_ = p2["pairs"], p2["triples"]
-        md.append(f"\n**P2** — held-out binding instances that need the unseen combination. Pairs n = {rp['n']}: greedy {f(rp['greedy'])}, lookahead-3 {f(rp['d3'])}, training-world reference {f(rp['trainw'])} (floor {f(rp['floor'])}); "
-                  f"triples n = {rt_['n']}: greedy {f(rt_['greedy'])}, lookahead-3 {f(rt_['d3'])}, training-world reference {f(rt_['trainw'])} (floor {f(rt_['floor'])}).\n")
+        md.append(f"\n**P2** — held-out binding instances that need the unseen combination. Pairs n = {rp['n']}: greedy {f(rp['greedy'])}, lookahead-3 {f(rp['d3'])}, training-world reference {f(rp['trainw'])} (floor {f(rp['floor'])}), glued reference {f(rp['glue'])}; "
+                  f"triples n = {rt_['n']}: greedy {f(rt_['greedy'])}, lookahead-3 {f(rt_['d3'])}, training-world reference {f(rt_['trainw'])} (floor {f(rt_['floor'])}), glued reference {f(rt_['glue'])}. "
+                  "A masked pass says the decisions learned in the training worlds, applied state by state under the executor's mask, prove these instances; it does not separate planning over the unseen combination from single-world plans glued by greedy moves (the glued reference). "
+                  "The rows that bear on that — the unmasked reading, and the instances the glued reference does not solve — are below, unscored.\n")
         rows = []
         for rd, name in (("ok_m", "masked"), ("ok_u", "unmasked")):
             x = p2[rd]
@@ -644,15 +695,23 @@ def render_verdicts(V):
             rows.append([name, summarize_seeds(x["pair_rates"]), f"[{min(lo):.2f}, {max(hi):.2f}]" if lo else "–", f"{x['pair_ok']}/{x['n_seeds']}", f"{x['pair_above_floor']}/{x['n_seeds']}",
                          summarize_seeds(x["triple_rates"]), f"{x['triple_above_floor']}/{x['n_seeds']}", summarize_seeds(x["rt_all_pair_rates"]), "yes" if x["rt_all_reaches"] else "no", "yes" if x["passes"] else "no"])
         md.append(table(rows, ["reading", "RT-canon, pairs", "instance bootstrap 95 % (seeds' envelope)", "≥ greedy + 0.2 and ≥ 0.7", "> floor (pairs)", "RT-canon, triples", "> floor (triples)", "RT-all, pairs", "RT-all's median meets the pair conditions", "pass conditions met"]))
+        bg = p2["beyond_glue_n"]
+        md.append(f"\nRT-all's seed-median, masked: pairs {f(p2['ok_m']['rt_all_median'])}, triples {f(p2['ok_m']['rt_all_triple_median'])} — §6's ceiling clause (≥ 0.9 on both) {'met' if p2['ok_m']['ceiling_06'] else 'not met'}. "
+                  f"Beyond the glued reference (unscored): pairs n = {bg['pairs']} (lookahead-3 {f(bg['pairs_d3'])}) — RT-canon masked {summarize_seeds(p2['ok_m']['beyond_glue_pairs'])}, unmasked {summarize_seeds(p2['ok_u']['beyond_glue_pairs'])}; "
+                  f"triples n = {bg['triples']} (lookahead-3 {f(bg['triples_d3'])}) — masked {summarize_seeds(p2['ok_m']['beyond_glue_triples'])}, unmasked {summarize_seeds(p2['ok_u']['beyond_glue_triples'])}.\n")
+        rows = [[w, x["n"], summarize_seeds(x["rates"]), summarize_seeds(p2["ok_u"]["per_world"][w]["rates"]), f(x["greedy"]), f(x["d3"])] for w, x in p2["ok_m"]["per_world"].items()]
+        md.append(table(rows, ["world", "n needing the combination", "RT-canon masked", "unmasked", "greedy", "lookahead-3"]))
     p3 = V["P3"]
     if "clause1" in p3:
         c = p3["clause1"]
-        md.append(f"\n**P3, clause 1** (RT-canon, masked, training worlds): matched ratio R against 0.9 × ρ of the nearest rung — per seed R {fl([x['R'] for x in c['per_seed']])}; ρ {fl([x['rho'] for x in c['per_seed']])} (rung {[x['rung'] for x in c['per_seed']]}); "
+        md.append(f"\n**P3, clause 1** (RT-canon, masked, training worlds): matched ratio R against 0.9 × ρ, the size-blind ratio at the router's own size-≤ 5 success (interpolated between the rungs, at most 1 / success) — per seed R {fl([x['R'] for x in c['per_seed']])}; "
+                  f"size-≤ 5 success {fl([x['base'] for x in c['per_seed']])}; ρ {fl([x['rho'] for x in c['per_seed']])}; "
                   f"R ≥ 0.9 ρ in {c['ok']}/{c['n_seeds']} seeds (the unnormalised R ≥ 0.9 of §6: {c['raw_ok']}/{c['n_seeds']}) → {c['verdict']}. Single-axiom worlds R {fl([x['R'] for x in c['single_axiom']])}; training pairs R {fl([x['R'] for x in c['pairs']])} against ρ {fl([x['rho'] for x in c['pairs']])}.")
     if "clause2" in p3:
         c = p3["clause2"]
-        md.append(f"\n**P3, clause 2** (RT-absolute, unmasked, training worlds, sizes 6–7): on the must-fail instances (n {c['per_seed'][0]['must_fail_n']}) success {fl([x['must_fail_rate'] for x in c['per_seed']])} (≤ 0.05 in {c['artefact_ok']}/{c['n_seeds']}); "
-                  f"on the rest (n {c['per_seed'][0]['rest_n']}) success {fl([x['rest_rate'] for x in c['per_seed']])}, matched ratio R {fl([x['rest_R'] for x in c['per_seed']])} against ρ {fl([x['rest_rho'] for x in c['per_seed']])}; R ≥ 0.9 ρ in {c['ok']}/{c['n_seeds']} → {c['verdict']}.")
+        md.append(f"\n**P3, clause 2** (RT-absolute, unmasked, training worlds, sizes 6–7; groups by the slots its head was ever trained on): must fail (n {c['per_seed'][0]['must_fail_n']}) success {fl([x['must_fail_rate'] for x in c['per_seed']])} (≤ 0.05 in {c['artefact_ok']}/{c['n_seeds']}); "
+                  f"only a detour on labelled slots (n {c['per_seed'][0]['detour_n']}, reported apart) {fl([x['detour_rate'] for x in c['per_seed']])}; "
+                  f"a shortest proof on labelled slots (n {c['per_seed'][0]['rest_n']}) success {fl([x['rest_rate'] for x in c['per_seed']])}, matched ratio R {fl([x['rest_R'] for x in c['per_seed']])} against ρ {fl([x['rest_rho'] for x in c['per_seed']])}; R ≥ 0.9 ρ in {c['ok']}/{c['n_seeds']} → {c['verdict']}.")
     p5 = V["P5"]
     if "rt_median" in p5:
         md.append(f"\n**P5** (held-out binding stratum, n {p5['n']}, masked): RT-canon's seed-median {f(p5['rt_median'])}, EI16's {f(p5['ei_median'])} (difference {p5['diff']:+.2f}), greedy rung {f(p5['greedy'])}; unmasked {f(p5['rt_median_u'])} / {f(p5['ei_median_u'])}"
@@ -664,7 +723,8 @@ def render_verdicts(V):
     p7 = V["P7"]
     if "ceiling" in p7:
         md.append(f"\n**P7** (unmasked): training binding stratum (n {p7['train_n']}) — RT-examples {fl(p7['examples_train_u'])} against ceiling {f(p7['ceiling'])} × RT-canon's median {f(p7['rt_train_median_u'])} = {f(p7['target'])} (± 0.1) → {p7['clause1']}; "
-                  f"held-out binding stratum (n {p7['heldout_n']}) — RT-examples {fl(p7['examples_heldout_u'])} against RT-canon's median {f(p7['rt_heldout_median_u'])} (below by more than 0.05 in every seed) → {p7['clause2']}.")
+                  f"held-out binding stratum (n {p7['heldout_n']}) — RT-examples {fl(p7['examples_heldout_u'])} against RT-canon's median {f(p7['rt_heldout_median_u'])} (below by more than 0.05 in every seed) → {p7['clause2']}. "
+                  f"Clause 1 is a consistency band that can hardly fail; what the examples add over no cue at all is the unscored comparison with RT-shuffled on the same stratum, unmasked: {fl(p7['shuffled_train_u']) or '–'}.")
     p8 = V["P8"]
     if "ok_m" in p8:
         md.append(f"\n**P8** (training worlds' binding stratum, n {p8['n']}): masked — RT-canon's median {f(p8['ok_m']['rt_median'])}, RT-shuffled {fl(p8['ok_m']['shuffled'])} (gaps {fl(p8['ok_m']['gaps'])}) → {p8['ok_m']['verdict']}; "

@@ -657,18 +657,18 @@ Oracle rung (d = k) on a sample of 150 eval instances: 150 succeed.
 
 ## 9. Strata and references of the amended pass rules (DESIGN §17)
 
-### 9a. P2: held-out binding instances (eval5) that need the unseen combination — no proof within T = 2k + 2 inside a training world contained in W; rungs and the training-world reference (masked) on them
+### 9a. P2: held-out binding instances (eval5) that need the unseen combination — no proof within T = 2k + 2 inside a training world contained in W; the rungs and two masked symbolic references on them: the *training-world reference* (a move on a shortest proof inside some training world, else the move nearest the goal in a training world's metric — the falsifier's floor) and the *glued reference* (the same with the greedy-σ move as fallback)
 
-| world | binding n | proof within T in a training sub-world | needs the combination: n | greedy d=1 | d=2 | d=3 | training-world reference | all binding: greedy | all binding: training-world reference |
-|---|---|---|---|---|---|---|---|---|---|
-| AI | 305 | 0.85 | 47 | 0.532 | 0.553 | 0.745 | 0.787 | 0.377 | 0.967 |
-| CI | 303 | 0.47 | 162 | 0.358 | 0.407 | 0.722 | 0.457 | 0.449 | 0.710 |
-| **pairs** | 608 | 0.66 | 209 | 0.397 | 0.440 | 0.727 | 0.531 | 0.413 | 0.839 |
-| ACI | 156 | 0.97 | 5 | 0.000 | 0.000 | 0.400 | 0.400 | 0.763 | 0.974 |
-| ACD | 299 | 0.27 | 218 | 0.032 | 0.133 | 0.362 | 0.197 | 0.070 | 0.398 |
-| AID | 294 | 0.69 | 91 | 0.099 | 0.165 | 0.374 | 0.165 | 0.119 | 0.711 |
-| CID | 316 | 0.38 | 195 | 0.318 | 0.426 | 0.733 | 0.246 | 0.373 | 0.509 |
-| **triples** | 1065 | 0.52 | 509 | 0.153 | 0.250 | 0.507 | 0.212 | 0.275 | 0.602 |
+| world | binding n | proof within T in a training sub-world | needs the combination: n | greedy d=1 | d=2 | d=3 | training-world reference | glued reference | glued fails: n | d=3 on those | all binding: greedy | all binding: training-world reference |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| AI | 305 | 0.85 | 47 | 0.532 | 0.553 | 0.745 | 0.787 | 0.766 | 11 | 0.455 | 0.377 | 0.967 |
+| CI | 303 | 0.47 | 162 | 0.358 | 0.407 | 0.722 | 0.457 | 0.747 | 41 | 0.585 | 0.449 | 0.710 |
+| **pairs** | 608 | 0.66 | 209 | 0.397 | 0.440 | 0.727 | 0.531 | 0.751 | 52 | 0.558 | 0.413 | 0.839 |
+| ACI | 156 | 0.97 | 5 | 0.000 | 0.000 | 0.400 | 0.400 | 1.000 | 0 | – | 0.763 | 0.974 |
+| ACD | 299 | 0.27 | 218 | 0.032 | 0.133 | 0.362 | 0.197 | 0.431 | 124 | 0.315 | 0.070 | 0.398 |
+| AID | 294 | 0.69 | 91 | 0.099 | 0.165 | 0.374 | 0.165 | 0.385 | 56 | 0.179 | 0.119 | 0.711 |
+| CID | 316 | 0.38 | 195 | 0.318 | 0.426 | 0.733 | 0.246 | 0.610 | 76 | 0.553 | 0.373 | 0.509 |
+| **triples** | 1065 | 0.52 | 509 | 0.153 | 0.250 | 0.507 | 0.212 | 0.497 | 256 | 0.355 | 0.275 | 0.602 |
 
 ### 9b. P3: the symbolic rungs' own matched ratio, sizes 6–7 over size ≤ 5 on the same (world, k, binding) cells (1 = equally hard; the rungs are rules over structure and do not know the size)
 
@@ -679,18 +679,18 @@ Oracle rung (d = k) on a sample of 150 eval instances: 150 succeed.
 | training pairs | 2400 | 1.317 | 1.237 | 1.116 |
 | held-out | 4200 | 1.289 | 1.193 | 1.064 |
 
-### 9c. P3: eval7 instances of the training worlds that the categorical head cannot solve within T — no route of ≤ T = 2k + 2 steps on prefix positions ≤ 8 (the instances not listed in `eval7_mustfail` have an addressable shortest proof)
+### 9c. P3: where the categorical head stands on the training worlds' eval7 instances. The training stream labels 52 (prefix position, rule) slots: position 0: 8 rules; position 1: 8 rules; position 2: 8 rules; position 3: 8 rules; position 4: 8 rules; position 5: 6 rules (C, Db, Df, IbL, IbR, If); position 6: 6 rules (C, Db, Df, IbL, IbR, If) — positions ≥ 7 are never labelled. 'shortest' = some shortest proof uses labelled slots only; 'detour' = none does, but a route of ≤ T = 2k + 2 steps on labelled slots exists; 'must fail' = no such route
 
-| world | n | every shortest proof needs a position ≥ 9 | …but an addressable route within T exists | must fail | search cut |
+| world | n | shortest | detour only | must fail | search cut |
 |---|---|---|---|---|---|
-| A | 600 | 0 | 0 | 0 | 0 |
-| C | 600 | 28 | 28 | 0 | 0 |
-| I | 600 | 77 | 22 | 55 | 0 |
-| D | 600 | 180 | 11 | 169 | 0 |
-| AC | 600 | 31 | 31 | 0 | 0 |
-| AD | 600 | 145 | 84 | 61 | 0 |
-| CD | 600 | 57 | 57 | 0 | 0 |
-| ID | 600 | 65 | 32 | 33 | 0 |
-| **all** | 4800 | 583 | 265 | 318 | 0 |
+| A | 600 | 369 | 211 | 20 | 0 |
+| C | 600 | 511 | 88 | 1 | 0 |
+| I | 600 | 332 | 46 | 222 | 0 |
+| D | 600 | 224 | 15 | 361 | 0 |
+| AC | 600 | 433 | 166 | 1 | 0 |
+| AD | 600 | 233 | 170 | 197 | 0 |
+| CD | 600 | 377 | 221 | 2 | 0 |
+| ID | 600 | 314 | 104 | 182 | 0 |
+| **all** | 4800 | 2793 | 1021 | 986 | 0 |
 
 ### 9d. Other strata of the amended rules (eval5): training worlds' binding stratum n = 1408 (greedy 0.404, lookahead-3 0.686); held-out binding stratum n = 1673 (greedy 0.325, lookahead-3 0.644), of which 718 need the unseen combination.

@@ -27,8 +27,9 @@ Contents:
      world's binding instances in eval5, whether a proof within T = 2k + 2 exists inside a training world contained in W
      (if none does, the instance *needs the unseen combination* — P2's stratum) and the outcome of the training-world
      reference policy under the mask (P2's non-composing comparator); the ladder's own matched ratio between sizes 6–7
-     and size ≤ 5 (P3's normaliser); for the training worlds' eval7 instances, whether no route within T uses only
-     prefix positions ≤ 8 (must fail for the categorical head — P3's second clause)
+     and size ≤ 5 (P3's normaliser); the (prefix position, rule) slots the training stream labels, and for the training
+     worlds' eval7 instances whether a shortest proof, only a detour within T, or no route at all stays on them (P3's
+     second clause: what the categorical head can and cannot reach)
 
     ... --only-9 recomputes section 9 alone and merges it into the existing derived.json / derived.md.
 """
@@ -247,32 +248,72 @@ def _p2_world(args):
         dist = {u: goal_distances(s, world_from_name(u), r["cap"], actions=acts) for u in TRAIN_NAMES}
         within = [u for u in subs if dist[u].get(t) is not None and dist[u][t] <= T]
         out[f"{r['t']}|{r['s']}"] = {"comb": not within, "trainw": bool(trainworld_rollout(t, s, W, r["cap"], T, dist)),
+                                     "glue": bool(trainworld_rollout(t, s, W, r["cap"], T, dist, "greedy")),
                                      "shortest_in_sub": any(dist[u].get(t) == r["k"] for u in subs)}
     return w, out
 
 
-def _must_fail(rec):
-    """No route from t to s of at most T = 2k + 2 steps that uses prefix positions <= 8 only: the categorical head, whose
-    rows 9–12 are never labelled at size <= 5, cannot solve the instance within the horizon. None = search cut."""
+def labelled_slots(data_dir):
+    """The (prefix position, rule) slots that the canonical proofs of the training worlds' streams ever label — what the
+    105-way categorical head is trained on. (The design said rows 9–12 are the never-labelled ones; counted, they are
+    rows 7–12 and the two A rules at rows 5–6: review 5.)"""
+    slots = {}
+    for w in TRAIN_WORLDS:
+        W = world_from_name(w)
+        with gzip.open(os.path.join(data_dir, f"train_{w}.jsonl.gz"), "rt") as f:
+            for line in f:
+                r = json.loads(line)
+                u, cap = parse(r["t"]), r["cap"]
+                for a in r["canon"][:-1]:
+                    rule, path = dec_action(a)
+                    idx = {p: i for i, (p, _, _) in enumerate(nodes(u))}
+                    slots[(idx[path], rule)] = slots.get((idx[path], rule), 0) + 1
+                    u = step(u, rule, path, W, cap)
+    return slots
+
+
+def _abs_group(args):
+    """Where the categorical head stands on one eval7 instance: 'shortest' — some shortest proof uses labelled slots only;
+    'detour' — none does, but a route of at most T = 2k + 2 steps on labelled slots exists; 'mustfail' — no such route
+    (the head cannot solve the instance within the horizon); 'cut' — search cut."""
+    rec, labelled = args
     W, cap = world_from_name(rec["world"]), rec["cap"]
     t, s, T = parse(rec["t"]), parse(rec["s"]), 2 * rec["k"] + 2
+    ok_slot = lambda u_idx, rule, path: (u_idx[path], rule) in labelled
+    dist, succ, _ = bfs(t, W, cap, radius=rec["k"], stop_at=s)
+    dgoal = reverse_distances(succ, s)
+    dag = shortest_dag(succ, dgoal, t)
+    memo = {}
+
+    def addressable(u):
+        if u == s:
+            return True
+        if u in memo:
+            return memo[u]
+        idx = {p: i for i, (p, _, _) in enumerate(nodes(u))}
+        ok = any(any(ok_slot(idx, rule, p) for rule, p in acts) and addressable(v) for v, acts in dag[u].items())
+        memo[u] = ok
+        return ok
+
+    if addressable(t):
+        return "shortest"
     seen, frontier = {t}, [t]
     for _ in range(T):
         nxt = []
         for u in frontier:
             idx = {p: i for i, (p, _, _) in enumerate(nodes(u))}
-            for _, path, v in valid_actions(u, W, cap):
-                if idx[path] > 8 or v in seen:
+            for rule, path, v in valid_actions(u, W, cap):
+                if not ok_slot(idx, rule, path) or v in seen:
                     continue
                 if v == s:
-                    return False
+                    return "detour"
                 seen.add(v); nxt.append(v)
                 if len(seen) > 400000:
-                    return None
+                    return "cut"
         frontier = nxt
         if not frontier:
             break
-    return True
+    return "mustfail"
 
 
 def matched_ratio(rows7, rows5, ok):
@@ -294,7 +335,7 @@ def matched_ratio(rows7, rows5, ok):
     return (num / den if den else None), int(used)
 
 
-def section9(ev, D, md, pool):
+def section9(ev, D, md, pool, data_dir):
     lad = lambda rs, d: (sum(bool(r["ladder"][str(d)]) for r in rs) / len(rs)) if rs else None
     f2 = lambda x: "–" if x is None else f"{x:.3f}"
     # 9a. P2's stratum and its references
@@ -302,7 +343,7 @@ def section9(ev, D, md, pool):
     D["p2_comb"] = res
     rows, summ = [], {}
     for cls, ws in (("pairs", ["AI", "CI"]), ("triples", ["ACI", "ACD", "AID", "CID"])):
-        pooled_b, pooled_c, pooled_tw_b, pooled_tw_c = [], [], 0, 0
+        pooled_b, pooled_c, pooled_tw_b, pooled_tw_c, pooled_gl, pooled_beyond = [], [], 0, 0, 0, []
         for w in ws:
             if w not in res:
                 continue
@@ -310,17 +351,23 @@ def section9(ev, D, md, pool):
             fl = [res[w][f"{r['t']}|{r['s']}"] for r in b]
             c = [r for r, f in zip(b, fl) if f["comb"]]
             tw_b, tw_c = sum(f["trainw"] for f in fl), sum(f["trainw"] for f in fl if f["comb"])
-            rows.append([w, len(b), f"{sum(not f['comb'] for f in fl) / len(b):.2f}", len(c), f2(lad(c, 1)), f2(lad(c, 2)), f2(lad(c, 3)), f2(tw_c / len(c) if c else None), f2(lad(b, 1)), f2(tw_b / len(b))])
-            pooled_b += b; pooled_c += c; pooled_tw_b += tw_b; pooled_tw_c += tw_c
+            gl_c = sum(f["glue"] for f in fl if f["comb"])
+            beyond = [r for r, f in zip(b, fl) if f["comb"] and not f["glue"]]
+            rows.append([w, len(b), f"{sum(not f['comb'] for f in fl) / len(b):.2f}", len(c), f2(lad(c, 1)), f2(lad(c, 2)), f2(lad(c, 3)), f2(tw_c / len(c) if c else None), f2(gl_c / len(c) if c else None),
+                         len(beyond), f2(lad(beyond, 3)), f2(lad(b, 1)), f2(tw_b / len(b))])
+            pooled_b += b; pooled_c += c; pooled_tw_b += tw_b; pooled_tw_c += tw_c; pooled_gl += gl_c; pooled_beyond += beyond
         summ[cls] = {"binding_n": len(pooled_b), "comb_n": len(pooled_c), "d1": lad(pooled_c, 1), "d2": lad(pooled_c, 2), "d3": lad(pooled_c, 3),
-                     "trainw": pooled_tw_c / len(pooled_c) if pooled_c else None, "binding_d1": lad(pooled_b, 1), "binding_d3": lad(pooled_b, 3),
+                     "trainw": pooled_tw_c / len(pooled_c) if pooled_c else None, "glue": pooled_gl / len(pooled_c) if pooled_c else None,
+                     "beyond_glue_n": len(pooled_beyond), "beyond_glue_d1": lad(pooled_beyond, 1), "beyond_glue_d3": lad(pooled_beyond, 3),
+                     "binding_d1": lad(pooled_b, 1), "binding_d3": lad(pooled_b, 3),
                      "binding_trainw": pooled_tw_b / len(pooled_b) if pooled_b else None}
-        rows.append([f"**{cls}**", len(pooled_b), f"{1 - len(pooled_c) / len(pooled_b):.2f}", len(pooled_c), f2(summ[cls]["d1"]), f2(summ[cls]["d2"]), f2(summ[cls]["d3"]), f2(summ[cls]["trainw"]),
-                     f2(summ[cls]["binding_d1"]), f2(summ[cls]["binding_trainw"])])
+        rows.append([f"**{cls}**", len(pooled_b), f"{1 - len(pooled_c) / len(pooled_b):.2f}", len(pooled_c), f2(summ[cls]["d1"]), f2(summ[cls]["d2"]), f2(summ[cls]["d3"]), f2(summ[cls]["trainw"]), f2(summ[cls]["glue"]),
+                     len(pooled_beyond), f2(summ[cls]["beyond_glue_d3"]), f2(summ[cls]["binding_d1"]), f2(summ[cls]["binding_trainw"])])
     D["p2_comb_summary"] = summ
     md.append("\n## 9. Strata and references of the amended pass rules (DESIGN §17)\n\n### 9a. P2: held-out binding instances (eval5) that need the unseen combination — no proof within T = 2k + 2 inside a training world contained in W; "
-              "rungs and the training-world reference (masked) on them\n\n" +
-              md_table(rows, ["world", "binding n", "proof within T in a training sub-world", "needs the combination: n", "greedy d=1", "d=2", "d=3", "training-world reference", "all binding: greedy", "all binding: training-world reference"]))
+              "the rungs and two masked symbolic references on them: the *training-world reference* (a move on a shortest proof inside some training world, else the move nearest the goal in a training world's metric — the falsifier's floor) "
+              "and the *glued reference* (the same with the greedy-σ move as fallback)\n\n" +
+              md_table(rows, ["world", "binding n", "proof within T in a training sub-world", "needs the combination: n", "greedy d=1", "d=2", "d=3", "training-world reference", "glued reference", "glued fails: n", "d=3 on those", "all binding: greedy", "all binding: training-world reference"]))
     # 9b. P3: the ladder's own matched ratio, and the categorical head's must-fail set
     e5 = {w: [dict(r, world=w) for r in rs] for w, rs in ev["eval5"].items()}
     e7 = {w: [dict(r, world=w) for r in rs] for w, rs in ev["eval7"].items()}
@@ -336,18 +383,25 @@ def section9(ev, D, md, pool):
     D["p3_ladder_matched_ratio"] = rho
     md.append("\n### 9b. P3: the symbolic rungs' own matched ratio, sizes 6–7 over size ≤ 5 on the same (world, k, binding) cells (1 = equally hard; the rungs are rules over structure and do not know the size)\n\n" +
               md_table(rows, ["worlds", "eval7 n matched", "d=1", "d=2", "d=3"]))
-    un = D.get("eval7_unaddressable", {})
-    mf, rows = {}, []
+    lab = labelled_slots(data_dir)
+    D["abs_labelled_slots"] = sorted([pos, rule, n] for (pos, rule), n in lab.items())
+    by_pos = {}
+    for (pos, rule) in lab:
+        by_pos.setdefault(pos, []).append(rule)
+    labelled = frozenset(lab)
+    grp, rows = {}, []
     for w in TRAIN_NAMES:
         rs = [dict(r, world=w) for r in ev["eval7"].get(w, [])]
-        flagged = [r for r in rs if un.get(w, {}).get(f"{r['t']}|{r['s']}")]
-        out = pool.map(_must_fail, flagged, chunksize=4) if flagged else []
-        mf[w] = {f"{r['t']}|{r['s']}": o for r, o in zip(flagged, out)}
-        rows.append([w, len(rs), len(flagged), sum(o is False for o in out), sum(o is True for o in out), sum(o is None for o in out)])
-    D["eval7_mustfail"] = mf
+        out = pool.map(_abs_group, [(r, labelled) for r in rs], chunksize=8) if rs else []
+        grp[w] = {f"{r['t']}|{r['s']}": o for r, o in zip(rs, out)}
+        rows.append([w, len(rs)] + [sum(o == g for o in out) for g in ("shortest", "detour", "mustfail", "cut")])
+    D["eval7_abs_group"] = grp
     rows.append(["**all**"] + [sum(r[i] for r in rows) for i in range(1, 6)])
-    md.append("\n### 9c. P3: eval7 instances of the training worlds that the categorical head cannot solve within T — no route of ≤ T = 2k + 2 steps on prefix positions ≤ 8 (the instances not listed in `eval7_mustfail` have an addressable shortest proof)\n\n" +
-              md_table(rows, ["world", "n", "every shortest proof needs a position ≥ 9", "…but an addressable route within T exists", "must fail", "search cut"]))
+    md.append("\n### 9c. P3: where the categorical head stands on the training worlds' eval7 instances. The training stream labels " + str(len(lab)) + " (prefix position, rule) slots: "
+              + "; ".join(f"position {pos}: {len(rl)} rules" + ("" if len(rl) == 8 else f" ({', '.join(sorted(rl))})") for pos, rl in sorted(by_pos.items()))
+              + " — positions ≥ " + str(max(by_pos) + 1) + " are never labelled. 'shortest' = some shortest proof uses labelled slots only; 'detour' = none does, but a route of ≤ T = 2k + 2 steps on labelled slots exists; "
+              "'must fail' = no such route\n\n" +
+              md_table(rows, ["world", "n", "shortest", "detour only", "must fail", "search cut"]))
     # 9d. the other strata's sizes
     tb = [r for w in TRAIN_NAMES for r in ev["eval5"].get(w, []) if r["binding"]]
     hb = [r for w in groups["held-out"] for r in ev["eval5"].get(w, []) if r["binding"]]
@@ -374,7 +428,8 @@ def main():
         md = [text.split("\n## 9. ")[0].rstrip("\n")]
         ev = {tag: load(args.data, tag, ALL_WORLDS) for tag in ("eval5", "eval7")}
         with mp.Pool(args.workers) as pool:
-            section9(ev, D, md, pool)
+            section9(ev, D, md, pool, args.data)
+        D.pop("eval7_mustfail", None)                # superseded by eval7_abs_group (review 5)
         D["seconds_section9"] = time.time() - t0
         json.dump(D, open(os.path.join(args.out, "derived.json"), "w"), indent=1)
         open(os.path.join(args.out, "derived.md"), "w").write("\n".join(md) + "\n")
@@ -583,7 +638,7 @@ def main():
                      "first_decision_position_ge9": sum(f[2] >= 9 for f in first) / len(rs)}
         D["q2"] = q2
         D["eval7_unaddressable"] = unaddr
-        md.append("\n## 5. Q2 at sizes 6–7 (eval7): instances whose every shortest proof needs a prefix position ≥ 9; coverage of the first decision by training keys\n\n" +
+        md.append("\n## 5. Q2 at sizes 6–7 (eval7): instances whose every shortest proof needs a prefix position ≥ 9 (NOT the categorical head's artefact — the stream labels no slot at positions ≥ 7; the head's groups are §9c, review 5); coverage of the first decision by training keys\n\n" +
                   md_table([[w, c["n"], f"{c['unaddressable_share']:.3f}", f"{c['first_decision_position_ge9']:.3f}", f"{c['first_decision_covered_struct']:.3f}", f"{c['first_decision_covered_abs']:.3f}"] for w, c in q2.items()],
                            ["world", "n", "unaddressable (all proofs)", "first decision at pos ≥ 9", "covered (pattern, rule)", "covered (pattern, position, rule)"]))
         print("q2", f"{time.time() - t0:.0f}s", flush=True)
@@ -642,7 +697,7 @@ def main():
     md.append("\n## 8. Uniform policy's success probability (PF's prior p_success) by k, training worlds\n\n" +
               md_table([[k, f"{v:.4f}"] for k, v in D["uniform_policy_success_by_k"].items()], ["k", "p_success"]))
     with mp.Pool(args.workers) as pool:
-        section9(ev, D, md, pool)
+        section9(ev, D, md, pool, args.data)
     D["seconds"] = time.time() - t0
     json.dump(D, open(os.path.join(args.out, "derived.json"), "w"), indent=1)
     open(os.path.join(args.out, "derived.md"), "w").write("\n".join(md) + "\n")
