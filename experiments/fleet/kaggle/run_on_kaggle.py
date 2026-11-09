@@ -24,11 +24,12 @@ W = os.environ.get("KAGGLE_WORKING", "/kaggle/working")
 INP = os.environ.get("KAGGLE_INPUT", "/kaggle/input")
 TMP = os.environ.get("KAGGLE_TMP", "/tmp")
 code = None
-how = "code.tar.gz extracted by this script"
-for t in glob.glob(f"{INP}/**/code.tar.gz", recursive=True):
+how = "archive extracted by this script"
+for t in glob.glob(f"{INP}/**/code.bundle", recursive=True) + glob.glob(f"{INP}/**/code.tar.gz", recursive=True):
     with tarfile.open(t) as tf:
         tf.extractall(TMP)
     code = os.path.join(TMP, "code")
+    break
 if code is None:  # Kaggle may have auto-extracted the archive
     how = "archive auto-extracted by Kaggle"
     hits = glob.glob(f"{INP}/**/src/topology_design/fleet.py", recursive=True)
@@ -40,32 +41,60 @@ if code is None:  # Kaggle may have auto-extracted the archive
     shutil.copytree(src_root, code, dirs_exist_ok=True)
 os.chdir(code)
 
+GZ_ROOTS = ("data", "tests/fixtures", "prior")
 
-def restore_gz_members():
-    """Kaggle's dataset pipeline, when it auto-extracts the archive, also gunzips its nested .gz members, so the bundle
-    arrives with fx_*.json, train_*.jsonl and prior/*.json where the loaders look for *.gz (the rewrite pilot's test gate
-    failed on exactly this, 8 Nov). Re-gzip any such file whose .gz is missing; report what was found either way."""
+
+def restore_gz_members(expected):
+    """Kaggle's dataset pipeline, when it auto-extracts the archive, rewrites its nested .gz members: a member x.jsonl.gz
+    arrives as a directory x.jsonl/ holding the decompressed file (seen 8 Nov), or as a bare decompressed file. The
+    loaders look for *.gz, so both layouts are turned back into the member. Every name the launcher listed in
+    job["gz_members"] must then exist; otherwise the listing of the roots is printed and the job stops before the gate."""
     import gzip
-    want = [("tests/fixtures", lambda f: f.startswith("fx_") and f.endswith(".json")),
-            ("data", lambda f: f.endswith(".jsonl")),
-            ("prior", lambda f: f.endswith(".json"))]
-    present = sum(1 for root, _, files in os.walk(code) for f in files if f.endswith(".gz"))
+
+    def regz(src, dst):
+        with open(src, "rb") as a, gzip.open(dst, "wb") as b:
+            shutil.copyfileobj(a, b)
+
     restored = []
-    for sub, match in want:
-        for root, _, files in os.walk(os.path.join(code, sub)):
-            for f in files:
-                if match(f) and not os.path.exists(os.path.join(root, f + ".gz")):
-                    with open(os.path.join(root, f), "rb") as src, gzip.open(os.path.join(root, f + ".gz"), "wb") as dst:
-                        shutil.copyfileobj(src, dst)
+    expected_names = {os.path.basename(m) for m in expected}
+    for sub in GZ_ROOTS:
+        for root, dirs, files in os.walk(os.path.join(code, sub), topdown=False):
+            for d in dirs:  # a directory standing where a member should be
+                dp = os.path.join(root, d)
+                if d.endswith((".gz", ".json", ".jsonl")):
+                    inner = [os.path.join(r_, f) for r_, _, fs in os.walk(dp) for f in fs]
+                    if len(inner) == 1:
+                        target = dp if d.endswith(".gz") else dp + ".gz"
+                        tmp_target = target + ".restoring"
+                        if inner[0].endswith(".gz"):
+                            shutil.move(inner[0], tmp_target)
+                        else:
+                            regz(inner[0], tmp_target)
+                        shutil.rmtree(dp)
+                        os.replace(tmp_target, target)
+                        restored.append(os.path.relpath(target, code))
+            for f in files:  # a bare decompressed file standing where a member should be (not inside a wrapping directory)
+                if (f + ".gz") in expected_names and not os.path.basename(root).endswith((".gz", ".json", ".jsonl")):
+                    regz(os.path.join(root, f), os.path.join(root, f + ".gz"))
                     os.remove(os.path.join(root, f))
                     restored.append(os.path.relpath(os.path.join(root, f + ".gz"), code))
-    print(f"bundle unpacked: {how}; .gz members present {present}, restored from gunzipped copies {len(restored)}"
-          + (f" ({restored[:3]}{'...' if len(restored) > 3 else ''})" if restored else ""), flush=True)
+    present = [m for m in expected if os.path.isfile(os.path.join(code, m))]
+    missing = [m for m in expected if m not in present]
+    print(f"bundle unpacked: {how}; .gz members expected {len(expected)}, present after restore {len(present)}, "
+          f"restored {len(restored)}" + (f" (e.g. {restored[:2]})" if restored else ""), flush=True)
+    if missing:
+        print("BUNDLE INCOMPLETE — missing members:", missing[:20], "..." if len(missing) > 20 else "", flush=True)
+        for sub in GZ_ROOTS:
+            for root, _, files in os.walk(os.path.join(code, sub)):
+                for f in sorted(files)[:40]:
+                    print("  ", os.path.relpath(os.path.join(root, f), code), flush=True)
+        sys.exit(1)
 
 
-restore_gz_members()
 job = json.load(open("job.json")) if os.path.exists("job.json") else {"job": "validate"}
-print("code at", code, "job:", job, flush=True)
+if job.get("gz_members"):
+    restore_gz_members(job["gz_members"])
+print("code at", code, "job:", {k: v for k, v in job.items() if k != "gz_members"}, flush=True)
 print("bundle:", job.get("bundle", "(none recorded)"), flush=True)
 env = dict(os.environ, PYTHONPATH=os.path.join(code, "src"))
 os.makedirs(W, exist_ok=True)

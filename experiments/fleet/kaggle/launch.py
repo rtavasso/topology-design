@@ -190,8 +190,6 @@ def main():
     head = subprocess.run(["git", "-C", ROOT, "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip() or "?"
     dirty = bool(subprocess.run(["git", "-C", ROOT, "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True).stdout.strip())
     job["bundle"] = f"{head}{'+dirty' if dirty else ''} {time.strftime('%Y-%m-%d %H:%M:%S')} dataset={args.dataset}"
-    with open(jp, "w") as f:
-        json.dump(job, f)
     prior_dir = os.path.join(args.out, "results")
     prior = sorted(f for f in os.listdir(prior_dir) if f.endswith(".json.gz")) if os.path.isdir(prior_dir) else []
     ckpts = sorted(f for f in os.listdir(args.ckpt_dir) if f.endswith(".pt")) if args.ckpt_dir else []
@@ -202,7 +200,24 @@ def main():
         missing = [f for f in need if f not in ckpts]
         if missing:
             sys.exit(f"the grid's init_from checkpoints are not in --ckpt-dir: {missing[:5]}{'...' if len(missing) > 5 else ''}")
-    with tarfile.open(os.path.join(ds, "code.tar.gz"), "w:gz") as tf:
+    # the manifest of .gz members the kernel must find after unpacking: Kaggle's dataset pipeline rewrites nested .gz
+    # files when it auto-extracts an archive (the rewrite pilot's gate failed twice on this, 8 Nov), so the kernel
+    # restores them and checks every name here before anything runs
+    gz = []
+    for rel in include:
+        p_ = os.path.join(ROOT, rel)
+        if os.path.isdir(p_):
+            for root, _, files in os.walk(p_):
+                gz += [os.path.relpath(os.path.join(root, f), ROOT) for f in files if f.endswith(".gz")]
+        elif rel.endswith(".gz"):
+            gz.append(rel)
+    gz += [os.path.join("data", "rewrite", f) for f in data_files if f.endswith(".gz")] + [os.path.join("prior", f) for f in prior]
+    job["gz_members"] = sorted(gz)
+    with open(jp, "w") as f:
+        json.dump(job, f)
+    # the archive is named so that Kaggle's pipeline does not recognize it as one and leaves its members alone; the kernel
+    # extracts it itself (and still handles the auto-extracted layout if the name is ever not enough)
+    with tarfile.open(os.path.join(ds, "code.bundle"), "w:gz") as tf:
         for rel in include:
             tf.add(os.path.join(ROOT, rel), arcname=os.path.join("code", rel))
         tf.add(jp, arcname="code/job.json")
@@ -212,9 +227,9 @@ def main():
             tf.add(os.path.join(args.ckpt_dir, f), arcname=os.path.join("code", "ckpt", f))
         for f in data_files:
             tf.add(os.path.join(args.data_dir, f), arcname=os.path.join("code", "data", "rewrite", f))
-    print(f"job {job}; {len(prior)} prior results uploaded for resume; {len(ckpts)} checkpoints uploaded; "
+    print(f"job {dict((k, v) for k, v in job.items() if k != 'gz_members')} ({len(job['gz_members'])} .gz members in the manifest); {len(prior)} prior results uploaded for resume; {len(ckpts)} checkpoints uploaded; "
           f"{len(data_files)} data files ({sum(os.path.getsize(os.path.join(args.data_dir, f)) for f in data_files) / 1e6:.1f} MB)" if data_files
-          else f"job {job}; {len(prior)} prior results uploaded for resume; {len(ckpts)} checkpoints uploaded", flush=True)
+          else f"job {dict((k, v) for k, v in job.items() if k != 'gz_members')} ({len(job['gz_members'])} .gz members in the manifest); {len(prior)} prior results uploaded for resume; {len(ckpts)} checkpoints uploaded", flush=True)
     json.dump({"title": args.dataset, "id": f"{user}/{args.dataset}", "licenses": [{"name": "CC0-1.0"}]},
               open(os.path.join(ds, "dataset-metadata.json"), "w"))
     # the status call can return 403 for a dataset that does not exist yet, so try a new version first and fall back
