@@ -91,6 +91,8 @@ def main():
                     "LH-Δ's head multiplier in --ptr-grid before it runs (staged, unattended)")
     ap.add_argument("--per-gpu", type=int, default=1, help="ptr: shard processes per GPU (runs are stacked per process)")
     ap.add_argument("--max-stack", type=int, default=10, help="ptr: runs per stacked model (10 at T = 10 ≈ 7 GB on a T4; a T = 24 stack must stay ≤ 5; stacks split on OOM)")
+    ap.add_argument("--budget-hours", type=float, default=10.5, help="rewrite: a run that cannot finish inside this many hours of the session is "
+                    "left for a resume (a Kaggle session that hits its 12 h limit saves nothing)")
     ap.add_argument("--max-batch", type=int, default=64)
     ap.add_argument("--no-tests", action="store_true", help="grid jobs: skip the fleet tests before the grid")
     ap.add_argument("--out", default=None)
@@ -183,7 +185,7 @@ def main():
         missing += [f"eval5_{w}" for w in all_worlds if f"eval5_{w}.jsonl.gz" not in data_files]
         if missing:
             sys.exit(f"--data-dir {args.data_dir} is missing files the grid needs: {missing} (review 2, B3)")
-        job = {"job": "rewrite", "grid": grid_rel, "per_gpu": args.per_gpu, "tests": not args.no_tests}
+        job = {"job": "rewrite", "grid": grid_rel, "per_gpu": args.per_gpu, "tests": not args.no_tests, "budget_hours": args.budget_hours}
         include = INCLUDE + REWRITE_INCLUDE + [grid_rel]
     jp = os.path.join(tmp, "job.json")
     # what code this bundle is: the kernel prints it first, so the log says which commit ran

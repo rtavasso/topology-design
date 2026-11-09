@@ -5,7 +5,7 @@
 pilot: one seed per arm, a learning-rate sweep {3e-4, 1e-3, 3e-3} for every arm (AGENTS rule 4; review 2 S5), 3,000 steps,
        curves every 500; it sets lr and steps per arm from the training-world curves and reads nothing about the
        predictions (L30).
-main:  the 41 runs of §4 at the lr the pilot chose (fill LR below after the pilot; the defaults are placeholders).
+main:  the 41 runs of §4 at the lr the pilot chose (LR below).
 """
 
 import json
@@ -13,7 +13,9 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ARMS = {"RT-canon": 10, "RT-post": 10, "RT-all": 3, "RT-absolute": 5, "EI16": 5, "PF": 3, "RT-examples": 3, "RT-shuffled": 2}
-LR = {a: 1e-3 for a in ARMS}                 # placeholders until the pilot
+# from the pilot (results_data/pilot_report.md, history Entry 78): per arm, the lr with the highest training-world eval5 masked
+# success at 3,000 steps; every arm's training-world curve was still rising there, so 12,000 steps (PILOT.md items 1–2)
+LR = {"RT-canon": 1e-3, "RT-post": 3e-4, "RT-all": 1e-3, "RT-absolute": 1e-3, "EI16": 1e-3, "PF": 1e-3, "RT-examples": 1e-3, "RT-shuffled": 1e-3}
 STEPS = 12000
 PILOT_STEPS = 3000
 COMMON = {"rows": 256, "inst": 32, "eval_every": 250, "warmup": 200, "wd": 0.01, "curve_per_world": 100}

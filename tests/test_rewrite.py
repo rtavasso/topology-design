@@ -695,3 +695,62 @@ def test_p4_amended_cells_on_planted_fixture():
     assert "recomputed from the run records equal the derive step's (1 cells)" in md and "Random-tie-break rungs" in md
     md = A.report([r], {"p4_amended_pooled": {"cells": ["AC|1|0|4"]}})
     assert "P4 CELL SET MISMATCH" in md
+
+
+def _load_script(name):
+    path = os.path.join(os.path.dirname(__file__), "..", "experiments", "rewrite", name)
+    if not os.path.exists(path):
+        pytest.skip(f"{name} is not part of this bundle")
+    import sys
+    sys.path.insert(0, os.path.dirname(path))
+    spec = importlib.util.spec_from_file_location("rw_" + name[:-3], path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_session_budget_guard_and_shard_balance():
+    """A run that cannot finish inside what is left of the session is not started (a Kaggle session that hits its limit
+    saves nothing); the main grid's four shards are balanced under the costs measured in the pilot, EI16 first."""
+    R = _load_script("run_rewrite.py")
+    ei, rt = {"arm": "EI16", "steps": 12000, "name": "e"}, {"arm": "RT-canon", "steps": 12000, "name": "r"}
+    assert R.fits(ei, None) and R.fits(rt, None)                       # no budget
+    assert not R.fits(ei, 3600) and R.fits(rt, 3600)                   # EI16 needs about 2.4 h, RT-canon about 21 min
+    assert not R.fits(rt, 3600, rate=3 * R.SECONDS_PER_UNIT)           # a shard that has run three times slower than the pilot
+    seeds = {"RT-canon": 10, "RT-post": 10, "RT-all": 3, "RT-absolute": 5, "EI16": 5, "PF": 3, "RT-examples": 3, "RT-shuffled": 2}
+    grid = [{"arm": a, "steps": 12000, "name": f"{a}_s{s}"} for a, n in seeds.items() for s in range(n)]
+    shards, loads = R.assign_shards(grid, 4)
+    assert sorted(c["name"] for s in shards for c in s) == sorted(c["name"] for c in grid)
+    assert max(loads) / min(loads) < 1.1
+    assert all(s[0]["arm"] == "EI16" for s in shards)                  # the long runs start first
+    assert sum(1 for s in shards if any(c["arm"] == "PF" for c in s)) == 1   # the memory-heavy runs never side by side
+    assert 20 < sum(loads) * R.SECONDS_PER_UNIT / 3600 < 35            # the pilot's projection: about 27 process-hours
+
+
+def test_pilot_read_lr_rule_on_planted_records():
+    """The pilot's lr rule (PILOT.md item 1): the lr with the highest training-world eval5 masked success at the last
+    step, ties by the lower loss — on records cut from the real fixtures with planted outcomes; held-out rows do not count."""
+    import copy
+    P = _load_script("pilot_read.py")
+    A = _analyze()
+    runs = A.load_results(FIX)
+    md, chosen, cost = P.report(runs)
+    assert set(chosen) == {A.arm_of(r) for r in runs} and "**holds**" in md
+    base = [r for r in runs if A.arm_of(r) == "RT-canon"][0]
+
+    def variant(lr, train_ok, held_ok, loss):
+        r = copy.deepcopy(base)
+        r["cfg"]["lr"] = lr
+        for key, c in r["final"]["eval5"]["cells"].items():
+            c["ok_m"] = int(round(c["n"] * (train_ok if key.split("|")[0] in A.TRAIN_WORLDS else held_ok)))
+            c["ok_u"] = min(c["ok_u"], c["ok_m"])
+        r["curve"][-1]["loss"] = loss
+        return r
+
+    others = [r for r in runs if A.arm_of(r) != "RT-canon"]
+    # the higher training-world success wins even when its held-out rows are worse
+    _, chosen, _ = P.report(others + [variant(3e-4, 0.5, 1.0, 0.1), variant(3e-3, 1.0, 0.0, 0.9)])
+    assert chosen["RT-canon"] == 3e-3
+    # a tie on success goes to the lower loss
+    _, chosen, _ = P.report(others + [variant(3e-4, 1.0, 0.0, 0.2), variant(3e-3, 1.0, 0.0, 0.9)])
+    assert chosen["RT-canon"] == 3e-4

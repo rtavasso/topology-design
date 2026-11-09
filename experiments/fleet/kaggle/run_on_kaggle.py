@@ -19,8 +19,10 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 
 W = os.environ.get("KAGGLE_WORKING", "/kaggle/working")
+T_START = time.time()
 INP = os.environ.get("KAGGLE_INPUT", "/kaggle/input")
 TMP = os.environ.get("KAGGLE_TMP", "/tmp")
 code = None
@@ -262,13 +264,19 @@ elif job["job"] == "rewrite":
     procs = []
     for i in range(k):
         e = {**env, "CUDA_VISIBLE_DEVICES": str(i % g)} if n_gpus() > 0 else env
-        cmd = [sys.executable, "experiments/rewrite/run_rewrite.py", "--grid", job["grid"], "--data", data, "--out", W, "--shard", f"{i}/{k}"]
-        tee = f"exec {' '.join(cmd)} 2>&1 | tee {os.path.join(W, f'rewrite_shard{i}.txt')} | sed -u 's/^/[rewrite{i}] /'"
-        procs.append(subprocess.Popen(tee, shell=True, env=e))
+        cmd = [sys.executable, "experiments/rewrite/run_rewrite.py", "--grid", job["grid"], "--data", data, "--out", W, "--shard", f"{i}/{k}",
+               "--budget-hours", str(job.get("budget_hours", 10.5)), "--started", str(T_START)]
+        # pipefail: the shard's own exit status, not sed's (a shard killed by the system otherwise reads as rc 0)
+        tee = f"set -o pipefail; {' '.join(cmd)} 2>&1 | tee {os.path.join(W, f'rewrite_shard{i}.txt')} | sed -u 's/^/[rewrite{i}] /'"
+        procs.append(subprocess.Popen(tee, shell=True, executable="/bin/bash", env=e))
     rcs = [p.wait() for p in procs]
+    if any(rcs):
+        print(f"SHARD FAILURE: exit statuses {rcs} (137 = killed, usually out of memory); its unfinished runs are left for a resume", flush=True)
     for i in range(k):
         print(open(os.path.join(W, f"rewrite_shard{i}.txt")).read()[-2000:], flush=True)
     n = len([f for f in os.listdir(out) if f.endswith(".json.gz")])
-    print(f"\nSUMMARY rewrite grid={job['grid']} shards={k} rcs={rcs} results={n}", flush=True)
+    n_grid = len(json.load(open(job["grid"])))
+    print(f"\nSUMMARY rewrite grid={job['grid']} shards={k} rcs={rcs} results={n} of {n_grid}"
+          + ("" if n >= n_grid else f" — INCOMPLETE: relaunch the same command to resume the remaining {n_grid - n}"), flush=True)
 else:
     sys.exit(f"unknown job {job}")
