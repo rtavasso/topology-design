@@ -403,10 +403,26 @@ def make_model(cfg):
     return Router(rc), rc
 
 
-def run(cfg: dict, data_dir: str, device: str = "cpu", log=print, sets=None) -> dict:
+def save_checkpoint(model, rc, cfg, path: str):
+    """The trained router with what is needed to rebuild it (load_checkpoint): any stratum or eval set can then be scored
+    later without retraining."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    torch.save({"state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()}, "cfg": cfg, "router": rc.dict()}, path + ".tmp")
+    os.replace(path + ".tmp", path)
+
+
+def load_checkpoint(path: str, device: str = "cpu"):
+    ck = torch.load(path, map_location=device)
+    model, rc = make_model(ck["cfg"])
+    assert rc.dict() == ck["router"], "the checkpoint's router configuration differs from the one its cfg builds"
+    model.load_state_dict(ck["state_dict"])
+    return model.to(device).eval(), ck["cfg"]
+
+
+def run(cfg: dict, data_dir: str, device: str = "cpu", log=print, sets=None, ckpt_path: str | None = None) -> dict:
     """One run. cfg: arm, seed, lr, steps, rows (teacher-forced rows per step), inst (instances per step for EI16),
     eval_every, warmup, worlds (training worlds; RT-all uses all fifteen), curve_per_world. The PF arm's stream is the
-    PF-labelled records only."""
+    PF-labelled records only. With ckpt_path, the trained router is saved there."""
     t0 = time.time()
     seed = int(cfg.get("seed", 0))
     torch.manual_seed(seed); np.random.seed(seed)
@@ -492,5 +508,7 @@ def run(cfg: dict, data_dir: str, device: str = "cpu", log=print, sets=None) -> 
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         opt.step()
         losses.append(float(loss.detach()))
+    if ckpt_path:
+        save_checkpoint(model, rc, cfg, ckpt_path)
     return {"cfg": cfg, "params": n_params(model), "router": rc.dict(), "curve": curve, "final": final,
-            "ei_found": ei_found, "seconds": time.time() - t0, "losses": losses[::10]}
+            "ei_found": ei_found, "seconds": time.time() - t0, "losses": losses[::10], "ckpt": os.path.basename(ckpt_path) if ckpt_path else None}

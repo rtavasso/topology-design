@@ -204,3 +204,70 @@ def ladder_rollout(t, s, W, cap, d, T, sigma=ted, tie="lex", rng=None) -> dict:
             return {"ok": False, "steps": i, "reason": "no valid action"}
         u = a[2]
     return {"ok": u == s, "steps": T, "reason": None if u == s else "horizon"}
+
+
+# ---------------- the training-world reference (DESIGN §17: P2's non-composing comparator) ----------------
+
+def goal_distances(s, U, cap, actions=None) -> dict:
+    """Distance to s inside world U for every term that can reach it (the rule set is closed under inverses, so the
+    rewrite graph is symmetric and a BFS from s gives distances to s). `actions(u)` may supply cached full-world actions
+    [(rule, path, new)]; they are filtered to U here."""
+    from collections import deque
+    from .rules import RULE_AX
+    dist = {s: 0}
+    q = deque([s])
+    while q:
+        u = q.popleft()
+        acts = [a for a in actions(u) if RULE_AX[a[0]] in U] if actions is not None else valid_actions(u, U, cap)
+        for _, _, v in acts:
+            if v not in dist:
+                dist[v] = dist[u] + 1
+                q.append(v)
+    return dist
+
+
+def trainworld_policy(u, s, W, cap, dist: dict):
+    """One decision of the training-world reference: among the actions valid in W (the mask), take one that lies on a
+    shortest proof to s inside some *training* world — the smallest such world first, then the shorter proof, then the
+    world's name; if no valid action does, the one whose successor is nearest to s in any training world's metric; if no
+    successor can reach s inside a training world, the first by (rule, path). `dist` = {training world name: distances to
+    s inside it}. It never plans with a set of axioms it was not 'trained' on and never reads which world it is in — it
+    is what a router scores that acts at every state as some training world would and lets the executor's mask choose."""
+    from .rules import RULE_AX
+    cand = valid_actions(u, W, cap)
+    if not cand:
+        return None
+
+    def key(a):
+        rule, path, v = a
+        best = fb = None
+        for name, d in dist.items():
+            if RULE_AX[rule] not in name:
+                continue
+            if u in d and d.get(v) == d[u] - 1:
+                k_ = (len(name), d[u], name)
+                if best is None or k_ < best:
+                    best = k_
+            if v in d:
+                f_ = (d[v], len(name), name)
+                if fb is None or f_ < fb:
+                    fb = f_
+        if best is not None:
+            return (0, best, RULE_INDEX[rule], path)
+        if fb is not None:
+            return (1, fb, RULE_INDEX[rule], path)
+        return (2, (0, 0, ""), RULE_INDEX[rule], path)
+
+    return min(cand, key=key)
+
+
+def trainworld_rollout(t, s, W, cap, T, dist: dict) -> bool:
+    u = t
+    for _ in range(T):
+        if u == s:
+            return True
+        a = trainworld_policy(u, s, W, cap, dist)
+        if a is None:
+            return False
+        u = a[2]
+    return u == s

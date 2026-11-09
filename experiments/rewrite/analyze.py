@@ -15,6 +15,7 @@ import argparse
 import glob
 import gzip
 import json
+import math
 import os
 import statistics
 import sys
@@ -395,10 +396,280 @@ def report(runs, derived=None):
     for a in arms:
         per = [instances(r, "evalk78") for r in by_seed(runs, a)]
         if per and per[0]:
-            rows.append([a, len(per[0]), summarize_seeds([rate(p) for p in per]), fmt(ladder_rate(per[0], 1)), fmt(ladder_rate(per[0], 2)), fmt(ladder_rate(per[0], 3))])
+            rows.append([a, len(per[0]), summarize_seeds([rate(p) for p in per]), summarize_seeds([rate(p, "ok_u") for p in per]), fmt(ladder_rate(per[0], 1), 3), fmt(ladder_rate(per[0], 2), 3), fmt(ladder_rate(per[0], 3), 3)])
     if rows:
-        md.append("\n## P1 (reported): {A, C} at k = 7–8, size ≤ 5\n\n" + table(rows, ["arm", "n/seed", "success", "d=1", "d=2", "d=3"]))
+        md.append("\n## P1 (reported): {A, C} at k = 7–8, size ≤ 5 (the symbolic rungs are at their floor here — there is no reference; a rate is reported, not compared)\n\n" + table(rows, ["arm", "n/seed", "masked", "unmasked", "d=1", "d=2", "d=3"]))
+    md.append(render_verdicts(verdicts(runs, derived)))
     return "\n".join(md) + "\n"
+
+
+# ---------------- the amended pass rules (DESIGN §17): one verdict per prediction, computed, not read off a table ----------------
+
+SEEDS = {"RT-canon": 10, "RT-post": 10, "RT-all": 3, "RT-absolute": 5, "EI16": 5, "PF": 3, "RT-examples": 3, "RT-shuffled": 2}
+
+
+def _key(pi):
+    return f"{pi['t']}|{pi['s']}"
+
+
+def _median(vals):
+    vals = [v for v in vals if v is not None]
+    return statistics.median(vals) if vals else None
+
+
+def _count(n_ok, n, need_frac):
+    """A count over seeds against a preregistered fraction (6/10, 7/10, …) of the seeds actually present."""
+    return n > 0 and n_ok >= math.ceil(need_frac * n - 1e-9)
+
+
+def matched_cells(rows7, rows5):
+    c7, c5 = {}, {}
+    for pi in rows7:
+        c7.setdefault((pi["world"], pi["k"], bool(pi["binding"])), []).append(pi)
+    for pi in rows5:
+        if pi["k"] <= 4:
+            c5.setdefault((pi["world"], pi["k"], bool(pi["binding"])), []).append(pi)
+    return [(rows, c5[key]) for key, rows in c7.items() if key in c5]
+
+
+def matched_stat(cells, okf):
+    """(ratio, size-<=5 success reweighted to eval7's composition, n): the P3 statistic for any per-instance outcome."""
+    num = den = n = 0.0
+    for rows7, rows5 in cells:
+        num += sum(bool(okf(pi)) for pi in rows7)
+        den += len(rows7) * sum(bool(okf(pi)) for pi in rows5) / len(rows5)
+        n += len(rows7)
+    return (num / den if den else None), (den / n if n else None), int(n)
+
+
+def normalised_ratio(rows7, rows5, key):
+    """The router's matched ratio R and the same statistic rho for the symbolic rung whose size-<=5 success on these cells
+    is nearest the router's (the rungs are rules over structure: rho is what a size-blind policy of that strength scores,
+    and it is above 1 where eval7's matched cells are easier). ok = R >= 0.9 rho."""
+    cells = matched_cells(rows7, rows5)
+    R, base, n = matched_stat(cells, lambda pi: pi[key])
+    if R is None:
+        return {"R": None, "rho": None, "rung": None, "n": n, "ok": None, "raw_ok": None}
+    rungs = {d: matched_stat(cells, lambda pi, d=d: pi["ladder"][str(d)]) for d in (1, 2, 3)}
+    usable = {d: v for d, v in rungs.items() if v[0] is not None}
+    if not usable:
+        return {"R": R, "rho": None, "rung": None, "n": n, "ok": None, "raw_ok": R >= 0.9}
+    d = min(usable, key=lambda d: (abs(usable[d][1] - base), d))
+    return {"R": R, "rho": usable[d][0], "rung": d, "n": n, "ok": R >= 0.9 * usable[d][0], "raw_ok": R >= 0.9}
+
+
+def verdicts(runs, derived=None):
+    """Every pass rule of DESIGN §17 as a computed verdict: {"P2": {...}, "P3": {...}, "P5": ..., "P6": ..., "P7": ..., "P8": ...}.
+    Each carries "verdict" (pass / holds / falsified / undecided / not readable) and the numbers it was read from."""
+    derived = derived or {}
+    V = {}
+    held_b = PAIRS_HELD + TRIPLES
+
+    # ---- P2: held-out binding instances that need the unseen combination
+    flags = derived.get("p2_comb")
+
+    def comb(run, worlds):
+        return [pi for pi in instances(run, "eval5", world=worlds, binding=True) if (flags or {}).get(pi["world"], {}).get(_key(pi), {}).get("comb")]
+
+    def refs(rows):
+        tw = sum(bool(flags[pi["world"]][_key(pi)]["trainw"]) for pi in rows) / len(rows) if rows else None
+        return {"n": len(rows), "greedy": ladder_rate(rows, 1), "d3": ladder_rate(rows, 3), "trainw": tw,
+                "floor": max(ladder_rate(rows, 1), tw) if rows else None}
+
+    def pair_ok(rate_, g):
+        return rate_ is not None and g is not None and rate_ - g >= 0.2 and rate_ >= 0.7
+
+    p2 = {"verdict": "not readable", "why": "no p2_comb flags in derived.json" if not flags else None}
+    rc, ra = by_seed(runs, "RT-canon"), by_seed(runs, "RT-all")
+    if flags and rc:
+        rp, rt_ = refs(comb(rc[0], PAIRS_HELD)), refs(comb(rc[0], TRIPLES))
+        p2.update({"pairs": rp, "triples": rt_})
+        if not rp["n"]:
+            p2["why"] = "the pairs' needs-the-combination stratum is empty in these records"
+        else:
+            for rd in ("ok_m", "ok_u"):
+                pr = [rate(comb(r, PAIRS_HELD), rd) for r in rc]
+                tr = [rate(comb(r, TRIPLES), rd) for r in rc]
+                n_pair = sum(pair_ok(x, rp["greedy"]) for x in pr)
+                n_tri = sum(x is not None and rt_["floor"] is not None and x > rt_["floor"] for x in tr)
+                n_above = sum(x is not None and x > rp["floor"] for x in pr)
+                allp = [rate(comb(r, PAIRS_HELD), rd) for r in ra]
+                p2[rd] = {"pair_rates": pr, "triple_rates": tr, "pair_ok": n_pair, "triple_above_floor": n_tri, "pair_above_floor": n_above, "n_seeds": len(rc),
+                          "rt_all_pair_rates": allp, "rt_all_median": _median(allp), "rt_all_reaches": pair_ok(_median(allp), rp["greedy"]),
+                          "ci": [bootstrap_ci(comb(r, PAIRS_HELD), rd) for r in rc],
+                          "passes": _count(n_pair, len(rc), 0.6) and (rt_["n"] == 0 or _count(n_tri, len(rc), 0.6))}
+            m = p2["ok_m"]
+            few_above = m["pair_above_floor"] <= math.floor(0.3 * m["n_seeds"] + 1e-9)
+            if m["passes"]:
+                p2["verdict"] = "pass"
+                p2["cue"] = "composes under the stated cue" if p2["ok_u"]["passes"] else "composes decisions when the executor supplies the action set; the cue alone does not carry the unseen combination"
+            elif few_above and m["rt_all_reaches"]:
+                p2["verdict"] = "falsified"
+            elif few_above:
+                p2["verdict"] = "undecided"; p2["why"] = "RT-canon is not above the non-composing floor, but RT-all does not reach the pair conditions either: reachability not shown"
+            else:
+                p2["verdict"] = "undecided"; p2["why"] = "above the non-composing floor in more than 3/10 seeds, short of the pair conditions in 6/10 (or of the triples' clause)"
+    V["P2"] = p2
+
+    # ---- P3: sizes 6–7 against size <= 5, normalised by the matched rung; the categorical head's must-fail set
+    p3 = {"verdict": "not readable"}
+    if rc:
+        c1 = [normalised_ratio(instances(r, "eval7", world=TRAIN_WORLDS), instances(r, "eval5", world=TRAIN_WORLDS), "ok_m") for r in rc]
+        ok1 = sum(bool(x["ok"]) for x in c1)
+        readable1 = all(x["ok"] is not None for x in c1)
+        p3["clause1"] = {"per_seed": c1, "ok": ok1, "n_seeds": len(c1), "raw_ok": sum(bool(x["raw_ok"]) for x in c1),
+                         "single_axiom": [normalised_ratio(instances(r, "eval7", world=["A", "C", "I", "D"]), instances(r, "eval5", world=["A", "C", "I", "D"]), "ok_m") for r in rc],
+                         "pairs": [normalised_ratio(instances(r, "eval7", world=["AC", "AD", "CD", "ID"]), instances(r, "eval5", world=["AC", "AD", "CD", "ID"]), "ok_m") for r in rc],
+                         "verdict": "not readable" if not readable1 else ("pass" if _count(ok1, len(c1), 0.7) else ("falsified" if ok1 <= math.floor(0.3 * len(c1) + 1e-9) else "undecided"))}
+        p3["verdict"] = p3["clause1"]["verdict"]
+    rab, mf = by_seed(runs, "RT-absolute"), derived.get("eval7_mustfail")
+    if rab and mf is not None:
+        per = []
+        for r in rab:
+            e7 = instances(r, "eval7", world=TRAIN_WORLDS)
+            must = [pi for pi in e7 if mf.get(pi["world"], {}).get(_key(pi)) is True]
+            rest = [pi for pi in e7 if mf.get(pi["world"], {}).get(_key(pi)) is not True]
+            nr = normalised_ratio(rest, instances(r, "eval5", world=TRAIN_WORLDS), "ok_u")
+            per.append({"must_fail_n": len(must), "must_fail_rate": rate(must, "ok_u"), "rest_n": len(rest), "rest_rate": rate(rest, "ok_u"), **{f"rest_{k_}": v for k_, v in nr.items()}})
+        ok2 = sum(bool(x["rest_ok"]) for x in per)
+        art = sum(x["must_fail_rate"] is not None and x["must_fail_rate"] <= 0.05 for x in per)
+        readable2 = all(x["rest_ok"] is not None for x in per)
+        p3["clause2"] = {"per_seed": per, "ok": ok2, "artefact_ok": art, "n_seeds": len(per),
+                         "verdict": "not readable" if not readable2 else ("holds" if _count(ok2, len(per), 0.8) else ("falsified" if ok2 <= math.floor(0.2 * len(per) + 1e-9) else "undecided"))}
+    V["P3"] = p3
+
+    # ---- P5: EI16 against RT-canon on the held-out binding stratum (masked), seed-medians
+    rei = by_seed(runs, "EI16")
+    p5 = {"verdict": "not readable"}
+    if rc and rei:
+        sel = lambda r: instances(r, "eval5", world=held_b + FULL, binding=True)
+        m_rt, m_ei = _median([rate(sel(r)) for r in rc]), _median([rate(sel(r)) for r in rei])
+        g = ladder_rate(sel(rc[0]), 1)
+        if m_rt is not None and m_ei is not None:
+            p5 = {"n": len(sel(rc[0])), "rt_median": m_rt, "ei_median": m_ei, "greedy": g, "diff": m_ei - m_rt,
+                  "rt_median_u": _median([rate(sel(r), "ok_u") for r in rc]), "ei_median_u": _median([rate(sel(r), "ok_u") for r in rei]),
+                  "comb": {"n": len(comb(rc[0], held_b)), "rt_median": _median([rate(comb(r, held_b)) for r in rc]), "ei_median": _median([rate(comb(r, held_b)) for r in rei])} if flags else None,
+                  "verdict": "falsified" if (m_ei < g < m_rt) else ("holds" if abs(m_ei - m_rt) <= 0.1 else "differs by more than 0.1")}
+    V["P5"] = p5
+
+    # ---- P6: RT-post at the target mixture, RT-canon at the canonical class (first decision, multi-class training instances)
+    def p6_stats(r):
+        sel = [pi for pi in instances(r, "eval5", world=TRAIN_WORLDS) if pi.get("p_first") and pi.get("target_first") and pi["n_classes"] > 1 and len(pi["p_first"]) > 1]
+        tvs, uni, canon = [], [], []
+        for pi in sel:
+            tot = sum(pi["p_first"].values())
+            tg = pi["target_first"]
+            if tot > 0:
+                q = {k_: v / tot for k_, v in pi["p_first"].items()}
+                tvs.append(0.5 * sum(abs(q.get(k_, 0.0) - tg.get(k_, 0.0)) for k_ in set(q) | set(tg)))
+            u = 1.0 / len(pi["p_first"])
+            uni.append(0.5 * sum(abs((u if k_ in pi["p_first"] else 0.0) - tg.get(k_, 0.0)) for k_ in set(pi["p_first"]) | set(tg)))
+            canon.append(bool(pi.get("first_canon")))
+        return {"n": len(sel), "tv": statistics.mean(tvs) if tvs else None, "tv_uniform": statistics.mean(uni) if uni else None, "canon": statistics.mean(canon) if canon else None}
+
+    rpo = by_seed(runs, "RT-post")
+    p6 = {"verdict": "not readable"}
+    if rpo and rc:
+        sp, sc = [p6_stats(r) for r in rpo], [p6_stats(r) for r in rc]
+        if any(x["n"] for x in sp) and any(x["n"] for x in sc):
+            okp = sum(x["tv"] is not None and x["tv"] < x["tv_uniform"] for x in sp)
+            okc = sum(x["canon"] is not None and x["canon"] >= 0.9 for x in sc)
+            p6 = {"post": sp, "canon": sc, "post_ok": okp, "canon_ok": okc,
+                  "verdict": "holds" if (_count(okp, len(sp), 0.7) and _count(okc, len(sc), 0.7)) else "does not hold"}
+    V["P6"] = p6
+
+    # ---- P7: RT-examples against ceiling x RT-canon (unmasked), training binding stratum; below stated RT on held-out binding
+    rex, exc = by_seed(runs, "RT-examples"), derived.get("examples_ceiling")
+    p7 = {"verdict": "not readable"}
+    if rex and rc and exc:
+        tb = lambda r: instances(r, "eval5", world=TRAIN_WORLDS, binding=True)
+        hb = lambda r: instances(r, "eval5", world=held_b + FULL, binding=True)
+        ws = [w for w in TRAIN_WORLDS if w in exc and exc[w]["binding_n"] > 0]
+        ceil = (sum(exc[w]["ceiling_canon_binding"] * exc[w]["binding_n"] for w in ws) / sum(exc[w]["binding_n"] for w in ws)) if ws else None
+        m_t, m_h = _median([rate(tb(r), "ok_u") for r in rc]), _median([rate(hb(r), "ok_u") for r in rc])
+        ex_t, ex_h = [rate(tb(r), "ok_u") for r in rex], [rate(hb(r), "ok_u") for r in rex]
+        if ceil is not None and m_t is not None and all(x is not None for x in ex_t + ex_h) and m_h is not None:
+            target = ceil * m_t
+            within = sum(abs(x - target) <= 0.1 for x in ex_t)
+            above = sum(x - target > 0.1 for x in ex_t)
+            below_h = sum(x < m_h - 0.05 for x in ex_h)
+            ge_h = sum(x >= m_h for x in ex_h)
+            c1 = "holds" if within == len(ex_t) else ("above: W is read from more than the examples" if above * 3 >= 2 * len(ex_t) else ("below: the examples are not used to the ceiling" if (len(ex_t) - within - above) * 3 >= 2 * len(ex_t) else "undecided"))
+            c2 = "holds" if below_h == len(ex_h) else ("falsified" if ge_h * 3 >= 2 * len(ex_h) else "undecided")
+            p7 = {"ceiling": ceil, "rt_train_median_u": m_t, "target": target, "examples_train_u": ex_t, "clause1": c1, "rt_heldout_median_u": m_h, "examples_heldout_u": ex_h, "clause2": c2,
+                  "train_n": len(tb(rc[0])), "heldout_n": len(hb(rc[0])),
+                  "verdict": "holds" if (c1 == "holds" and c2 == "holds") else ("falsified" if c2 == "falsified" else "does not hold as stated")}
+    V["P7"] = p7
+
+    # ---- P8: RT-shuffled against RT-canon on the training worlds' binding stratum, each reading on its own
+    rsh = by_seed(runs, "RT-shuffled")
+    p8 = {"verdict": "not readable"}
+    if rsh and rc:
+        tb = lambda r: instances(r, "eval5", world=TRAIN_WORLDS, binding=True)
+        out = {"n": len(tb(rc[0]))}
+        for rd in ("ok_m", "ok_u"):
+            m = _median([rate(tb(r), rd) for r in rc])
+            sh = [rate(tb(r), rd) for r in rsh]
+            if m is None or any(x is None for x in sh):
+                out = None
+                break
+            gaps = [m - x for x in sh]
+            n_gap = sum(g > 0.05 for g in gaps)
+            out[rd] = {"rt_median": m, "shuffled": sh, "gaps": gaps, "verdict": "holds" if n_gap == len(gaps) else ("falsified" if n_gap == 0 else "undecided")}
+        if out:
+            vm, vu = out["ok_m"]["verdict"], out["ok_u"]["verdict"]
+            reading = {("holds", "holds"): "the presence tokens carry the world under both readings",
+                       ("falsified", "holds"): "under the mask the action set, not the presence tokens, carries the world; without the mask the tokens do",
+                       ("falsified", "falsified"): "the presence tokens carry nothing the pair (t, s) does not"}.get((vm, vu), "mixed or undecided")
+            p8 = {**out, "verdict": vm, "verdict_unmasked": vu, "reading": reading}
+    V["P8"] = p8
+    return V
+
+
+def render_verdicts(V):
+    f = lambda x, nd=2: "–" if x is None else f"{x:.{nd}f}"
+    fl = lambda xs: " ".join(f(x) for x in xs)
+    md = ["\n## Verdicts under the amended pass rules (DESIGN §17)\n"]
+    rows = [[k_, v.get("verdict", "–") + (f"; unmasked: {v['verdict_unmasked']}" if "verdict_unmasked" in v else ""), v.get("cue") or v.get("reading") or v.get("why") or ""] for k_, v in V.items()]
+    md.append(table(rows, ["prediction", "verdict", "reading"]))
+    p2 = V["P2"]
+    if "ok_m" in p2:
+        rp, rt_ = p2["pairs"], p2["triples"]
+        md.append(f"\n**P2** — held-out binding instances that need the unseen combination. Pairs n = {rp['n']}: greedy {f(rp['greedy'])}, lookahead-3 {f(rp['d3'])}, training-world reference {f(rp['trainw'])} (floor {f(rp['floor'])}); "
+                  f"triples n = {rt_['n']}: greedy {f(rt_['greedy'])}, lookahead-3 {f(rt_['d3'])}, training-world reference {f(rt_['trainw'])} (floor {f(rt_['floor'])}).\n")
+        rows = []
+        for rd, name in (("ok_m", "masked"), ("ok_u", "unmasked")):
+            x = p2[rd]
+            lo, hi = [c[0] for c in x["ci"] if c[0] is not None], [c[1] for c in x["ci"] if c[1] is not None]
+            rows.append([name, summarize_seeds(x["pair_rates"]), f"[{min(lo):.2f}, {max(hi):.2f}]" if lo else "–", f"{x['pair_ok']}/{x['n_seeds']}", f"{x['pair_above_floor']}/{x['n_seeds']}",
+                         summarize_seeds(x["triple_rates"]), f"{x['triple_above_floor']}/{x['n_seeds']}", summarize_seeds(x["rt_all_pair_rates"]), "yes" if x["rt_all_reaches"] else "no", "yes" if x["passes"] else "no"])
+        md.append(table(rows, ["reading", "RT-canon, pairs", "instance bootstrap 95 % (seeds' envelope)", "≥ greedy + 0.2 and ≥ 0.7", "> floor (pairs)", "RT-canon, triples", "> floor (triples)", "RT-all, pairs", "RT-all's median meets the pair conditions", "pass conditions met"]))
+    p3 = V["P3"]
+    if "clause1" in p3:
+        c = p3["clause1"]
+        md.append(f"\n**P3, clause 1** (RT-canon, masked, training worlds): matched ratio R against 0.9 × ρ of the nearest rung — per seed R {fl([x['R'] for x in c['per_seed']])}; ρ {fl([x['rho'] for x in c['per_seed']])} (rung {[x['rung'] for x in c['per_seed']]}); "
+                  f"R ≥ 0.9 ρ in {c['ok']}/{c['n_seeds']} seeds (the unnormalised R ≥ 0.9 of §6: {c['raw_ok']}/{c['n_seeds']}) → {c['verdict']}. Single-axiom worlds R {fl([x['R'] for x in c['single_axiom']])}; training pairs R {fl([x['R'] for x in c['pairs']])} against ρ {fl([x['rho'] for x in c['pairs']])}.")
+    if "clause2" in p3:
+        c = p3["clause2"]
+        md.append(f"\n**P3, clause 2** (RT-absolute, unmasked, training worlds, sizes 6–7): on the must-fail instances (n {c['per_seed'][0]['must_fail_n']}) success {fl([x['must_fail_rate'] for x in c['per_seed']])} (≤ 0.05 in {c['artefact_ok']}/{c['n_seeds']}); "
+                  f"on the rest (n {c['per_seed'][0]['rest_n']}) success {fl([x['rest_rate'] for x in c['per_seed']])}, matched ratio R {fl([x['rest_R'] for x in c['per_seed']])} against ρ {fl([x['rest_rho'] for x in c['per_seed']])}; R ≥ 0.9 ρ in {c['ok']}/{c['n_seeds']} → {c['verdict']}.")
+    p5 = V["P5"]
+    if "rt_median" in p5:
+        md.append(f"\n**P5** (held-out binding stratum, n {p5['n']}, masked): RT-canon's seed-median {f(p5['rt_median'])}, EI16's {f(p5['ei_median'])} (difference {p5['diff']:+.2f}), greedy rung {f(p5['greedy'])}; unmasked {f(p5['rt_median_u'])} / {f(p5['ei_median_u'])}"
+                  + (f"; on the {p5['comb']['n']} that need the unseen combination {f(p5['comb']['rt_median'])} / {f(p5['comb']['ei_median'])}" if p5.get("comb") else "") + f" → {p5['verdict']}.")
+    p6 = V["P6"]
+    if "post" in p6:
+        md.append(f"\n**P6** (first decision, multi-class training instances, n {p6['post'][0]['n']}): RT-post's TV to the target {fl([x['tv'] for x in p6['post']])} against the uniform-over-shortest-actions reference {f(p6['post'][0]['tv_uniform'])} (below it in {p6['post_ok']}/{len(p6['post'])}); "
+                  f"RT-canon's canonical-first share {fl([x['canon'] for x in p6['canon']])} (≥ 0.9 in {p6['canon_ok']}/{len(p6['canon'])}); RT-canon's TV {fl([x['tv'] for x in p6['canon']])} → {p6['verdict']}.")
+    p7 = V["P7"]
+    if "ceiling" in p7:
+        md.append(f"\n**P7** (unmasked): training binding stratum (n {p7['train_n']}) — RT-examples {fl(p7['examples_train_u'])} against ceiling {f(p7['ceiling'])} × RT-canon's median {f(p7['rt_train_median_u'])} = {f(p7['target'])} (± 0.1) → {p7['clause1']}; "
+                  f"held-out binding stratum (n {p7['heldout_n']}) — RT-examples {fl(p7['examples_heldout_u'])} against RT-canon's median {f(p7['rt_heldout_median_u'])} (below by more than 0.05 in every seed) → {p7['clause2']}.")
+    p8 = V["P8"]
+    if "ok_m" in p8:
+        md.append(f"\n**P8** (training worlds' binding stratum, n {p8['n']}): masked — RT-canon's median {f(p8['ok_m']['rt_median'])}, RT-shuffled {fl(p8['ok_m']['shuffled'])} (gaps {fl(p8['ok_m']['gaps'])}) → {p8['ok_m']['verdict']}; "
+                  f"unmasked — {f(p8['ok_u']['rt_median'])}, {fl(p8['ok_u']['shuffled'])} (gaps {fl(p8['ok_u']['gaps'])}) → {p8['ok_u']['verdict']}. A gap of more than 0.05 in every shuffled seed holds; none falsifies.")
+    return "\n".join(md)
 
 
 def main():

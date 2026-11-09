@@ -99,7 +99,8 @@ def main():
             continue
         t0 = time.time()
         try:
-            rec = T.run(cfg, args.data, device=args.device, log=lambda *a: print(*a, flush=True), sets=sets)
+            rec = T.run(cfg, args.data, device=args.device, log=lambda *a: print(*a, flush=True), sets=sets,
+                        ckpt_path=os.path.join(args.out, "ckpt", cfg["name"] + ".pt"))
             rec["shard"] = args.shard
             save(rec, path)
             rate = max(rate, (time.time() - t0) / est_cost(cfg))      # the slowest pace seen in this shard, never faster than the pilot's

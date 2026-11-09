@@ -23,6 +23,14 @@ Contents:
   7. RT-examples' ceiling per world: share of eval5 instances whose canonical proof's axioms (and, in brackets, some
      shortest proof's axioms) lie within the axioms used by two example proofs drawn from the same set (5 draws)
   8. wandering mass under a uniform policy: PF's prior success probability p_success per k (training records with PF)
+  9. the strata and references the pass rules were amended onto after the pass-rule audit (DESIGN §17): for every held-out
+     world's binding instances in eval5, whether a proof within T = 2k + 2 exists inside a training world contained in W
+     (if none does, the instance *needs the unseen combination* — P2's stratum) and the outcome of the training-world
+     reference policy under the mask (P2's non-composing comparator); the ladder's own matched ratio between sizes 6–7
+     and size ≤ 5 (P3's normaliser); for the training worlds' eval7 instances, whether no route within T uses only
+     prefix positions ≤ 8 (must fail for the categorical head — P3's second clause)
+
+    ... --only-9 recomputes section 9 alone and merges it into the existing derived.json / derived.md.
 """
 
 from __future__ import annotations
@@ -41,7 +49,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "..", "..", "src"))
 
 from topology_design.rewrite.data import dec_action  # noqa: E402
 from topology_design.rewrite.proxy import ladder_rollout  # noqa: E402
-from topology_design.rewrite.rules import HALT, RULE_AX, step, world_from_name  # noqa: E402
+from topology_design.rewrite.rules import HALT, RULE_AX, step, valid_actions, world_from_name  # noqa: E402
 from topology_design.rewrite.search import FULL, bfs, enumerate_shortest, reverse_distances, shortest_dag  # noqa: E402
 from topology_design.rewrite.term import is_leaf, nodes, parse, subterm_at, to_str  # noqa: E402
 
@@ -212,6 +220,143 @@ def md_table(rows, header):
     return "\n".join(lines)
 
 
+TRAIN_NAMES = list(TRAIN_WORLDS)
+HELD_BINDING = ["AI", "CI", "ACI", "ACD", "AID", "CID"]          # the held-out worlds that have a binding stratum (not the full world)
+
+
+def _p2_world(args):
+    """For one held-out world's eval5 binding instances: needs-the-unseen-combination flag and the training-world
+    reference's outcome (masked). One process per world, with the full-world actions cached across instances."""
+    from topology_design.rewrite.proxy import goal_distances, trainworld_rollout
+    w, recs = args
+    W, full = world_from_name(w), world_from_name("ACID")
+    subs = [u for u in TRAIN_NAMES if set(u) < set(w)]
+    cache, cap = {}, (recs[0]["cap"] if recs else 5)
+    assert all(r["cap"] == cap for r in recs)
+
+    def acts(u):
+        a = cache.get(u)
+        if a is None:
+            a = valid_actions(u, full, cap)
+            cache[u] = a
+        return a
+
+    out = {}
+    for r in recs:
+        t, s, T = parse(r["t"]), parse(r["s"]), 2 * r["k"] + 2
+        dist = {u: goal_distances(s, world_from_name(u), r["cap"], actions=acts) for u in TRAIN_NAMES}
+        within = [u for u in subs if dist[u].get(t) is not None and dist[u][t] <= T]
+        out[f"{r['t']}|{r['s']}"] = {"comb": not within, "trainw": bool(trainworld_rollout(t, s, W, r["cap"], T, dist)),
+                                     "shortest_in_sub": any(dist[u].get(t) == r["k"] for u in subs)}
+    return w, out
+
+
+def _must_fail(rec):
+    """No route from t to s of at most T = 2k + 2 steps that uses prefix positions <= 8 only: the categorical head, whose
+    rows 9–12 are never labelled at size <= 5, cannot solve the instance within the horizon. None = search cut."""
+    W, cap = world_from_name(rec["world"]), rec["cap"]
+    t, s, T = parse(rec["t"]), parse(rec["s"]), 2 * rec["k"] + 2
+    seen, frontier = {t}, [t]
+    for _ in range(T):
+        nxt = []
+        for u in frontier:
+            idx = {p: i for i, (p, _, _) in enumerate(nodes(u))}
+            for _, path, v in valid_actions(u, W, cap):
+                if idx[path] > 8 or v in seen:
+                    continue
+                if v == s:
+                    return False
+                seen.add(v); nxt.append(v)
+                if len(seen) > 400000:
+                    return None
+        frontier = nxt
+        if not frontier:
+            break
+    return True
+
+
+def matched_ratio(rows7, rows5, ok):
+    """analyze.py's P3 statistic for any per-instance outcome: success at sizes 6–7 over size-<=5 success on the same
+    (world, k, binding) cells reweighted to eval7's composition."""
+    c7, c5 = {}, {}
+    for r in rows7:
+        c7.setdefault((r["world"], r["k"], bool(r["binding"])), []).append(r)
+    for r in rows5:
+        if r["k"] <= 4:
+            c5.setdefault((r["world"], r["k"], bool(r["binding"])), []).append(r)
+    num = den = used = 0.0
+    for key, rows in c7.items():
+        if key not in c5:
+            continue
+        num += sum(bool(ok(r)) for r in rows)
+        den += len(rows) * sum(bool(ok(r)) for r in c5[key]) / len(c5[key])
+        used += len(rows)
+    return (num / den if den else None), int(used)
+
+
+def section9(ev, D, md, pool):
+    lad = lambda rs, d: (sum(bool(r["ladder"][str(d)]) for r in rs) / len(rs)) if rs else None
+    f2 = lambda x: "–" if x is None else f"{x:.3f}"
+    # 9a. P2's stratum and its references
+    res = dict(pool.map(_p2_world, [(w, [r for r in ev["eval5"][w] if r["binding"]]) for w in HELD_BINDING if w in ev["eval5"]]))
+    D["p2_comb"] = res
+    rows, summ = [], {}
+    for cls, ws in (("pairs", ["AI", "CI"]), ("triples", ["ACI", "ACD", "AID", "CID"])):
+        pooled_b, pooled_c, pooled_tw_b, pooled_tw_c = [], [], 0, 0
+        for w in ws:
+            if w not in res:
+                continue
+            b = [r for r in ev["eval5"][w] if r["binding"]]
+            fl = [res[w][f"{r['t']}|{r['s']}"] for r in b]
+            c = [r for r, f in zip(b, fl) if f["comb"]]
+            tw_b, tw_c = sum(f["trainw"] for f in fl), sum(f["trainw"] for f in fl if f["comb"])
+            rows.append([w, len(b), f"{sum(not f['comb'] for f in fl) / len(b):.2f}", len(c), f2(lad(c, 1)), f2(lad(c, 2)), f2(lad(c, 3)), f2(tw_c / len(c) if c else None), f2(lad(b, 1)), f2(tw_b / len(b))])
+            pooled_b += b; pooled_c += c; pooled_tw_b += tw_b; pooled_tw_c += tw_c
+        summ[cls] = {"binding_n": len(pooled_b), "comb_n": len(pooled_c), "d1": lad(pooled_c, 1), "d2": lad(pooled_c, 2), "d3": lad(pooled_c, 3),
+                     "trainw": pooled_tw_c / len(pooled_c) if pooled_c else None, "binding_d1": lad(pooled_b, 1), "binding_d3": lad(pooled_b, 3),
+                     "binding_trainw": pooled_tw_b / len(pooled_b) if pooled_b else None}
+        rows.append([f"**{cls}**", len(pooled_b), f"{1 - len(pooled_c) / len(pooled_b):.2f}", len(pooled_c), f2(summ[cls]["d1"]), f2(summ[cls]["d2"]), f2(summ[cls]["d3"]), f2(summ[cls]["trainw"]),
+                     f2(summ[cls]["binding_d1"]), f2(summ[cls]["binding_trainw"])])
+    D["p2_comb_summary"] = summ
+    md.append("\n## 9. Strata and references of the amended pass rules (DESIGN §17)\n\n### 9a. P2: held-out binding instances (eval5) that need the unseen combination — no proof within T = 2k + 2 inside a training world contained in W; "
+              "rungs and the training-world reference (masked) on them\n\n" +
+              md_table(rows, ["world", "binding n", "proof within T in a training sub-world", "needs the combination: n", "greedy d=1", "d=2", "d=3", "training-world reference", "all binding: greedy", "all binding: training-world reference"]))
+    # 9b. P3: the ladder's own matched ratio, and the categorical head's must-fail set
+    e5 = {w: [dict(r, world=w) for r in rs] for w, rs in ev["eval5"].items()}
+    e7 = {w: [dict(r, world=w) for r in rs] for w, rs in ev["eval7"].items()}
+    groups = {"training worlds": TRAIN_NAMES, "single-axiom": ["A", "C", "I", "D"], "training pairs": ["AC", "AD", "CD", "ID"],
+              "held-out": ["AI", "CI", "ACI", "ACD", "AID", "CID", "ACID"]}
+    rho, rows = {}, []
+    for name, ws in groups.items():
+        r7 = [r for w in ws for r in e7.get(w, [])]; r5 = [r for w in ws for r in e5.get(w, [])]
+        vals = [matched_ratio(r7, r5, lambda r, d=d: r["ladder"][str(d)]) for d in (1, 2, 3)]
+        rho[name] = {f"d{d}": v[0] for d, v in zip((1, 2, 3), vals)}
+        rho[name]["n"] = vals[0][1]
+        rows.append([name, vals[0][1]] + [f2(v[0]) for v in vals])
+    D["p3_ladder_matched_ratio"] = rho
+    md.append("\n### 9b. P3: the symbolic rungs' own matched ratio, sizes 6–7 over size ≤ 5 on the same (world, k, binding) cells (1 = equally hard; the rungs are rules over structure and do not know the size)\n\n" +
+              md_table(rows, ["worlds", "eval7 n matched", "d=1", "d=2", "d=3"]))
+    un = D.get("eval7_unaddressable", {})
+    mf, rows = {}, []
+    for w in TRAIN_NAMES:
+        rs = [dict(r, world=w) for r in ev["eval7"].get(w, [])]
+        flagged = [r for r in rs if un.get(w, {}).get(f"{r['t']}|{r['s']}")]
+        out = pool.map(_must_fail, flagged, chunksize=4) if flagged else []
+        mf[w] = {f"{r['t']}|{r['s']}": o for r, o in zip(flagged, out)}
+        rows.append([w, len(rs), len(flagged), sum(o is False for o in out), sum(o is True for o in out), sum(o is None for o in out)])
+    D["eval7_mustfail"] = mf
+    rows.append(["**all**"] + [sum(r[i] for r in rows) for i in range(1, 6)])
+    md.append("\n### 9c. P3: eval7 instances of the training worlds that the categorical head cannot solve within T — no route of ≤ T = 2k + 2 steps on prefix positions ≤ 8 (the instances not listed in `eval7_mustfail` have an addressable shortest proof)\n\n" +
+              md_table(rows, ["world", "n", "every shortest proof needs a position ≥ 9", "…but an addressable route within T exists", "must fail", "search cut"]))
+    # 9d. the other strata's sizes
+    tb = [r for w in TRAIN_NAMES for r in ev["eval5"].get(w, []) if r["binding"]]
+    hb = [r for w in groups["held-out"] for r in ev["eval5"].get(w, []) if r["binding"]]
+    D["strata_n"] = {"train_binding": len(tb), "train_binding_d1": lad(tb, 1), "train_binding_d3": lad(tb, 3), "heldout_binding": len(hb), "heldout_binding_d1": lad(hb, 1), "heldout_binding_d3": lad(hb, 3),
+                     "heldout_comb": sum(v["comb_n"] for v in summ.values())}
+    md.append(f"\n### 9d. Other strata of the amended rules (eval5): training worlds' binding stratum n = {len(tb)} (greedy {f2(lad(tb, 1))}, lookahead-3 {f2(lad(tb, 3))}); "
+              f"held-out binding stratum n = {len(hb)} (greedy {f2(lad(hb, 1))}, lookahead-3 {f2(lad(hb, 3))}), of which {D['strata_n']['heldout_comb']} need the unseen combination.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=os.path.join(HERE, "..", "..", "..", "data", "rewrite"))
@@ -219,9 +364,22 @@ def main():
     ap.add_argument("--limit", type=int, default=2000, help="shortest-proof enumeration limit")
     ap.add_argument("--draws", type=int, default=3)
     ap.add_argument("--out", default=HERE, help="directory for derived.json and derived.md")
+    ap.add_argument("--only-9", action="store_true", help="recompute section 9 alone and merge it into the existing outputs")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     t0 = time.time()
+    if args.only_9:
+        D = json.load(open(os.path.join(args.out, "derived.json")))
+        text = open(os.path.join(args.out, "derived.md")).read()
+        md = [text.split("\n## 9. ")[0].rstrip("\n")]
+        ev = {tag: load(args.data, tag, ALL_WORLDS) for tag in ("eval5", "eval7")}
+        with mp.Pool(args.workers) as pool:
+            section9(ev, D, md, pool)
+        D["seconds_section9"] = time.time() - t0
+        json.dump(D, open(os.path.join(args.out, "derived.json"), "w"), indent=1)
+        open(os.path.join(args.out, "derived.md"), "w").write("\n".join(md) + "\n")
+        print("section 9 done", f"{time.time() - t0:.0f}s")
+        return
     meta = json.load(open(os.path.join(args.data, "meta.json")))
     train = load(args.data, "train", ALL_WORLDS)
     ev = {tag: load(args.data, tag, ALL_WORLDS) for tag in ("eval5", "eval7", "evalk78")}
@@ -483,6 +641,8 @@ def main():
     D["uniform_policy_success_by_k"] = {k: v[0] / v[1] for k, v in sorted(wm.items(), key=lambda kv: int(kv[0]))}
     md.append("\n## 8. Uniform policy's success probability (PF's prior p_success) by k, training worlds\n\n" +
               md_table([[k, f"{v:.4f}"] for k, v in D["uniform_policy_success_by_k"].items()], ["k", "p_success"]))
+    with mp.Pool(args.workers) as pool:
+        section9(ev, D, md, pool)
     D["seconds"] = time.time() - t0
     json.dump(D, open(os.path.join(args.out, "derived.json"), "w"), indent=1)
     open(os.path.join(args.out, "derived.md"), "w").write("\n".join(md) + "\n")

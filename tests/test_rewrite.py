@@ -754,3 +754,182 @@ def test_pilot_read_lr_rule_on_planted_records():
     # a tie on success goes to the lower loss
     _, chosen, _ = P.report(others + [variant(3e-4, 1.0, 0.0, 0.2), variant(3e-3, 1.0, 0.0, 0.9)])
     assert chosen["RT-canon"] == 3e-4
+
+
+# ---------------- the amended pass rules (DESIGN §17): every verdict on a planted pass and a planted fail ----------------
+
+def _vrun(arm, seed, e5=(), e7=()):
+    return {"cfg": {"arm": arm, "seed": seed, "name": f"{arm}_s{seed}"}, "final": {"eval5": {"per_instance": list(e5)}, "eval7": {"per_instance": list(e7)}}}
+
+
+def _vinst(world, i, n_ok_m, n_ok_u=None, k=4, binding=True, lad=(0, 0, 0), **kw):
+    """Instance i of a planted stratum: solved (masked) iff i < n_ok_m, unmasked iff i < n_ok_u, rung d iff i < lad[d-1]."""
+    n_ok_u = n_ok_m if n_ok_u is None else n_ok_u
+    return {"world": world, "t": f"t{world}{k}{int(binding)}_{i}", "s": f"s{i}", "k": k, "binding": binding, "GP1": False, "ok_m": i < n_ok_m, "ok_u": i < n_ok_u,
+            "ladder": {"1": i < lad[0], "2": i < lad[1], "3": i < lad[2]}, **kw}
+
+
+def _p2_fixture(canon_pair_m, canon_pair_u, canon_tri_m, all_pair_m, greedy=40, trainw=53):
+    """100 pair instances (AI, CI) and 100 triple instances (ACD) that need the unseen combination, plus 60 binding pair
+    instances that do not (always solved — they must not count)."""
+    flags = {"AI": {}, "CI": {}, "ACD": {}}
+
+    def rows(n_pair_m, n_pair_u, n_tri_m):
+        out = []
+        for i in range(100):
+            w = "AI" if i % 2 else "CI"
+            pi = _vinst(w, i, n_pair_m, n_pair_u, lad=(greedy, 44, 73))
+            flags[w][f"{pi['t']}|{pi['s']}"] = {"comb": True, "trainw": i < trainw}
+            out.append(pi)
+        for i in range(100):
+            pi = _vinst("ACD", i, n_tri_m, lad=(15, 25, 50))
+            flags["ACD"][f"{pi['t']}|{pi['s']}"] = {"comb": True, "trainw": i < 21}
+            out.append(pi)
+        for i in range(60):
+            pi = _vinst("AI", 1000 + i, 2000, lad=(0, 0, 0))
+            flags["AI"][f"{pi['t']}|{pi['s']}"] = {"comb": False, "trainw": True}
+            out.append(pi)
+        return out
+
+    runs = [_vrun("RT-canon", s, rows(canon_pair_m, canon_pair_u, canon_tri_m)) for s in range(10)]
+    runs += [_vrun("RT-all", s, rows(all_pair_m, all_pair_m, 90)) for s in range(3)]
+    return runs, {"p2_comb": flags}
+
+
+def test_p2_verdict_on_planted_outcomes():
+    """P2 (§17): scored on the binding instances that need the unseen combination; pass = ≥ greedy + 0.2 and ≥ 0.7 on the
+    pairs and above the non-composing floor on the triples, each in ≥ 6/10 seeds; falsified = above the floor in ≤ 3/10
+    while RT-all's median meets the pair conditions; the unmasked reading names what a masked pass means."""
+    A = _analyze()
+    v = A.verdicts(*_p2_fixture(75, 75, 30, 90))["P2"]
+    assert v["pairs"]["n"] == 100 and abs(v["pairs"]["floor"] - 0.53) < 1e-9 and v["triples"]["floor"] == 0.21     # the 60 non-combination instances are out
+    assert v["verdict"] == "pass" and v["cue"] == "composes under the stated cue" and v["ok_m"]["pair_ok"] == 10
+    v = A.verdicts(*_p2_fixture(75, 40, 30, 90))["P2"]
+    assert v["verdict"] == "pass" and v["cue"].startswith("composes decisions when the executor supplies the action set")
+    v = A.verdicts(*_p2_fixture(50, 50, 30, 90))["P2"]                 # at the training-world floor, above greedy: no composition shown
+    assert v["verdict"] == "falsified" and v["ok_m"]["pair_above_floor"] == 0
+    v = A.verdicts(*_p2_fixture(50, 50, 30, 50))["P2"]                 # the same, but RT-all does not reach the bar either
+    assert v["verdict"] == "undecided" and "reachability" in v["why"]
+    v = A.verdicts(*_p2_fixture(62, 62, 30, 90))["P2"]                 # above the floor, below 0.7
+    assert v["verdict"] == "undecided" and v["ok_m"]["pair_above_floor"] == 10 and v["ok_m"]["pair_ok"] == 0
+    v = A.verdicts(*_p2_fixture(75, 75, 20, 90))["P2"]                 # the pairs pass, the triples sit below their floor (0.21)
+    assert v["verdict"] == "undecided" and v["ok_m"]["pair_ok"] == 10 and v["ok_m"]["triple_above_floor"] == 0
+    v = A.verdicts(*_p2_fixture(75, 75, 30, 90, greedy=60, trainw=10))["P2"]      # ≥ 0.7 but only 0.15 above greedy: both conditions are per seed
+    assert v["ok_m"]["pair_ok"] == 0 and v["verdict"] == "undecided"
+    assert A.verdicts(_p2_fixture(75, 75, 30, 90)[0], None)["P2"]["verdict"] == "not readable"
+
+
+def _p3_fixture(canon7, abs_rest7_u):
+    """One cell (AC, k = 2, non-binding): size <= 5 success 50/100 for the router and the greedy rung; the rung scores
+    60/100 at sizes 6–7, so a size-blind policy of the router's strength has ratio 1.2. RT-absolute's eval7 adds 20
+    must-fail instances that the mask would solve and the unmasked reading does not."""
+    e5 = lambda n: [_vinst("AC", i, n, k=2, binding=False, lad=(50, 80, 95)) for i in range(100)]
+    e7 = lambda n_m, n_u=None: [_vinst("AC", i, n_m, n_u, k=2, binding=False, lad=(60, 85, 97)) for i in range(100)]
+    must = [dict(_vinst("AC", 500 + i, 2000, 0, k=2, binding=False, lad=(0, 0, 0))) for i in range(20)]
+    runs = [_vrun("RT-canon", s, e5(50), e7(canon7)) for s in range(10)]
+    runs += [_vrun("RT-absolute", s, e5(50), e7(abs_rest7_u) + must) for s in range(5)]
+    return runs, {"eval7_mustfail": {"AC": {f"{pi['t']}|{pi['s']}": True for pi in must}}}
+
+
+def test_p3_verdict_on_planted_outcomes():
+    """P3 (§17): the structural router's matched ratio against 0.9 × the nearest rung's own ratio (sizes 6–7 are easier on
+    matched cells, so the bare ≥ 0.9 of §6 passes a router that lost a sixth of its success); the absolute router on the
+    instances its head can address, unmasked."""
+    A = _analyze()
+    v = A.verdicts(*_p3_fixture(58, 56))["P3"]
+    c = v["clause1"]["per_seed"][0]
+    assert c["rung"] == 1 and abs(c["rho"] - 1.2) < 1e-9 and abs(c["R"] - 1.16) < 1e-9
+    assert v["clause1"]["verdict"] == "pass" and v["verdict"] == "pass"
+    assert v["clause2"]["verdict"] == "holds" and v["clause2"]["per_seed"][0]["must_fail_n"] == 20 and v["clause2"]["per_seed"][0]["must_fail_rate"] == 0.0
+    v = A.verdicts(*_p3_fixture(50, 10))["P3"]                          # R = 1.0: the unnormalised rule passes it, the normalised one does not
+    assert v["clause1"]["raw_ok"] == 10 and v["clause1"]["ok"] == 0 and v["clause1"]["verdict"] == "falsified"
+    assert v["clause2"]["verdict"] == "falsified"                      # the absolute router fails far more than its must-fail set
+    runs, d = _p3_fixture(58, 56)
+    for r in runs[:5]:                                                 # half the structural seeds lose the extrapolation: neither 7/10 nor 3/10
+        for pi in r["final"]["eval7"]["per_instance"]:
+            pi["ok_m"] = False
+    assert A.verdicts(runs, d)["P3"]["clause1"]["verdict"] == "undecided"
+
+
+def test_p5_to_p8_verdicts_on_planted_outcomes():
+    A = _analyze()
+    # P5: EI16's seed-median within 0.1 of RT-canon's on the held-out binding stratum; falsified when below greedy where RT is above
+    hb = lambda n: [_vinst("AI", i, n, lad=(50, 60, 70)) for i in range(100)]
+    mk5 = lambda n_rt, n_ei: [_vrun("RT-canon", s, hb(n_rt)) for s in range(10)] + [_vrun("EI16", s, hb(n_ei)) for s in range(5)]
+    assert A.verdicts(mk5(60, 55))["P5"]["verdict"] == "holds"
+    assert A.verdicts(mk5(75, 55))["P5"]["verdict"] == "differs by more than 0.1"
+    assert A.verdicts(mk5(60, 40))["P5"]["verdict"] == "falsified"
+    # P6: RT-post nearer the target than the uniform-over-shortest-actions policy; RT-canon on the canonical action
+    def p6rows(p_first, n_canon):
+        return [dict(_vinst("AC", i, 100, binding=False), p_first=dict(p_first), target_first={"a": 0.8, "b": 0.2}, n_classes=2, first_canon=i < n_canon) for i in range(100)]
+    mk6 = lambda p_post, n_canon: [_vrun("RT-post", s, p6rows(p_post, 50)) for s in range(10)] + [_vrun("RT-canon", s, p6rows({"a": 0.97, "b": 0.01}, n_canon)) for s in range(10)]
+    v = A.verdicts(mk6({"a": 0.78, "b": 0.2}, 95))["P6"]
+    assert v["verdict"] == "holds" and abs(v["post"][0]["tv_uniform"] - 0.3) < 1e-9 and v["post"][0]["tv"] < 0.01
+    assert A.verdicts(mk6({"a": 0.45, "b": 0.45}, 95))["P6"]["verdict"] == "does not hold"      # the support, not the weights
+    assert A.verdicts(mk6({"a": 0.78, "b": 0.2}, 60))["P6"]["verdict"] == "does not hold"       # RT-canon off the canonical action
+    # P7 (unmasked): RT-examples at ceiling × RT-canon on the training binding stratum; below stated RT on the held-out one
+    exc = {"examples_ceiling": {"AC": {"ceiling_canon_binding": 0.9, "binding_n": 100}}}
+    def p7rows(n_train_u, n_held_u):
+        return [_vinst("AC", i, 100, n_train_u) for i in range(100)] + [_vinst("AI", i, 100, n_held_u) for i in range(100)]
+    mk7 = lambda ex_t, ex_h: [_vrun("RT-canon", s, p7rows(80, 60)) for s in range(10)] + [_vrun("RT-examples", s, p7rows(ex_t, ex_h)) for s in range(3)]
+    v = A.verdicts(mk7(70, 40), exc)["P7"]
+    assert abs(v["target"] - 0.72) < 1e-9 and v["clause1"] == "holds" and v["clause2"] == "holds" and v["verdict"] == "holds"
+    assert A.verdicts(mk7(70, 65), exc)["P7"]["verdict"] == "falsified"                        # the examples carry more than W
+    assert A.verdicts(mk7(90, 40), exc)["P7"]["clause1"].startswith("above")
+    assert A.verdicts(mk7(40, 40), exc)["P7"]["clause1"].startswith("below")
+    # P8: RT-shuffled against RT-canon on the training worlds' binding stratum, each reading on its own
+    def p8rows(n_m, n_u):
+        return [_vinst("AC", i, n_m, n_u) for i in range(100)]
+    mk8 = lambda sh: [_vrun("RT-canon", s, p8rows(80, 78)) for s in range(10)] + [_vrun("RT-shuffled", s, p8rows(*x)) for s, x in enumerate(sh)]
+    v = A.verdicts(mk8([(79, 50), (78, 52)]))["P8"]
+    assert v["verdict"] == "falsified" and v["verdict_unmasked"] == "holds" and v["reading"].startswith("under the mask the action set")
+    v = A.verdicts(mk8([(60, 50), (62, 52)]))["P8"]
+    assert v["verdict"] == "holds" and v["verdict_unmasked"] == "holds"
+    v = A.verdicts(mk8([(79, 77), (78, 76)]))["P8"]
+    assert v["verdict"] == "falsified" and v["verdict_unmasked"] == "falsified"
+    assert A.verdicts(mk8([(79, 50), (60, 52)]))["P8"]["verdict"] == "undecided"
+
+
+def test_verdict_section_renders_on_real_fixtures():
+    A = _analyze()
+    md = A.report(A.load_results(FIX), {"p2_comb": {}, "eval7_mustfail": {}})
+    assert "## Verdicts under the amended pass rules (DESIGN §17)" in md and "| P8 |" in md
+
+
+def test_trainworld_reference_policy():
+    """P2's non-composing comparator (§17): it takes a move on a shortest proof inside some training world when the mask
+    allows one, never plans with a set of axioms outside the training worlds, and is deterministic."""
+    from topology_design.rewrite.proxy import goal_distances, trainworld_policy, trainworld_rollout
+    from topology_design.rewrite.rules import RULE_AX
+    cap = 5
+    # the rewrite graph is symmetric (every rule has its inverse in the same axiom), so a BFS from s gives distances to s
+    for t0 in ("((a+b)+c)", "(a+0)", "(a+a)", "((a+0)+(b+b))"):
+        u = parse(t0)
+        for rule, path, v in valid_actions(u, world_from_name("ACID"), cap):
+            assert any(w == u and RULE_AX[r2] == RULE_AX[rule] for r2, _, w in valid_actions(v, world_from_name("ACID"), cap)), (t0, rule, path)
+    t, s = parse("((a+b)+c)"), parse("(a+(c+b))")                      # A then C: inside the training world {A, C}
+    dist = {w: goal_distances(s, world_from_name(w), cap) for w in T.TRAIN_WORLDS}
+    assert dist["AC"][t] == distance(t, s, world_from_name("AC"), cap) == 2 and t not in dist["A"] and t not in dist["C"]
+    a = trainworld_policy(t, s, world_from_name("AC"), cap, dist)
+    assert dist["AC"][a[2]] == 1 and trainworld_rollout(t, s, world_from_name("AC"), cap, 6, dist)
+    assert trainworld_policy(t, s, world_from_name("AC"), cap, dist) == a          # deterministic
+    # with the needed rule masked out there is nothing to take but a move that does not reach s
+    assert not trainworld_rollout(t, s, world_from_name("C"), cap, 6, dist)
+
+
+def test_checkpoint_reproduces_the_final_evaluation(tmp_path):
+    """Every run saves its router; reloaded from the file alone, it gives the run's own final outcomes instance for
+    instance (so a stratum or an eval set added later is scored without retraining)."""
+    _tiny_dataset(tmp_path)
+    sets = {"eval5": T.load_set(str(tmp_path), "eval5", ["AC", "CI"])}
+    for arm in ("RT-canon", "RT-absolute"):
+        cfg = {"arm": arm, "seed": 3, "lr": 1e-3, "steps": 3, "rows": 16, "inst": 4, "eval_every": 3, "warmup": 1, "worlds": ["AC", "CI"]}
+        ck = str(tmp_path / "ckpt" / f"{arm}.pt")
+        res = T.run(cfg, str(tmp_path), device="cpu", log=lambda *a: None, sets=sets, ckpt_path=ck)
+        assert res["ckpt"] == f"{arm}.pt" and os.path.exists(ck) and not os.path.exists(ck + ".tmp")
+        model, cfg2 = T.load_checkpoint(ck)
+        assert cfg2 == cfg
+        again = T.evaluate(model, sets, cfg2, "cpu", random.Random(cfg["seed"] * 7919 + cfg["steps"]), full=True)
+        key = lambda pi: (pi["world"], pi["t"], pi["s"], pi["ok_m"], pi["ok_u"], pi["cat_m"], pi["cat_u"], pi["steps_m"])
+        assert [key(pi) for pi in again["eval5"]["per_instance"]] == [key(pi) for pi in res["final"]["eval5"]["per_instance"]]
+        assert again["eval5"]["cells"] == res["final"]["eval5"]["cells"]
