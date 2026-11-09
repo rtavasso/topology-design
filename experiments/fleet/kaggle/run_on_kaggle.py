@@ -24,11 +24,13 @@ W = os.environ.get("KAGGLE_WORKING", "/kaggle/working")
 INP = os.environ.get("KAGGLE_INPUT", "/kaggle/input")
 TMP = os.environ.get("KAGGLE_TMP", "/tmp")
 code = None
+how = "code.tar.gz extracted by this script"
 for t in glob.glob(f"{INP}/**/code.tar.gz", recursive=True):
     with tarfile.open(t) as tf:
         tf.extractall(TMP)
     code = os.path.join(TMP, "code")
 if code is None:  # Kaggle may have auto-extracted the archive
+    how = "archive auto-extracted by Kaggle"
     hits = glob.glob(f"{INP}/**/src/topology_design/fleet.py", recursive=True)
     if not hits:
         print("code not found under", INP, glob.glob(f"{INP}/**", recursive=True)[:50])
@@ -37,6 +39,31 @@ if code is None:  # Kaggle may have auto-extracted the archive
     code = os.path.join(TMP, "code")  # writable copy outside the working dir, so outputs stay logs + results
     shutil.copytree(src_root, code, dirs_exist_ok=True)
 os.chdir(code)
+
+
+def restore_gz_members():
+    """Kaggle's dataset pipeline, when it auto-extracts the archive, also gunzips its nested .gz members, so the bundle
+    arrives with fx_*.json, train_*.jsonl and prior/*.json where the loaders look for *.gz (the rewrite pilot's test gate
+    failed on exactly this, 8 Nov). Re-gzip any such file whose .gz is missing; report what was found either way."""
+    import gzip
+    want = [("tests/fixtures", lambda f: f.startswith("fx_") and f.endswith(".json")),
+            ("data", lambda f: f.endswith(".jsonl")),
+            ("prior", lambda f: f.endswith(".json"))]
+    present = sum(1 for root, _, files in os.walk(code) for f in files if f.endswith(".gz"))
+    restored = []
+    for sub, match in want:
+        for root, _, files in os.walk(os.path.join(code, sub)):
+            for f in files:
+                if match(f) and not os.path.exists(os.path.join(root, f + ".gz")):
+                    with open(os.path.join(root, f), "rb") as src, gzip.open(os.path.join(root, f + ".gz"), "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    os.remove(os.path.join(root, f))
+                    restored.append(os.path.relpath(os.path.join(root, f + ".gz"), code))
+    print(f"bundle unpacked: {how}; .gz members present {present}, restored from gunzipped copies {len(restored)}"
+          + (f" ({restored[:3]}{'...' if len(restored) > 3 else ''})" if restored else ""), flush=True)
+
+
+restore_gz_members()
 job = json.load(open("job.json")) if os.path.exists("job.json") else {"job": "validate"}
 print("code at", code, "job:", job, flush=True)
 print("bundle:", job.get("bundle", "(none recorded)"), flush=True)
