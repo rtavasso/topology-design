@@ -591,7 +591,7 @@ Oracle rung (d = k) on a sample of 150 eval instances: 150 succeed.
 | CID | 316 | 0.003 | IbR @ ((0+0)+(x+x)) (1) |
 | ACID | 0 | 0.000 |  |
 
-## 5. Q2 at sizes 6–7 (eval7): instances whose every shortest proof needs a prefix position ≥ 9; coverage of the first decision by training keys
+## 5. Q2 at sizes 6–7 (eval7): instances whose every shortest proof needs a prefix position ≥ 9 (NOT the categorical head's artefact — the stream labels no slot at positions ≥ 7; the head's groups are §9c, review 5); coverage of the first decision by training keys
 
 | world | n | unaddressable (all proofs) | first decision at pos ≥ 9 | covered (pattern, rule) | covered (pattern, position, rule) |
 |---|---|---|---|---|---|

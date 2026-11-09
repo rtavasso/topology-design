@@ -18839,7 +18839,6 @@
   "5": 0.0015178716938539377,
   "6": 0.0007243293820302638
  },
- "seconds": 2672.135899782181,
  "p2_comb": {
   "AI": {
    "0|(0+((0+0)+(0+0)))": {
@@ -27858,16 +27857,6 @@
    "n": 4200
   }
  },
- "strata_n": {
-  "train_binding": 1408,
-  "train_binding_d1": 0.4041193181818182,
-  "train_binding_d3": 0.6860795454545454,
-  "heldout_binding": 1673,
-  "heldout_binding_d1": 0.3251643753735804,
-  "heldout_binding_d3": 0.6443514644351465,
-  "heldout_comb": 718
- },
- "seconds_section9": 65.94454765319824,
  "abs_labelled_slots": [
   [
    0,
@@ -32947,5 +32936,15 @@
    "(((d+a)+a)+((a+0)+a))|(((d+(a+a))+(0+a))+a)": "mustfail",
    "((a+d)+(a+((b+c)+d)))|((0+(a+d))+(a+((b+c)+d)))": "shortest"
   }
- }
+ },
+ "strata_n": {
+  "train_binding": 1408,
+  "train_binding_d1": 0.4041193181818182,
+  "train_binding_d3": 0.6860795454545454,
+  "heldout_binding": 1673,
+  "heldout_binding_d1": 0.3251643753735804,
+  "heldout_binding_d3": 0.6443514644351465,
+  "heldout_comb": 718
+ },
+ "seconds": 3475.1614315509796
 }
