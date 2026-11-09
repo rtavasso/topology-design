@@ -169,8 +169,10 @@ def main():
         grid_rel = os.path.relpath(os.path.abspath(args.rewrite_grid), ROOT)
         if not os.path.exists(os.path.join(ROOT, grid_rel)):
             sys.exit(f"grid not found: {args.rewrite_grid}")
-        if not args.data_dir or not os.path.isdir(args.data_dir):
+        if not args.data_dir:
             sys.exit("--data-dir (the built rewrite dataset) is required for a rewrite grid")
+        if not os.path.isdir(args.data_dir):
+            sys.exit(f"--data-dir {args.data_dir} does not exist (extract the dataset there first: tar -xf rewrite_dataset.tar -C data/)")
         data_files = sorted(f for f in os.listdir(args.data_dir) if f.endswith(".jsonl.gz") or f == "meta.json")
         if not any(f.startswith("train_") for f in data_files) or not any(f.startswith("eval5_") for f in data_files):
             sys.exit(f"--data-dir {args.data_dir} has no train_*/eval5_* files")
