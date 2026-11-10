@@ -1,0 +1,18 @@
+RT-post_s0 {'n': 2213, 'keymis': 0, 'tv': 0.12, 'tvu': 0.102, 'argmax_agree': 0.573, 'raw_mass': 0.964, 'corr': 0.579, 'uniform_targets': 1003, 'tv_on_uniform_targets': 0.084, 'tv_on_nonuniform': 0.15, 'tvu_on_nonuniform': 0.186, 'byn': {2: (850, 0.102, 0.092), 3: (806, 0.12, 0.096), 4: (420, 0.129, 0.095), 5: (101, 0.212, 0.218), 6: (23, 0.221, 0.199), 7: (4, 0.285, 0.235), 8: (4, 0.173, 0.235), 11: (5, 0.153, 0.25)}}
+RT-post_s6 {'n': 2213, 'keymis': 0, 'tv': 0.135, 'tvu': 0.102, 'argmax_agree': 0.6, 'raw_mass': 0.962, 'corr': 0.528, 'uniform_targets': 1003, 'tv_on_uniform_targets': 0.094, 'tv_on_nonuniform': 0.17, 'tvu_on_nonuniform': 0.186, 'byn': {2: (850, 0.127, 0.092), 3: (806, 0.128, 0.096), 4: (420, 0.132, 0.095), 5: (101, 0.254, 0.218), 6: (23, 0.216, 0.199), 7: (4, 0.37, 0.235), 8: (4, 0.201, 0.235), 11: (5, 0.141, 0.25)}}
+PF_s0 {'n': 2213, 'keymis': 0, 'tv': 0.109, 'tvu': 0.102, 'argmax_agree': 0.44, 'raw_mass': 0.824, 'corr': 0.47, 'uniform_targets': 1003, 'tv_on_uniform_targets': 0.065, 'tv_on_nonuniform': 0.145, 'tvu_on_nonuniform': 0.186, 'byn': {2: (850, 0.089, 0.092), 3: (806, 0.108, 0.096), 4: (420, 0.118, 0.095), 5: (101, 0.197, 0.218), 6: (23, 0.196, 0.199), 7: (4, 0.275, 0.235), 8: (4, 0.195, 0.235), 11: (5, 0.221, 0.25)}}
+RT-canon_s0 {'n': 2213, 'keymis': 0, 'tv': 0.598, 'tvu': 0.102, 'argmax_agree': 0.666, 'raw_mass': 0.96, 'corr': 0.002, 'uniform_targets': 1003, 'tv_on_uniform_targets': 0.602, 'tv_on_nonuniform': 0.595, 'tvu_on_nonuniform': 0.186, 'byn': {2: (850, 0.483, 0.092), 3: (806, 0.653, 0.096), 4: (420, 0.699, 0.095), 5: (101, 0.655, 0.218), 6: (23, 0.71, 0.199), 7: (4, 0.735, 0.235), 8: (4, 0.853, 0.235), 11: (5, 0.95, 0.25)}}
+--- all RT-post / PF seeds: non-uniform-target instances (n=1210), uniform-target instances (n=1003)
+PF_s0 0.145 vs 0.186 | uniform-target 0.065 | corr 0.47 | argmax 0.44
+PF_s1 0.14 vs 0.186 | uniform-target 0.056 | corr 0.51 | argmax 0.49
+PF_s2 0.15 vs 0.186 | uniform-target 0.063 | corr 0.45 | argmax 0.52
+RT-post_s0 0.15 vs 0.186 | uniform-target 0.084 | corr 0.58 | argmax 0.57
+RT-post_s1 0.154 vs 0.186 | uniform-target 0.08 | corr 0.56 | argmax 0.58
+RT-post_s2 0.161 vs 0.186 | uniform-target 0.084 | corr 0.57 | argmax 0.53
+RT-post_s3 0.159 vs 0.186 | uniform-target 0.082 | corr 0.59 | argmax 0.55
+RT-post_s4 0.163 vs 0.186 | uniform-target 0.083 | corr 0.51 | argmax 0.52
+RT-post_s5 0.159 vs 0.186 | uniform-target 0.08 | corr 0.54 | argmax 0.55
+RT-post_s6 0.17 vs 0.186 | uniform-target 0.094 | corr 0.53 | argmax 0.6
+RT-post_s7 0.162 vs 0.186 | uniform-target 0.076 | corr 0.52 | argmax 0.54
+RT-post_s8 0.162 vs 0.186 | uniform-target 0.079 | corr 0.56 | argmax 0.53
+RT-post_s9 0.157 vs 0.186 | uniform-target 0.075 | corr 0.56 | argmax 0.53
