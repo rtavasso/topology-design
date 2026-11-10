@@ -1,0 +1,16 @@
+(1) eval5 training-world instances that are training instances: 1716 of 4800
+    k=all: seen n=1716 RT-canon 1.00 [0.99, 1.00] n=10 | unseen n=3084 0.96 [0.93, 0.97] n=10
+    k=4: seen n=248 RT-canon 0.99 [0.96, 1.00] n=10 | unseen n=648 0.95 [0.92, 0.97] n=10
+    k=5: seen n=90 RT-canon 0.97 [0.93, 0.99] n=10 | unseen n=312 0.88 [0.79, 0.94] n=10
+    k=6: seen n=88 RT-canon 0.99 [0.91, 1.00] n=10 | unseen n=191 0.73 [0.62, 0.83] n=10
+(2) §16 cells: 6 cells, n=170; unseen n=150: RT-canon 0.93 [0.87, 0.95] n=10; rungs 0.30/0.44/0.73; >= d3 in 10/10
+(3) held-out, all [ok_m] n=4200: RT-canon 0.68 [0.63, 0.79] n=10; RT-shuffled 0.78 0.80; RT-canon seeds below both: 9/10
+(3) held-out, all [ok_u] n=4200: RT-canon 0.61 [0.57, 0.73] n=10; RT-shuffled 0.59 0.61; RT-canon seeds below both: 3/10
+(3) full world [ok_m] n=600: RT-canon 0.60 [0.52, 0.67] n=10; RT-shuffled 0.76 0.78; RT-canon seeds below both: 10/10
+(3) full world [ok_u] n=600: RT-canon 0.56 [0.49, 0.63] n=10; RT-shuffled 0.72 0.74; RT-canon seeds below both: 10/10
+(3) triples non-binding [ok_m] n=1335: RT-canon 0.71 [0.65, 0.80] n=10; RT-shuffled 0.81 0.81; RT-canon seeds below both: 10/10
+(3) triples non-binding [ok_u] n=1335: RT-canon 0.66 [0.63, 0.77] n=10; RT-shuffled 0.69 0.70; RT-canon seeds below both: 8/10
+(4) eval7 k=1, growth=False, some node deeper than 4=False: n=199 RT-canon 0.95 [0.92, 0.97] n=10 wrong halt 0.01
+(4) eval7 k=1, growth=False, some node deeper than 4=True: n=287 RT-canon 0.77 [0.66, 0.81] n=10 wrong halt 0.18
+(4) eval7 k=1, growth=True, some node deeper than 4=False: n=199 RT-canon 0.79 [0.13, 0.94] n=10 wrong halt 0.29
+(4) eval7 k=1, growth=True, some node deeper than 4=True: n=329 RT-canon 0.35 [0.06, 0.67] n=10 wrong halt 0.56

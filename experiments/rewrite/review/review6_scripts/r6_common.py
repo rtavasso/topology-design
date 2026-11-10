@@ -3,15 +3,15 @@
     python3 experiments/rewrite/review/review6_scripts/r6_common.py        # builds the compact cache (about 2 min)
 
 Reads results/kaggle_rewrite-main/results/*.json.gz one file at a time and writes a compact cache
-(R6_CACHE, default /tmp/r6_cache.pkl): instance metadata once per eval set (checked identical across the 41 runs)
+(path in the environment variable R6_CACHE; default <tempdir>/r6_cache.pkl, about 150 MB): instance metadata once per eval set (checked identical across the 41 runs)
 and per-run outcome arrays. Every other r6_*.py script loads this cache through load()."""
-import glob, gzip, json, os, pickle, sys
+import glob, gzip, json, os, pickle, sys, tempfile
 import numpy as np
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 RES = os.path.join(ROOT, "results", "kaggle_rewrite-main", "results")
 DERIVED = os.path.join(ROOT, "experiments", "rewrite", "derive", "derived.json")
-CACHE = os.environ.get("R6_CACHE", "/tmp/r6_cache.pkl")
+CACHE = os.environ.get("R6_CACHE", os.path.join(tempfile.gettempdir(), "r6_cache.pkl"))
 
 TRAIN = ["A", "C", "I", "D", "AC", "AD", "CD", "ID"]
 PAIRS = ["AI", "CI"]

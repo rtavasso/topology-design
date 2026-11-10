@@ -1,5 +1,7 @@
 ## (a) Curves: masked | unmasked success on the curve subsets, seed-median, by step
 
+**Caveat (review 6, finding 3):** the last curve point (step 12,000) is on the full eval sets, the earlier ones on the first 100 instances per world, and "final − max" is negative for any flat noisy curve (expected −0.034 from binomial noise alone). These columns do not show a late decline; in 1,000-step window means the held-out curves are still rising at the end (`review/review6_scripts/r6_curves.py`).
+
 ### training worlds
 
 | arm | 1000 | 2000 | 3000 | 4000 | 6000 | 8000 | 10000 | 12000 | step of the max (per seed, masked) | final − max (per seed, masked) |
