@@ -116,6 +116,14 @@ History Entries 69–70. Each line carries its status: *argument*, *supported* (
 - **Defects of the instrument found by the run and its review, all mine:** the eval sets were never deduplicated against the training stream (36 % of training-world eval instances are training pairs; L45); P3's clause for the absolute control was unpassable and its structural clause mixed the feature clamp, growth past the training cap and position extrapolation (L43); P6's reference equals the target on 45 % of its instances (L42); a curve statistic of mine manufactured a late decline (L46).
 - **Open with the researcher:** whether Q1 gets a sharper reading from the 41 saved routers before rung 5 — an enriched needs-the-combination set, deduplicated eval sets — which needs no training and can move P2 off its coin flip but cannot produce a pass; and what the recombination result means for the rung-5 design, which assumed the labelled prior composes across worlds.
 
+### Update (10 Nov 2026, history Entry 82): after rung 4 — the thesis restated against prior work
+
+- **The researcher's critique of rung 4 (accepted).** Eight training worlds give a PFN no support for a reading on recombination; the cue was a name, not a description; the router was routed on a signal that was uninformative about the world. Raventós et al. (2023) predict the result: below a task-diversity threshold a transformer acts as the Bayesian estimator over its finite training tasks. Recombination is a threshold in coverage to be measured, not a yes/no ([literature.md](literature.md), the pushback review).
+- **Three cheaper alternatives stand between the thesis and its payoff:** depth — a scratchpad (unbounded serial depth at token cost); reuse — one looped block (TRM / HRM: no library, no router); routing — a fixed or hashed assignment (matches learned MoE routing). The thesis is the conjunction: a library with a posterior- or search-trained router on an explicit state beating all three **off-support**, where dense shortcuts and amortization break. Four rungs studied the router with primitives handed over; none of the three comparisons has been run.
+- **Hypothesis from rung 4 (post hoc):** the prior wins in support, search wins off it (0.94 against 0.72; 0.47 against 0.73 for lookahead-3); the no-search router was asked to do what the thesis assigns to per-decision search.
+- **Route labelling (discussion, no result):** geometry in the latent gives a test for arrival, not a compass; learning routes and primitives together has our own negatives (F22–F23, F32) and a catalogued literature (Rosenbaum et al. 2019); designed primitives need a designed state and a trace, which mathematics has; a dense teacher's layer path as per-step targets is risk 1, still first and untested.
+- **Open (D131, the researcher's):** which comparison leads the next design.
+
 ### Update (25 Oct 2026, after the priors round)
 
 - **The data gap is the prior, not the search (F19).**
