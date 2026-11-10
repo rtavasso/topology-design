@@ -270,7 +270,22 @@ def wait_and_fetch(args, user):
             break
         time.sleep(args.poll)
     os.makedirs(args.out, exist_ok=True)
-    kaggle("kernels", "output", f"{user}/{args.kernel}", "-p", args.out)
+    # the download of a large output (the rewrite main grid: 41 records and 41 checkpoints) can break partway and leave an
+    # empty file behind (10 Nov 2026: three checkpoints, a 0-byte fourth, nothing else): retry, clearing empty files first;
+    # the CLI skips what is already complete
+    for attempt in range(1, 6):
+        for root, _, files in os.walk(args.out):
+            for f in files:
+                fp = os.path.join(root, f)
+                if os.path.getsize(fp) == 0:
+                    os.remove(fp)
+        p = kaggle("kernels", "output", f"{user}/{args.kernel}", "-p", args.out, check=False)
+        if p.returncode == 0:
+            break
+        print(f"download attempt {attempt} of 5 failed (exit {p.returncode})" + ("; retrying in 30 s" if attempt < 5 else ""), flush=True)
+        if attempt == 5:
+            sys.exit(f"the kernel's output could not be downloaded; what arrived is in {args.out}. Run the same command with --fetch to try again.")
+        time.sleep(30)
     res = os.path.join(args.out, "results")
     loose = [f for f in os.listdir(args.out) if f.endswith(".json.gz")]
     if loose:  # the CLI may flatten subdirectories
@@ -286,6 +301,11 @@ def wait_and_fetch(args, user):
     n = len([f for f in os.listdir(res) if f.endswith(".json.gz")]) if os.path.isdir(res) else 0
     nc = len([f for f in os.listdir(ckd) if f.endswith(".pt")]) if os.path.isdir(ckd) else 0
     print(f"logs in {args.out}" + (f"; {n} results in {res}" if n else "") + (f"; {nc} checkpoints in {ckd}" if nc else ""))
+    grid = args.rewrite_grid or args.route_grid
+    if grid and os.path.exists(grid):
+        want = len(json.load(open(grid)))
+        if n < want:
+            print(f"INCOMPLETE: {n} of {want} runs have results. Run the launch command again (without --fetch) to resume the remaining {want - n}.")
 
 
 if __name__ == "__main__":
