@@ -1694,6 +1694,18 @@ Addendum to Entry 77, which was written while the eval sets at sizes 6–7, the 
 
 **Expected falsifier of the candidate claim** (a looped encoder trained on proofs learns a small set of reusable latent moves, and that reuse predicts generalization to unseen lemma combinations and longer proofs): the per-iteration displacements do not fall into reusable types, or they do and reuse does not predict generalization.
 
+## Entry 84 (11 Nov 2026): a deeper literature check on probing latent trajectories — the measurements exist, the niche narrows to proofs, reuse and experts
+
+**Premise.** After Entry 83 the researcher asked for a deeper check on latent-trajectory probing and whether "which encoded states decode to the correct solution, and how the encoder gets there" can be defined by measurements. Ten searches, eleven pages read (most truncated by the reader); notes in [literature.md](literature.md), "Probing latent trajectories".
+
+**Result.** Yes, with an existing toolkit: per-iteration decoding and loss; the iteration's residual as convergence and halting signal; path independence under changed starting states (Anil et al. 2022 — correlated with generalization to harder instances and usable per instance as a label-free check); basin mapping and spurious attractors (the HRM and TRM analyses of 2026); probes with causal interventions (the Sokoban RNN work is the standard); per-step data attribution. Entry 83's candidate "the latent path against known structure" is therefore not new as a kind of study: it has been done for Sudoku, mazes, ARC, Dyck, parity, graph reachability and Sokoban.
+
+**What the published analyses found, which we should expect to meet.** In the recursive reasoners trained with a loss at every step, the loop mostly does not reason stepwise: most accuracy arrives at the first recursion (TRM on ARC: 38.25 % → 40.50 % over four steps), loss is flat and then drops (HRM), trajectories fall into the nearest fixed point, failures are spurious attractors, and restarts or noise are the fix. Stepwise or parallel-frontier computation is reported where the task is sequential (Sokoban plans, reachability, parity). So "what path does the loop take" has two known answers, and which one a proof task gives — and how the training signal decides it — is the open part.
+
+**What was not found** (targeted searches, not a review): these measurements on a theorem prover's latent states; reuse of latent moves across problems; what experts do to trajectories. Lean's specific advantage: the kernel checks the decoding of any state and a goal has many valid next steps, so the set of correct states can be mapped exactly as a union of regions.
+
+**Consequence for Entry 83's candidates.** The candidate claim (reusable latent moves that predict generalization) stands as unanswered; "the latent path against a proof system's intermediate states" is narrowed to "which of the two regimes, and what decides it"; the caution that decodable is not used now has a number behind it (latent-step ablations flipping ~10 % of answers in Coconut-style models).
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
