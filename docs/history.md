@@ -1722,6 +1722,20 @@ Addendum to Entry 77, which was written while the eval sets at sizes 6–7, the 
 
 **Decisions.** None. D132 stands; the contribution remains open.
 
+## Entry 86 (12 Nov 2026): the "encode, decode several, verify, feed back" scheme — a novelty check, and a remark on the program's drift
+
+**Premise.** The researcher's instruction first: read full papers, not first chunks (the reader returns 100k characters per call; I had been stopping there). Read-on results are in [literature.md](literature.md) ("Read-on, 12 Nov"); one correction came out of it — Ouro degrades past its trained loop count (AIME 2024: 65.00 at 4 loops, 38.67 at 8), so looping at scale bought manipulation, not depth extrapolation.
+
+**The researcher's scheme.** The encoder holds probability mass over next paths; lock-in happens at the autoregressive decoder; decode the paths the encoder supports in parallel, feed the decoder's sequences back into the encoder, iterate — "a two-stage encode–decode exploration internalization recursion", replacing the original thesis.
+
+**What I argued.** (i) The first half is established (the continuous-thought result; and rung 4's P6: a router trained on one canonical proof put 0.90–0.93 of first steps on it, one trained on the posterior spread — the encoder holds alternatives only if the targets contain them). (ii) Feeding back the decoder's own samples adds no information; the feedback has to carry evidence, which in Lean is the kernel's verdicts and resulting states. (iii) With the kernel in the middle this is proof search; the difference from existing provers would be that the tree and its outcomes sit in the encoder's state instead of outside the network.
+
+**Novelty check** ([literature.md](literature.md), table of 12 Nov). Every component exists: failures and errors fed back in context (COPRA), trained self-correction on compiler feedback with parallel candidates (Goedel-Prover-V2), search held by the model (Stream of Search; a 2026 workshop paper on transformers executing tree search over a fixed proposer), a learned exploration procedure with evaluator outputs as input (Thinker), readout feedback into a recurrent latent (training-free, no verifier), and a warning that training on verified paths squeezes out rare correct ones (ARTS). Not found: the loop closed through the latent state of a small recurrent encoder with a kernel in the middle and the procedure learned. One page could not be read (rate-limited twice; named in the notes).
+
+**What I told the researcher.** As an architecture this is a recombination, and the token-level version already runs at scale; a small system would not compete. The program's object has changed three times in three days (discrete primitives → looped encoders with soft programs → this recursion), and each time the architecture turned out to exist. The pattern says the contribution will not be an architecture. The question that looks unasked, uses what we own, and keeps the original thesis's content: on a carrier with exact posteriors, does a recurrent prover's distribution over next steps update on kernel evidence as the exact conditional posterior does, or toward its own earlier guesses?
+
+**Decisions.** None; the researcher's saved instruction about keeping the larger objective in view applies — the larger objective is at present not fixed, and fixing the claim precedes any design.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
