@@ -1736,6 +1736,23 @@ Addendum to Entry 77, which was written while the eval sets at sizes 6–7, the 
 
 **Decisions.** None; the researcher's saved instruction about keeping the larger objective in view applies — the larger objective is at present not fixed, and fixing the claim precedes any design.
 
+## Entry 87 (12 Nov 2026): branching hypotheses in bits — an exact computation on the rewrite carrier that checks three of my own claims
+
+**Premise.** The researcher asked whether supervised learning suffices for the encode–decode–verify–feed-back loop (it does where an oracle exists; recorded in the discussion), what ideal data looks like and how data can confound, and then for a formalization, as code and through information theory, of the branching hypotheses at different points of a proof — "to prove/disprove yourself or find structure of data". I had claimed, without computing: (a) branches may differ only at the surface, e.g. by reordering; (b) if a failed step only tells you that step is wrong, a mask suffices and nothing is measured; (c) evidence must change beliefs about *other* steps for the feedback loop to mean anything.
+
+**Method.** [experiments/rewrite/analysis/branching_info.py](../experiments/rewrite/analysis/branching_info.py) → [branching_info.md](../experiments/rewrite/analysis/branching_info.md). Exact, no model: the eval5 set (9,000 instances), the executor, the stored uniform-over-shortest-proofs posteriors. Not Lean itself: the carrier is rw-only equational proofs. Part A takes the world as known; Part B hides it (prior uniform over the worlds in which the goal is reachable within 8 steps; a trial is an action drawn from the current belief, accepted iff its axiom is in the true world).
+
+**Results.**
+- *Self-check.* The chain rule holds to 4e-15 on 600 instances: Σ weight·H(next state) = log2(#shortest state sequences).
+- *Where the choices are.* Branching entropy is front-loaded and the end of a proof is forced: at proof length 6, 1.17 / 1.23 / 1.07 / 0.85 / 0.54 / 0.10 bits at steps 1–6; whole-path entropy 4.96 bits. Length 1 has 0.02 bits.
+- *Claim (a) is wrong on this carrier.* 69 % of instances have several shortest proofs; only 3 % of those are one proof up to the order of independent steps. Of 3.43 bits of path entropy (400 instances), 0.38 bits (11 %) are order, 0.69 bits are several actions producing the same next term, and the rest are proofs through different terms.
+- *Claim (b) is true in a stronger form (a proposition, no computation).* With the world known and a deterministic executor, the outcome of any trial is a function of (state, goal, world) — 0 bits — and conditioning on "this step is not taken" is the posterior with the step removed and renormalised. On data like rung 4's, kernel feedback can only be a mask. Such data cannot test updating on evidence at all.
+- *Claim (c), quantified.* With the world hidden: 7.1 consistent worlds (2.68 bits); first-step entropy 1.44 bits against 1.03 known; one trial is rejected with probability 0.18 and yields 0.34 bits about the world; the exact update differs from the mask-only update by total variation 0.087 on average and by more than 0.05 on 47 % of instances; belief on the truly optimal first steps goes 0.774 → 0.817 (mask) → 0.885 (exact update).
+
+**Argument.** (i) For the "does the encoder update as the posterior does" question to be measurable, something must be hidden from the model — here, which axioms the kernel has. Fully observed data makes the loop informationally empty; whatever a model gains from feedback there is computation, not evidence. (ii) With four axioms the effect is real and small: one verdict resolves at most one axiom, 13 % of the world uncertainty on average, and half the instances show almost no difference from a mask. A carrier meant to measure updating needs more hidden bits than this one has. (iii) The alternatives in this data are mostly different proofs, so "the encoder holds mass over alternatives" is not trivially satisfied by permutations — and the mass sits in the first half of a proof.
+
+**Limits.** One posterior (uniform over shortest proofs); one prior over worlds and one horizon in Part B; a single trial, drawn from the belief; "different proof" means a different trace class, which says nothing about whether two proofs differ in strategy as a mathematician would mean it.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
