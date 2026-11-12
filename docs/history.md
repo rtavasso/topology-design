@@ -1753,6 +1753,28 @@ Addendum to Entry 77, which was written while the eval sets at sizes 6–7, the 
 
 **Limits.** One posterior (uniform over shortest proofs); one prior over worlds and one horizon in Part B; a single trial, drawn from the belief; "different proof" means a different trace class, which says nothing about whether two proofs differ in strategy as a mathematician would mean it.
 
+## Entry 88 (12 Nov 2026): the hidden-world carrier and the belief experiment — design revision 0
+
+**Premise.** After Entries 86–87 the researcher asked how the exact formalization extends to real problems with everything known (it does not, as Shannon information: there a verdict is informative only to a bounded reasoner — usable information, Xu et al. 2020; the exact study has to stay synthetic), whether the model could be built and compared with the state of the art at equal FLOPs (not against real provers; yes against baselines trained under one budget on a synthetic carrier), and about ARC against other domains (ARC-AGI-3 has the same act–observe–infer structure and rewards small exploring systems; ARC-AGI-1/2 cost about 3 days on four H100s for the tiny recursive model; only a synthetic carrier gives exact beliefs). Then: "formalize the synthetic carrier and experimental design … start by asking the questions we want answers to and then designing experiments".
+
+**What was produced.** [experiments/belief/DESIGN.md](../experiments/belief/DESIGN.md), revision 0, and a preliminary exact computation ([prelim_info.md](../experiments/belief/prelim_info.md)). No model, no training.
+
+**The questions.** Scored: Q1 — after kernel verdicts, does the model's distribution over next steps move as the exact posterior does, beyond a mask? Q2 — on held-out worlds, is its belief the generalising posterior (prior over all rule sets) or the memorising one (prior over its training worlds), as a function of the number of training worlds? Reported: belief from the problem alone; latent against token evidence; loops against kernel calls. Left out on purpose: reuse of latent moves, extrapolation, experts, streams, real Lean, published systems.
+
+**The carrier.** Rung 4's terms and eight directed rules, size cap 5 throughout; a world is a non-empty set of rules (255 worlds), never told to the model; the kernel accepts an action iff its rule is in the world. Problems are drawn without reference to the world; the world is drawn from an independent prior conditioned on the problem being provable within k + Δ steps, which makes the posterior over worlds exact and cheap. The step label is a uniformly sampled optimal action in the true world, so the Bayes predictor is the posterior mixture and the posterior is never a training target.
+
+**Computed before fixing anything (L36).**
+- Hiding the four axioms is nearly degenerate: 2.0 bits left after seeing the problem; the exact update differs from a mask on 12 % of decisions. Hiding the eight rules leaves 6.2 bits; 33 % of post-verdict decisions differ (mean TV 0.09).
+- Reference policies (H8, ρ = 0.5, k ≤ 4): oracle 1.00 solved in 3.5 calls; exact-posterior-greedy 0.93 / 3.8 calls / 0.4 rejections; mask-greedy 0.90 / 4.0 / 0.7.
+- Held-out worlds: the generalising and memorising posteriors differ by TV > 0.05 on 46–47 % of decisions with 8–32 training worlds and on 22 % with 128; their solve rates differ by at most 0.04.
+- Consequence written into the design: the references separate at the level of distributions and hardly at the level of solve rate, so belief measures are primary.
+
+**Design decisions that came from this session's own findings.** Training histories must come from world-blind proposers — a teacher that knows the world leaks it through its choice of proposals and breaks the Bayes-predictor argument (caught while writing §6). Scored rules are read only on decisions where the references differ (L42). A mask arm must *fail* the updating rule or the rule is void (L39). No size extrapolation anywhere (L43). Counted overlap table asserted by a test (L45).
+
+**Honest expectations recorded in the design.** Q4's cost claim cannot show on this carrier: histories are at most about eight verdicts. Behavioural effects will be small. The hidden bit (presence of a rule) is a crude stand-in for an unknown library.
+
+**Decisions.** **D133 (open, the researcher's):** scored scope (Q1 and Q2 only, or Q4 too); the carrier (H8 on the existing algebra, or a larger algebra); on-policy data in the first grid or only on evidence of shift. **Next under the standing workflow:** an independent design review of revision 0 before any stage-0 code is trusted.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
