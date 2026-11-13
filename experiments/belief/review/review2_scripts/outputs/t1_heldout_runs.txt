@@ -1,0 +1,8 @@
+draw 8, 150 instances (author stream), 98 s, noise sigma 0.423; counts {'dec': 538, 'probe_def': 2102, 'probe_O_all_on_r': 110, 'dec_with_tied_argmax': 130}
+draw 7, 150 instances (author stream), 113 s, noise sigma 0.427; counts {'dec': 532, 'probe_def': 1919, 'probe_O_all_on_r': 110, 'dec_with_tied_argmax': 136, 'dec_tie_broken_by_float_noise': 3}
+draw 10, 150 instances (author stream), 106 s, noise sigma 0.439; counts {'dec': 593, 'probe_def': 2090, 'dec_with_tied_argmax': 137, 'probe_O_all_on_r': 109, 'dec_tie_broken_by_float_noise': 1}
+draw 9, 150 instances (author stream), 101 s, noise sigma 0.432; counts {'dec': 540, 'dec_with_tied_argmax': 149, 'probe_def': 2001, 'probe_O_all_on_r': 102, 'dec_tie_broken_by_float_noise': 1}
+draw 21, 150 instances (design stream), 37 s, noise sigma 0.435; counts {'dec': 562, 'probe_def': 2071, 'probe_O_all_on_r': 104, 'dec_with_tied_argmax': 128, 'dec_tie_broken_by_float_noise': 1}
+draw 11, 150 instances (author stream), 104 s, noise sigma 0.438; counts {'dec': 563, 'dec_with_tied_argmax': 148, 'probe_def': 2087, 'probe_O_all_on_r': 113, 'dec_tie_broken_by_float_noise': 2}
+draw 9, 150 instances (author stream), 101 s, noise sigma 0.432; counts {'dec': 540, 'dec_with_tied_argmax': 149, 'probe_def': 2001, 'probe_O_all_on_r': 102, 'dec_tie_broken_by_float_noise': 1}
+draw 7, 150 instances (author stream), 110 s, noise sigma 0.427; counts {'dec': 532, 'probe_def': 1919, 'probe_O_all_on_r': 110, 'dec_with_tied_argmax': 136, 'dec_tie_broken_by_float_noise': 3}

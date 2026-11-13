@@ -1,0 +1,78 @@
+# draw 7, 150 held-out-world instances
+(ii) verdict-blind model, RM_r on the earlier output only, single direction dG: 0.115  (DESIGN: 0.09)
+noise levels: mean TV to target 0.12: 0.119, 0.2: 0.190, 0.3: 0.284
+
+## N = 4: 1423 out-of-support probes
+(i) mass on the probed rule before the probe; share of probes (share of dG signal) with mass >= 0.5 / >= 0.8 / >= 0.95:
+    G              0.10 (0.07) / 0.02 (0.00) / 0.00 (0.00)
+    O              0.15 (0.32) / 0.07 (0.00) / 0.07 (0.00)
+    M (crossing)   0.32 (0.34) / 0.16 (0.03) / 0.16 (0.03)
+(iii), (iv) coefficients (b_G, b_O, s_G, s_O), bootstrap sd of b_G, b_O, residual share:
+    G                                                          (+1.00, +0.00, -0.00, -0.00)  sd 0.000, 0.000  resid -0.00
+    G + noise 0.12                                             (+0.99, -0.03, -0.04, +0.02)  sd 0.047, 0.032  resid 0.63
+    G + noise 0.2                                              (+1.06, -0.07, -0.07, +0.07)  sd 0.072, 0.048  resid 0.81
+    G + noise 0.3                                              (+0.91, -0.04, -0.17, +0.15)  sd 0.087, 0.061  resid 0.92
+    M-then-G + noise 0.12                                      (+0.98, -0.01, +0.97, -0.02)  sd 0.048, 0.026  resid 0.43
+    M-then-G + noise 0.2                                       (+1.06, -0.05, +1.01, -0.02)  sd 0.064, 0.043  resid 0.61
+    M-then-G + noise 0.3                                       (+1.18, -0.19, +1.04, -0.15)  sd 0.101, 0.063  resid 0.80
+    O + noise 0.12                                             (+0.02, +0.93, +0.04, -0.02)  sd 0.034, 0.020  resid 0.54
+    O + noise 0.2                                              (-0.07, +1.00, -0.00, -0.01)  sd 0.083, 0.038  resid 0.66
+    O + noise 0.3                                              (+0.04, +0.94, -0.00, +0.02)  sd 0.076, 0.051  resid 0.77
+    ignores the verdict, same noise on both 0.12               (+0.00, +0.00, +0.00, +0.00)  sd 0.000, 0.000  resid –
+    ignores the verdict, same noise on both 0.2                (+0.00, +0.00, +0.00, +0.00)  sd 0.000, 0.000  resid –
+    ignores the verdict, same noise on both 0.3                (+0.00, +0.00, +0.00, +0.00)  sd 0.000, 0.000  resid –
+    mix of changes 0.5dG+0.5dO                                 (+0.50, +0.50, +0.00, +0.00)  sd 0.001, 0.001  resid 0.00
+    mix of outputs 0.5G+0.5O                                   (+0.51, +0.48, +0.01, -0.01)  sd 0.004, 0.003  resid 0.01
+    non-reviser (frozen prior + rule mask) + noise 0.12        (-0.09, +0.03, +0.03, +0.01)  sd 0.046, 0.028  resid 1.00
+    non-reviser (frozen prior + rule mask) + noise 0.2         (-0.01, -0.03, +0.09, -0.09)  sd 0.078, 0.041  resid 1.00
+    non-reviser (frozen prior + rule mask) + noise 0.3         (+0.09, -0.05, +0.06, -0.06)  sd 0.084, 0.057  resid 1.00
+
+## N = 16: 612 out-of-support probes
+(i) mass on the probed rule before the probe; share of probes (share of dG signal) with mass >= 0.5 / >= 0.8 / >= 0.95:
+    G              0.13 (0.09) / 0.03 (0.00) / 0.00 (0.00)
+    O              0.21 (0.36) / 0.09 (0.00) / 0.09 (0.00)
+    M (crossing)   0.35 (0.40) / 0.15 (0.00) / 0.14 (0.00)
+(iii), (iv) coefficients (b_G, b_O, s_G, s_O), bootstrap sd of b_G, b_O, residual share:
+    G                                                          (+1.00, -0.00, +0.00, -0.00)  sd 0.000, 0.000  resid -0.00
+    G + noise 0.12                                             (+1.01, -0.02, -0.05, +0.04)  sd 0.099, 0.080  resid 0.55
+    G + noise 0.2                                              (+1.17, -0.15, +0.08, -0.03)  sd 0.132, 0.089  resid 0.73
+    G + noise 0.3                                              (+0.92, -0.19, +0.20, -0.08)  sd 0.175, 0.130  resid 0.91
+    M-then-G + noise 0.12                                      (+0.85, +0.11, +0.87, +0.07)  sd 0.087, 0.060  resid 0.40
+    M-then-G + noise 0.2                                       (+0.82, +0.10, +0.97, -0.00)  sd 0.100, 0.073  resid 0.53
+    M-then-G + noise 0.3                                       (+1.22, -0.17, +0.88, -0.01)  sd 0.110, 0.082  resid 0.67
+    O + noise 0.12                                             (-0.00, +0.97, +0.07, -0.04)  sd 0.051, 0.033  resid 0.49
+    O + noise 0.2                                              (-0.01, +1.00, +0.03, -0.01)  sd 0.102, 0.075  resid 0.58
+    O + noise 0.3                                              (-0.02, +0.89, +0.06, -0.11)  sd 0.123, 0.091  resid 0.75
+    ignores the verdict, same noise on both 0.12               (+0.00, +0.00, +0.00, +0.00)  sd 0.000, 0.000  resid –
+    ignores the verdict, same noise on both 0.2                (+0.00, +0.00, +0.00, +0.00)  sd 0.000, 0.000  resid –
+    ignores the verdict, same noise on both 0.3                (+0.00, +0.00, +0.00, +0.00)  sd 0.000, 0.000  resid –
+    mix of changes 0.5dG+0.5dO                                 (+0.50, +0.51, -0.01, +0.01)  sd 0.005, 0.005  resid 0.00
+    mix of outputs 0.5G+0.5O                                   (+0.51, +0.48, -0.01, +0.01)  sd 0.007, 0.005  resid 0.01
+    non-reviser (frozen prior + rule mask) + noise 0.12        (-0.12, +0.01, +0.06, -0.00)  sd 0.074, 0.051  resid 0.99
+    non-reviser (frozen prior + rule mask) + noise 0.2         (+0.12, +0.03, -0.19, +0.10)  sd 0.139, 0.067  resid 0.99
+    non-reviser (frozen prior + rule mask) + noise 0.3         (+0.40, -0.32, +0.24, -0.21)  sd 0.155, 0.098  resid 0.99
+
+## N = 32: 460 out-of-support probes
+(i) mass on the probed rule before the probe; share of probes (share of dG signal) with mass >= 0.5 / >= 0.8 / >= 0.95:
+    G              0.14 (0.12) / 0.04 (0.00) / 0.00 (0.00)
+    O              0.22 (0.40) / 0.09 (0.00) / 0.09 (0.00)
+    M (crossing)   0.36 (0.48) / 0.14 (0.02) / 0.14 (0.01)
+(iii), (iv) coefficients (b_G, b_O, s_G, s_O), bootstrap sd of b_G, b_O, residual share:
+    G                                                          (+1.00, +0.00, -0.00, +0.00)  sd 0.000, 0.000  resid 0.00
+    G + noise 0.12                                             (+0.91, +0.10, -0.07, +0.04)  sd 0.124, 0.075  resid 0.54
+    G + noise 0.2                                              (+0.88, +0.06, +0.03, -0.02)  sd 0.128, 0.100  resid 0.75
+    G + noise 0.3                                              (+0.98, -0.03, -0.02, +0.04)  sd 0.241, 0.139  resid 0.87
+    M-then-G + noise 0.12                                      (+1.10, -0.06, +0.96, -0.03)  sd 0.102, 0.074  resid 0.42
+    M-then-G + noise 0.2                                       (+1.15, -0.15, +0.98, -0.12)  sd 0.133, 0.082  resid 0.55
+    M-then-G + noise 0.3                                       (+1.06, -0.09, +0.96, -0.04)  sd 0.191, 0.117  resid 0.68
+    O + noise 0.12                                             (+0.07, +0.91, +0.02, -0.03)  sd 0.091, 0.043  resid 0.52
+    O + noise 0.2                                              (+0.04, +0.94, -0.05, -0.00)  sd 0.110, 0.079  resid 0.64
+    O + noise 0.3                                              (+0.35, +0.74, -0.01, -0.04)  sd 0.246, 0.162  resid 0.74
+    ignores the verdict, same noise on both 0.12               (+0.00, +0.00, +0.00, +0.00)  sd 0.000, 0.000  resid –
+    ignores the verdict, same noise on both 0.2                (+0.00, +0.00, +0.00, +0.00)  sd 0.000, 0.000  resid –
+    ignores the verdict, same noise on both 0.3                (+0.00, +0.00, +0.00, +0.00)  sd 0.000, 0.000  resid –
+    mix of changes 0.5dG+0.5dO                                 (+0.49, +0.51, -0.01, +0.01)  sd 0.005, 0.006  resid 0.00
+    mix of outputs 0.5G+0.5O                                   (+0.51, +0.48, -0.01, +0.01)  sd 0.009, 0.006  resid 0.01
+    non-reviser (frozen prior + rule mask) + noise 0.12        (+0.01, +0.07, -0.13, +0.08)  sd 0.099, 0.053  resid 0.99
+    non-reviser (frozen prior + rule mask) + noise 0.2         (+0.12, -0.04, -0.04, +0.02)  sd 0.103, 0.064  resid 1.00
+    non-reviser (frozen prior + rule mask) + noise 0.3         (+0.12, -0.20, +0.06, +0.06)  sd 0.210, 0.149  resid 0.99

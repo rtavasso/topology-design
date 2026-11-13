@@ -1,0 +1,61 @@
+B2. Rules present in every training world / in none, at 4 and 8 training worlds:
+  draw 7, N = 4: in every training world ['Af']; in none ['IbL']
+  draw 7, N = 8: in every training world -; in none -
+  draw 8, N = 4: in every training world ['Af', 'IbL']; in none -
+  draw 8, N = 8: in every training world -; in none -
+  draw 9, N = 4: in every training world ['Ab']; in none -
+  draw 9, N = 8: in every training world -; in none -
+  draw 10, N = 4: in every training world ['Ab']; in none -
+  draw 10, N = 8: in every training world -; in none -
+  draw 11, N = 4: in every training world -; in none ['Ab']
+  draw 11, N = 8: in every training world -; in none -
+
+B1. Coefficients with 95 % bootstrap bounds over held-out worlds; levels on (G - M, O - M), out-of-support changes on (dG, dO | g, h).
+
+  draw 7, N = 4  (80 held-out-world instances)
+    post09   levels c_G 0.31 [0.29, 0.33], c_O 0.70 [0.68, 0.72];  out of support b_G 0.31 [0.30, 0.33], b_O 0.67 [0.65, 0.69]
+    vspace   levels c_G 1.67 [1.35, 2.00], c_O -0.66 [-0.95, -0.38];  out of support b_G 1.47 [1.31, 1.65], b_O -0.62 [-0.77, -0.52]
+    whatif   levels c_G 0.46 [0.42, 0.49], c_O 0.56 [0.53, 0.60];  out of support b_G 0.48 [0.46, 0.51], b_O 0.50 [0.48, 0.52]
+    uniform  levels c_G 1.67 [1.38, 1.99], c_O -0.66 [-0.97, -0.40];  out of support: 0 by construction
+
+  draw 7, N = 8  (80 held-out-world instances)
+    post09   levels c_G 0.32 [0.31, 0.34], c_O 0.70 [0.69, 0.72];  out of support b_G 0.31 [0.29, 0.32], b_O 0.68 [0.67, 0.69]
+    vspace   levels c_G 1.70 [1.44, 1.94], c_O -0.65 [-0.85, -0.42];  out of support b_G 1.45 [1.24, 1.69], b_O -0.63 [-0.85, -0.49]
+    whatif   levels c_G 0.48 [0.45, 0.52], c_O 0.56 [0.53, 0.59];  out of support b_G 0.47 [0.44, 0.50], b_O 0.50 [0.47, 0.53]
+    uniform  levels c_G 1.70 [1.42, 1.91], c_O -0.65 [-0.87, -0.43];  out of support: 0 by construction
+
+  draw 7, N = 16  (80 held-out-world instances)
+    post09   levels c_G 0.28 [0.27, 0.30], c_O 0.72 [0.71, 0.73];  out of support b_G 0.31 [0.26, 0.36], b_O 0.66 [0.61, 0.70]
+    vspace   levels c_G 1.59 [1.41, 1.77], c_O -0.62 [-0.75, -0.48];  out of support b_G 1.66 [1.43, 1.93], b_O -0.74 [-1.02, -0.53]
+    whatif   levels c_G 0.42 [0.39, 0.45], c_O 0.59 [0.57, 0.61];  out of support b_G 0.55 [0.48, 0.61], b_O 0.41 [0.37, 0.46]
+    uniform  levels c_G 1.59 [1.41, 1.78], c_O -0.62 [-0.76, -0.50];  out of support: 0 by construction
+
+  draw 7, N = 32  (80 held-out-world instances)
+    post09   levels c_G 0.28 [0.27, 0.30], c_O 0.72 [0.71, 0.74];  out of support b_G 0.33 [0.25, 0.39], b_O 0.65 [0.58, 0.70]
+    vspace   levels c_G 1.59 [1.42, 1.77], c_O -0.63 [-0.78, -0.50];  out of support b_G 1.42 [1.06, 1.69], b_O -0.58 [-0.81, -0.41]
+    whatif   levels c_G 0.42 [0.40, 0.45], c_O 0.59 [0.56, 0.61];  out of support b_G 0.58 [0.45, 0.64], b_O 0.39 [0.34, 0.45]
+    uniform  levels c_G 1.59 [1.43, 1.76], c_O -0.63 [-0.79, -0.51];  out of support: 0 by construction
+
+  draw 8, N = 4  (80 held-out-world instances)
+    post09   levels c_G 0.29 [0.28, 0.31], c_O 0.72 [0.71, 0.73];  out of support b_G 0.36 [0.33, 0.41], b_O 0.64 [0.61, 0.67]
+    vspace   levels c_G 1.73 [1.62, 1.85], c_O -0.64 [-0.77, -0.54];  out of support b_G 1.22 [1.04, 1.39], b_O -0.44 [-0.58, -0.32]
+    whatif   levels c_G 0.43 [0.40, 0.46], c_O 0.59 [0.57, 0.61];  out of support b_G 0.58 [0.53, 0.63], b_O 0.42 [0.38, 0.45]
+    uniform  levels c_G 1.73 [1.60, 1.84], c_O -0.64 [-0.75, -0.52];  out of support: 0 by construction
+
+  draw 8, N = 8  (80 held-out-world instances)
+    post09   levels c_G 0.30 [0.28, 0.32], c_O 0.72 [0.71, 0.74];  out of support b_G 0.34 [0.32, 0.37], b_O 0.65 [0.62, 0.67]
+    vspace   levels c_G 1.77 [1.62, 1.92], c_O -0.60 [-0.73, -0.49];  out of support b_G 1.24 [1.00, 1.56], b_O -0.41 [-0.71, -0.26]
+    whatif   levels c_G 0.44 [0.42, 0.48], c_O 0.59 [0.58, 0.61];  out of support b_G 0.61 [0.55, 0.67], b_O 0.37 [0.32, 0.44]
+    uniform  levels c_G 1.77 [1.60, 1.91], c_O -0.60 [-0.73, -0.47];  out of support: 0 by construction
+
+  draw 8, N = 16  (80 held-out-world instances)
+    post09   levels c_G 0.28 [0.26, 0.30], c_O 0.73 [0.72, 0.74];  out of support b_G 0.32 [0.28, 0.36], b_O 0.66 [0.61, 0.69]
+    vspace   levels c_G 1.64 [1.48, 1.84], c_O -0.57 [-0.70, -0.42];  out of support b_G 1.38 [1.11, 1.69], b_O -0.49 [-0.82, -0.31]
+    whatif   levels c_G 0.44 [0.40, 0.47], c_O 0.59 [0.57, 0.61];  out of support b_G 0.57 [0.50, 0.67], b_O 0.38 [0.26, 0.44]
+    uniform  levels c_G 1.64 [1.47, 1.83], c_O -0.57 [-0.72, -0.43];  out of support: 0 by construction
+
+  draw 8, N = 32  (80 held-out-world instances)
+    post09   levels c_G 0.26 [0.23, 0.28], c_O 0.73 [0.72, 0.74];  out of support b_G 0.35 [0.29, 0.64], b_O 0.65 [-0.00, 0.67]
+    vspace   levels c_G 1.20 [0.86, 1.58], c_O -0.54 [-0.67, -0.39];  out of support b_G 1.33 [0.00, 1.60], b_O -0.32 [-0.39, 0.00]
+    whatif   levels c_G 0.41 [0.32, 0.46], c_O 0.59 [0.57, 0.61];  out of support b_G 0.77 [0.56, 1.48], b_O 0.23 [-0.00, 0.25]
+    uniform  levels c_G 1.20 [0.86, 1.59], c_O -0.54 [-0.69, -0.40];  out of support: 0 by construction

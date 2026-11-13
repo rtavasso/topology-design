@@ -1,5 +1,7 @@
 # Belief updating in a looped prover on a hidden-world carrier — design
 
+> **Status, 13 Nov 2026 (evening): reviewed and found not sound as written** ([review/review2_design.md](review/review2_design.md); history Entry 93). The carrier, the exact mechanisms, the zero for deletion, the gate and the training claim of §7 hold. Four things block: the classes G and O do not mean "posterior" and "planner without belief" (§4, §8, §10 overclaim; the planner is the posterior with the prior taken to 1); at 4 training worlds some verdicts in the probes never occur in training; the class and cell rules are incomplete; the 32-world cell misses the stage-0 sampling-error gate on two of five draws. §2's "not found" is too wide (Park et al. 2024; Wurgaft et al. 2025; Wang et al. 2024). **Do not build from this revision.** Revision 4 waits for the researcher's decision on scope (D139).
+
 **Revision 3, 13 Nov 2026.** Nothing is built and no model has been run. Every number here is an exact, model-free computation ([refs3.md](refs3.md), [power.md](power.md), [prelim_info.md](prelim_info.md); scripts beside them). Revision 2 was reviewed independently and found **not sound as written** ([review/review1_design.md](review/review1_design.md)); this revision answers that review and has **not yet been re-reviewed**. No stage-0 code is to be trusted before design review 2.
 
 **What changed from revision 2.**

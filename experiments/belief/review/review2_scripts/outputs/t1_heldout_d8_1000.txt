@@ -1,0 +1,1 @@
+draw 8, 1000 instances (design stream), 235 s, noise sigma 0.423; counts {'dec': 3483, 'probe_def': 13158, 'probe_O_all_on_r': 706, 'dec_with_tied_argmax': 803, 'dec_tie_broken_by_float_noise': 6}
