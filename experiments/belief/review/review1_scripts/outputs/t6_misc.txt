@@ -1,0 +1,26 @@
+== bootstrap over instances (600 instances, seed 0), 2000 resamples: beta of lookup-type 'models' ==
+rm         beta 0.526  95% interval [0.427, 0.608]  sd 0.046 (sd at 2,000 instances ~ 0.025)
+lookup1.0  beta 0.612  95% interval [0.524, 0.688]  sd 0.042 (sd at 2,000 instances ~ 0.023)
+lookup2.0  beta 0.671  95% interval [0.579, 0.755]  sd 0.044 (sd at 2,000 instances ~ 0.024)
+qP         beta 0.293  95% interval [0.257, 0.336]  sd 0.020 (sd at 2,000 instances ~ 0.011)
+qP_rm      beta 0.702  95% interval [0.634, 0.766]  sd 0.034 (sd at 2,000 instances ~ 0.019)
+qA         beta 0.874  95% interval [0.834, 0.904]  sd 0.018 (sd at 2,000 instances ~ 0.010)
+
+beta_step: rule mask 0.355 (boot sd 0.078; at 2,000 instances ~0.043); noisy exact updater (log-normal sigma 0.9 on both steps) 0.893 (boot sd 0.083; at 2,000 ~0.045)
+
+q at the same (state, evidence) with one more accepted step of budget: mean TV 0.016, >0.05 on 0.09 of 532 decisions; with one less: mean TV 0.048, >0.05 on 0.26 of 692
+q-greedy decisions at which the true world can no longer finish (no label would exist in training): 28 of 747 (0.037)
+
+== training sets (nested, shuffle seeds 7..11): rules present in ALL / in NONE of the N training worlds; world sizes ==
+seed 7 N=8: per-rule count of training worlds containing it [5, 3, 2, 6, 1, 1, 4, 5] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [1, 2, 2, 3, 4, 5, 5, 5]
+seed 7 N=16: per-rule count of training worlds containing it [10, 7, 6, 9, 5, 4, 9, 8] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [1, 2, 2, 2, 2, 3, 3, 4, 4, 5, 5, 5, 5, 5, 5, 5]
+seed 8 N=8: per-rule count of training worlds containing it [7, 3, 3, 3, 5, 5, 5, 4] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [3, 4, 4, 4, 5, 5, 5, 5]
+seed 8 N=16: per-rule count of training worlds containing it [11, 7, 6, 8, 11, 7, 9, 8] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5]
+seed 9 N=8: per-rule count of training worlds containing it [4, 5, 6, 5, 4, 4, 4, 4] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [2, 4, 4, 4, 5, 5, 5, 7]
+seed 9 N=16: per-rule count of training worlds containing it [7, 10, 11, 6, 8, 6, 9, 9] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [2, 2, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 7]
+seed 10 N=8: per-rule count of training worlds containing it [4, 7, 3, 5, 4, 4, 4, 4] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [3, 3, 4, 4, 5, 5, 5, 6]
+seed 10 N=16: per-rule count of training worlds containing it [8, 11, 5, 9, 8, 8, 8, 9] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [2, 3, 3, 3, 3, 3, 3, 4, 4, 5, 5, 5, 5, 5, 6, 7]
+seed 11 N=8: per-rule count of training worlds containing it [5, 1, 5, 3, 4, 6, 4, 6] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [2, 2, 3, 4, 4, 6, 6, 7]
+seed 11 N=16: per-rule count of training worlds containing it [10, 4, 10, 6, 9, 7, 9, 9] (rules ('Af', 'Ab', 'C', 'If', 'IbR', 'IbL', 'Df', 'Db')); never rejectable in training: []; never acceptable: []; sizes [2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 6, 6, 7]
+
+cost per instance: total 0.161s, of which building the full-world ball 0.086s

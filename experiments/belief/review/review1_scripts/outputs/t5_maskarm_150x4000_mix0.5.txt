@@ -1,0 +1,11 @@
+... 25 problems, 6s
+... 50 problems, 13s
+... 75 problems, 21s
+... 100 problems, 27s
+... 125 problems, 34s
+... 150 problems, 42s
+
+150 problems, 4000 episodes each (half q-sampling, half uniform proposals); scored post-verdict decisions on the q-greedy trajectory: 411
+mask arm, input = (state, goal, remaining budget): fitted on 409 decisions (1.00 of the signal energy); beta = 0.456; after an accept 0.517, after a rejection 0.234; mean TV to m 0.073, to q 0.067; on the same decisions beta[qP] 0.252, beta[rule mask] 0.547
+mask arm, input = (state, goal) only: fitted on 409 decisions (1.00 of the signal energy); beta = 0.211; after an accept 0.239, after a rejection 0.109; mean TV to m 0.051, to q 0.082; on the same decisions beta[qP] 0.252, beta[rule mask] 0.547
+check — token-arm key (state, budget, P, A), empirical label mean: 394 decisions (0.93 of energy); beta = 1.000; mean TV to q 0.0101

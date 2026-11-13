@@ -1,0 +1,81 @@
+generated 3172 instances, 528s; held-out instances per shuffle: {7: 800, 8: 800, 9: 763, 10: 800, 11: 766}
+
+=== world-set draw (shuffle seed 7) ===
+N | inst | mean TV(q,q_train) | TV>0.05 | inst with no consistent train world | decisions: ok / fb_mask / fb_q / nocons | share of gamma denominator: ok / fb_mask | first-decision share of denominator | inst with train world equal to true on all rules in ball | inst where evidence contradicts every train world
+8 | 800 | 0.159 | 0.41 | 0.27 | 0.57 / 0.07 / 0.05 / 0.31 | 0.59 / 0.41 | 0.17 | 0.00 | 0.17
+16 | 800 | 0.168 | 0.59 | 0.04 | 0.80 / 0.10 / 0.04 / 0.05 | 0.54 / 0.46 | 0.14 | 0.00 | 0.19
+32 | 800 | 0.148 | 0.60 | 0.00 | 0.90 / 0.08 / 0.02 / 0.00 | 0.54 / 0.46 | 0.09 | 0.01 | 0.12
+64 | 800 | 0.042 | 0.32 | 0.00 | 1.00 / 0.00 / 0.00 / 0.00 | 0.91 / 0.09 | 0.14 | 0.01 | 0.00
+128 | 800 | 0.041 | 0.35 | 0.00 | 1.00 / 0.00 / 0.00 / 0.00 | 1.00 / 0.00 | 0.17 | 0.01 | 0.00
+gamma of candidate learners (0 = author's memorising reference, 1 = generalising posterior):
+N | product-of-empirical-marginals posterior | same, on in-support decisions only | full-prior mask-only | full-prior rule mask | memoriser, fallback = rule mask | memoriser, fallback = nearest train worlds | memoriser, fallback = q
+8 | 0.83 | 0.71 | 0.82 | 0.94 | 0.02 | 0.02 | 0.41
+16 | 0.92 | 0.85 | 0.72 | 0.92 | 0.05 | 0.05 | 0.46
+32 | 0.94 | 0.88 | 0.71 | 0.94 | 0.08 | 0.09 | 0.46
+64 | 0.95 | 0.94 | 0.99 | 1.02 | 0.03 | 0.04 | 0.09
+128 | 0.83 | 0.83 | 1.03 | 1.03 | 0.00 | 0.00 | 0.00
+
+=== world-set draw (shuffle seed 8) ===
+N | inst | mean TV(q,q_train) | TV>0.05 | inst with no consistent train world | decisions: ok / fb_mask / fb_q / nocons | share of gamma denominator: ok / fb_mask | first-decision share of denominator | inst with train world equal to true on all rules in ball | inst where evidence contradicts every train world
+8 | 800 | 0.195 | 0.59 | 0.04 | 0.83 / 0.10 / 0.03 / 0.04 | 0.67 / 0.33 | 0.13 | 0.00 | 0.19
+16 | 800 | 0.154 | 0.60 | 0.01 | 0.92 / 0.06 / 0.01 / 0.01 | 0.76 / 0.24 | 0.11 | 0.01 | 0.10
+32 | 800 | 0.064 | 0.42 | 0.00 | 0.98 / 0.02 / 0.00 / 0.00 | 0.71 / 0.29 | 0.08 | 0.01 | 0.03
+64 | 800 | 0.056 | 0.41 | 0.00 | 0.99 / 0.01 / 0.00 / 0.00 | 0.86 / 0.14 | 0.10 | 0.01 | 0.01
+128 | 800 | 0.031 | 0.26 | 0.00 | 1.00 / 0.00 / 0.00 / 0.00 | 0.95 / 0.05 | 0.12 | 0.01 | 0.00
+gamma of candidate learners (0 = author's memorising reference, 1 = generalising posterior):
+N | product-of-empirical-marginals posterior | same, on in-support decisions only | full-prior mask-only | full-prior rule mask | memoriser, fallback = rule mask | memoriser, fallback = nearest train worlds | memoriser, fallback = q
+8 | 0.95 | 0.93 | 0.88 | 0.93 | 0.03 | 0.03 | 0.33
+16 | 0.89 | 0.86 | 0.88 | 0.94 | 0.05 | 0.06 | 0.24
+32 | 1.02 | 1.03 | 0.74 | 0.90 | 0.12 | 0.13 | 0.29
+64 | 1.02 | 1.03 | 0.90 | 0.94 | 0.04 | 0.07 | 0.14
+128 | 0.99 | 0.98 | 1.07 | 1.07 | 0.01 | 0.01 | 0.05
+
+=== world-set draw (shuffle seed 9) ===
+N | inst | mean TV(q,q_train) | TV>0.05 | inst with no consistent train world | decisions: ok / fb_mask / fb_q / nocons | share of gamma denominator: ok / fb_mask | first-decision share of denominator | inst with train world equal to true on all rules in ball | inst where evidence contradicts every train world
+8 | 763 | 0.149 | 0.56 | 0.04 | 0.79 / 0.12 / 0.04 / 0.05 | 0.58 / 0.42 | 0.11 | 0.01 | 0.22
+16 | 763 | 0.122 | 0.56 | 0.00 | 0.91 / 0.07 / 0.01 / 0.00 | 0.67 / 0.33 | 0.12 | 0.01 | 0.12
+32 | 763 | 0.079 | 0.50 | 0.00 | 0.96 / 0.04 / 0.00 / 0.00 | 0.72 / 0.28 | 0.13 | 0.01 | 0.05
+64 | 763 | 0.054 | 0.38 | 0.00 | 0.98 / 0.02 / 0.00 / 0.00 | 0.76 / 0.24 | 0.09 | 0.02 | 0.02
+128 | 763 | 0.034 | 0.26 | 0.00 | 1.00 / 0.00 / 0.00 / 0.00 | 0.91 / 0.09 | 0.09 | 0.02 | 0.01
+gamma of candidate learners (0 = author's memorising reference, 1 = generalising posterior):
+N | product-of-empirical-marginals posterior | same, on in-support decisions only | full-prior mask-only | full-prior rule mask | memoriser, fallback = rule mask | memoriser, fallback = nearest train worlds | memoriser, fallback = q
+8 | 1.00 | 1.00 | 0.71 | 0.87 | 0.07 | 0.08 | 0.42
+16 | 0.93 | 0.90 | 0.80 | 0.90 | 0.05 | 0.06 | 0.33
+32 | 0.84 | 0.78 | 0.74 | 0.83 | 0.09 | 0.09 | 0.28
+64 | 0.97 | 0.96 | 0.80 | 0.88 | 0.07 | 0.07 | 0.24
+128 | 0.86 | 0.85 | 0.98 | 1.00 | 0.04 | 0.04 | 0.09
+
+=== world-set draw (shuffle seed 10) ===
+N | inst | mean TV(q,q_train) | TV>0.05 | inst with no consistent train world | decisions: ok / fb_mask / fb_q / nocons | share of gamma denominator: ok / fb_mask | first-decision share of denominator | inst with train world equal to true on all rules in ball | inst where evidence contradicts every train world
+8 | 800 | 0.176 | 0.52 | 0.09 | 0.74 / 0.11 / 0.04 / 0.11 | 0.56 / 0.44 | 0.12 | 0.00 | 0.20
+16 | 800 | 0.155 | 0.54 | 0.07 | 0.77 / 0.10 / 0.03 / 0.09 | 0.53 / 0.47 | 0.11 | 0.00 | 0.17
+32 | 800 | 0.130 | 0.54 | 0.01 | 0.92 / 0.06 / 0.02 / 0.01 | 0.67 / 0.33 | 0.11 | 0.00 | 0.10
+64 | 800 | 0.063 | 0.47 | 0.00 | 0.98 / 0.01 / 0.00 / 0.00 | 0.80 / 0.20 | 0.09 | 0.01 | 0.03
+128 | 800 | 0.029 | 0.24 | 0.00 | 1.00 / 0.00 / 0.00 / 0.00 | 0.98 / 0.02 | 0.15 | 0.02 | 0.00
+gamma of candidate learners (0 = author's memorising reference, 1 = generalising posterior):
+N | product-of-empirical-marginals posterior | same, on in-support decisions only | full-prior mask-only | full-prior rule mask | memoriser, fallback = rule mask | memoriser, fallback = nearest train worlds | memoriser, fallback = q
+8 | 0.93 | 0.87 | 0.79 | 0.92 | 0.04 | 0.03 | 0.44
+16 | 0.89 | 0.80 | 0.75 | 0.90 | 0.07 | 0.08 | 0.47
+32 | 0.89 | 0.84 | 0.79 | 0.93 | 0.08 | 0.07 | 0.33
+64 | 0.96 | 0.95 | 0.81 | 0.95 | 0.09 | 0.09 | 0.20
+128 | 0.75 | 0.74 | 0.95 | 0.96 | 0.00 | 0.01 | 0.02
+
+=== world-set draw (shuffle seed 11) ===
+N | inst | mean TV(q,q_train) | TV>0.05 | inst with no consistent train world | decisions: ok / fb_mask / fb_q / nocons | share of gamma denominator: ok / fb_mask | first-decision share of denominator | inst with train world equal to true on all rules in ball | inst where evidence contradicts every train world
+8 | 766 | 0.160 | 0.58 | 0.02 | 0.85 / 0.10 / 0.03 / 0.02 | 0.70 / 0.30 | 0.15 | 0.01 | 0.20
+16 | 766 | 0.123 | 0.57 | 0.01 | 0.93 / 0.05 / 0.01 / 0.00 | 0.77 / 0.23 | 0.16 | 0.01 | 0.10
+32 | 766 | 0.078 | 0.44 | 0.00 | 0.98 / 0.02 / 0.00 / 0.00 | 0.90 / 0.10 | 0.18 | 0.01 | 0.04
+64 | 766 | 0.047 | 0.37 | 0.00 | 0.99 / 0.01 / 0.00 / 0.00 | 0.94 / 0.06 | 0.14 | 0.02 | 0.01
+128 | 766 | 0.025 | 0.18 | 0.00 | 1.00 / 0.00 / 0.00 / 0.00 | 1.00 / 0.00 | 0.16 | 0.02 | 0.00
+gamma of candidate learners (0 = author's memorising reference, 1 = generalising posterior):
+N | product-of-empirical-marginals posterior | same, on in-support decisions only | full-prior mask-only | full-prior rule mask | memoriser, fallback = rule mask | memoriser, fallback = nearest train worlds | memoriser, fallback = q
+8 | 0.72 | 0.62 | 0.79 | 0.89 | 0.04 | 0.06 | 0.30
+16 | 0.81 | 0.75 | 0.85 | 0.91 | 0.05 | 0.07 | 0.23
+32 | 0.75 | 0.73 | 0.94 | 0.97 | 0.04 | 0.06 | 0.10
+64 | 0.69 | 0.67 | 1.00 | 0.99 | 0.01 | 0.03 | 0.06
+128 | 0.84 | 0.84 | 0.99 | 0.99 | 0.00 | 0.00 | 0.00
+
+=== P1's setting: training-world instances at N = 64 (primary draw), 845 instances, 2355 post-verdict decisions, skipped 2 ===
+mean TV: q vs q_train64 0.044; m vs m_train64 0.048; q vs m 0.101; q_train64 vs m_train64 0.105
+beta, references = full-prior (q, m):  Bayes learner of its own 64-world data (q_train64) 1.000; mask-only learner with the 64-world prior (m_train64) 0.023; own-baseline <q_t - m_t, q - m>/|q-m|^2 0.977
+beta, references = training-prior (q_train64, m_train64):  generalising posterior q 0.946; full-prior mask m 0.005

@@ -1,0 +1,66 @@
+n=600 seed=1 0.17s/inst; decisions 2223
+post-verdict decisions 1623 (2.71/inst); TV>0.05 0.331; >0.10 0.263; >0.20 0.176; mean 0.0955; mean on informative 0.283
+signal energy sum|q-m|^2 = 84.46 (0.1408 per instance)
+
+== beta (and share of squared distance closed, 1 - |q-p|^2/|q-m|^2) of candidate 'models', decisions after a verdict ==
+q            beta  1.000   closed  1.000   n 1623
+m            beta  0.000   closed  0.000   n 1623
+rm           beta  0.530   closed  0.519   n 1623
+qA           beta  0.904   closed  0.902   n 1623
+qP           beta  0.268   closed  0.362   n 1623
+qP_rm        beta  0.679   closed  0.685   n 1623
+uni_rm       beta  0.141   closed -9.421   n 1623
+lookup0.5    beta  0.566   closed  0.506   n 1623
+lookup1.0    beta  0.597   closed  0.325   n 1623
+lookup2.0    beta  0.644   closed -0.380   n 1623
+m_T0.5       beta -0.055   closed -0.657   n 1623
+m_T0.7       beta -0.029   closed -0.211   n 1623
+m_T1.5       beta  0.026   closed -0.104   n 1623
+m_T2.0       beta  0.040   closed -0.301   n 1623
+m_argmax     beta -0.075   closed -5.237   n 1623
+m_can0.1     beta  0.037   closed -0.027   n 1623
+m_can0.3     beta  0.110   closed -0.680   n 1623
+m_uni0.1     beta  0.008   closed -0.081   n 1623
+m_uni0.3     beta  0.023   closed -0.826   n 1623
+m_rho0.35    beta  0.009   closed -0.036   n 1623
+m_rho0.75    beta -0.042   closed -0.294   n 1623
+m_tilt-0.5   beta  0.008   closed -0.019   n 1623
+m_tilt0.5    beta -0.016   closed -0.074   n 1623
+q_T0.5       beta  1.022   closed  0.561   n 1623
+q_T0.7       beta  1.011   closed  0.881   n 1623
+q_T1.5       beta  0.989   closed  0.886   n 1623
+q_T2.0       beta  0.983   closed  0.723   n 1623
+q_T3.0       beta  0.976   closed  0.481   n 1623
+q_argmax     beta  1.009   closed -3.855   n 1623
+q_uni0.1     beta  0.908   closed  0.895   n 1623
+q_uni0.2     beta  0.816   closed  0.578   n 1623
+q_uni0.3     beta  0.723   closed  0.051   n 1623
+q_inv0.1     beta  0.908   closed  0.880   n 1623
+q_inv0.2     beta  0.816   closed  0.521   n 1623
+q_inv0.3     beta  0.723   closed -0.077   n 1623
+q_can0.1     beta  1.000   closed  0.915   n 1623
+q_can0.3     beta  1.001   closed  0.237   n 1623
+q_rho0.35    beta  1.038   closed  0.942   n 1623
+q_rho0.75    beta  0.937   closed  0.787   n 1623
+q_tilt-0.5   beta  1.031   closed  0.961   n 1623
+q_tilt0.5    beta  0.969   closed  0.955   n 1623
+
+== where the signal is ==
+last verdict = rejection (same state)      n   230 (0.14)  energy share 0.242  mean TV 0.159  beta[rm] 0.404 beta[qP] 0.039 beta[qP_rm] 0.432 beta[qA] 0.990
+last verdict = accept (state changed)      n  1393 (0.86)  energy share 0.758  mean TV 0.085  beta[rm] 0.570 beta[qP] 0.341 beta[qP_rm] 0.757 beta[qA] 0.876
+no rejection so far (A empty)              n  1022 (0.63)  energy share 0.080  mean TV 0.030  beta[rm] 0.000 beta[qP] 1.000 beta[qP_rm] 1.000 beta[qA] -0.000
+some rejection so far (A non-empty)        n   601 (0.37)  energy share 0.920  mean TV 0.208  beta[rm] 0.576 beta[qP] 0.205 beta[qP_rm] 0.651 beta[qA] 0.982
+true world can no longer finish            n    64 (0.04)  energy share 0.094  mean TV 0.157  beta[rm] 0.377 beta[qP] 0.092 beta[qP_rm] 0.408 beta[qA] 0.997
+
+exact update against rule mask (frozen belief, all actions of rejected rules removed): energy 40.64 (0.481 of sum|q-m|^2); TV>0.05 0.300; mean TV 0.0637
+exact update against [condition on accepted rules + rule mask]: energy 26.58 (0.315); TV>0.05 0.126; mean TV 0.0346
+
+== model-relative step statistic on rejection-following decisions (zero = masking one action of the model's own previous distribution) ==
+exact q                                    beta_step  1.000  (energy 16.08, n 230)
+mask-only m (exact prior)                  beta_step -0.000  (energy 16.08, n 230)
+mask-only, wrong prior rho 0.75            beta_step -0.000  (energy 16.08, n 230)
+mask-only, sharpened T 0.5                 beta_step -0.000  (energy 16.08, n 230)
+rule mask on frozen belief                 beta_step  0.420  (energy 16.08, n 230)
+exact update under wrong prior rho 0.75    beta_step  1.172  (energy 16.08, n 230)
+exact q, tempered T 2                      beta_step  0.813  (energy 16.08, n 230)
+A-only posterior                           beta_step  1.010  (energy 16.08, n 230)

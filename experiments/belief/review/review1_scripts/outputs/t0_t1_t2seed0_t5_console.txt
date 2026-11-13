@@ -1,0 +1,99 @@
+Console outputs captured during the review session (13 Nov 2026) for the runs whose output was not redirected to a file.
+
+--- t0_check.py
+gen time per instance 0.14173712333043417
+brute-force distance check: mismatches 0 of 240
+
+--- t1_headline.py 300 0 prelim
+n=300 seed=0 order=prelim  0.17s/inst
+world entropy 6.218 bits; consistent worlds 82.3; true size 5.06
+first-step entropy known/hidden 0.955 / 1.573; P(first rejected) 0.129
+oracle: solved 1.000 calls 3.46 rej 0.00
+q: solved 0.930 calls 3.78 rej 0.43
+mask: solved 0.897 calls 4.03 rej 0.71
+post-verdict decisions 833 (2.78/inst), dropped because mask belief empty 0; TV>0.05: 0.330; >0.10 0.255; >0.20 0.182; mean TV 0.0940; mean on informative 0.280
+ball nodes 1497
+
+--- t2_beta.py 600 0
+n=600 seed=0 0.17s/inst; decisions 2224
+post-verdict decisions 1624 (2.71/inst); TV>0.05 0.323; >0.10 0.253; >0.20 0.175; mean 0.0896; mean on informative 0.273
+signal energy sum|q-m|^2 = 76.36 (0.1273 per instance)
+
+== beta (and share of squared distance closed, 1 - |q-p|^2/|q-m|^2) of candidate 'models', decisions after a verdict ==
+q            beta  1.000   closed  1.000   n 1624
+m            beta  0.000   closed  0.000   n 1624
+rm           beta  0.526   closed  0.515   n 1624
+qA           beta  0.874   closed  0.873   n 1624
+qP           beta  0.293   closed  0.380   n 1624
+qP_rm        beta  0.702   closed  0.704   n 1624
+uni_rm       beta  0.129   closed -10.514   n 1624
+lookup0.5    beta  0.572   closed  0.516   n 1624
+lookup1.0    beta  0.612   closed  0.337   n 1624
+lookup2.0    beta  0.671   closed -0.399   n 1624
+m_T0.5       beta -0.046   closed -0.710   n 1624
+m_T0.7       beta -0.024   closed -0.223   n 1624
+m_T1.5       beta  0.021   closed -0.137   n 1624
+m_T2.0       beta  0.031   closed -0.373   n 1624
+m_argmax     beta -0.106   closed -5.782   n 1624
+m_can0.1     beta  0.039   closed -0.034   n 1624
+m_can0.3     beta  0.118   closed -0.780   n 1624
+m_uni0.1     beta  0.006   closed -0.097   n 1624
+m_uni0.3     beta  0.017   closed -0.936   n 1624
+m_rho0.35    beta  0.008   closed -0.052   n 1624
+m_rho0.75    beta -0.025   closed -0.301   n 1624
+m_tilt-0.5   beta  0.007   closed -0.032   n 1624
+m_tilt0.5    beta -0.009   closed -0.071   n 1624
+q_T0.5       beta  1.017   closed  0.508   n 1624
+q_T0.7       beta  1.008   closed  0.866   n 1624
+q_T1.5       beta  0.992   closed  0.872   n 1624
+q_T2.0       beta  0.986   closed  0.693   n 1624
+q_T3.0       beta  0.981   closed  0.425   n 1624
+q_argmax     beta  1.034   closed -4.407   n 1624
+q_uni0.1     beta  0.906   closed  0.883   n 1624
+q_uni0.2     beta  0.811   closed  0.534   n 1624
+q_uni0.3     beta  0.717   closed -0.049   n 1624
+q_inv0.1     beta  0.906   closed  0.868   n 1624
+q_inv0.2     beta  0.811   closed  0.471   n 1624
+q_inv0.3     beta  0.717   closed -0.191   n 1624
+q_can0.1     beta  1.001   closed  0.904   n 1624
+q_can0.3     beta  1.002   closed  0.139   n 1624
+q_rho0.35    beta  1.046   closed  0.925   n 1624
+q_rho0.75    beta  0.922   closed  0.739   n 1624
+q_tilt-0.5   beta  1.037   closed  0.950   n 1624
+q_tilt0.5    beta  0.962   closed  0.944   n 1624
+
+== where the signal is ==
+last verdict = rejection (same state)      n   211 (0.13)  energy share 0.183  mean TV 0.145  beta[rm] 0.338 beta[qP] 0.070 beta[qP_rm] 0.388 beta[qA] 0.978
+last verdict = accept (state changed)      n  1413 (0.87)  energy share 0.817  mean TV 0.081  beta[rm] 0.568 beta[qP] 0.343 beta[qP_rm] 0.773 beta[qA] 0.850
+no rejection so far (A empty)              n  1047 (0.64)  energy share 0.106  mean TV 0.032  beta[rm] 0.000 beta[qP] 1.000 beta[qP_rm] 1.000 beta[qA] -0.000
+some rejection so far (A non-empty)        n   577 (0.36)  energy share 0.894  mean TV 0.193  beta[rm] 0.588 beta[qP] 0.210 beta[qP_rm] 0.667 beta[qA] 0.977
+true world can no longer finish            n    73 (0.04)  energy share 0.054  mean TV 0.122  beta[rm] 0.156 beta[qP] 0.102 beta[qP_rm] 0.251 beta[qA] 0.984
+
+exact update against rule mask (frozen belief, all actions of rejected rules removed): energy 37.01 (0.485 of sum|q-m|^2); TV>0.05 0.293; mean TV 0.0616
+exact update against [condition on accepted rules + rule mask]: energy 22.59 (0.296); TV>0.05 0.115; mean TV 0.0312
+
+== model-relative step statistic on rejection-following decisions (zero = masking one action of the model's own previous distribution) ==
+exact q                                    beta_step  1.000  (energy 11.82, n 211)
+mask-only m (exact prior)                  beta_step -0.000  (energy 11.82, n 211)
+mask-only, wrong prior rho 0.75            beta_step -0.000  (energy 11.82, n 211)
+mask-only, sharpened T 0.5                 beta_step  0.000  (energy 11.82, n 211)
+rule mask on frozen belief                 beta_step  0.355  (energy 11.82, n 211)
+exact update under wrong prior rho 0.75    beta_step  1.169  (energy 11.82, n 211)
+exact q, tempered T 2                      beta_step  0.773  (energy 11.82, n 211)
+A-only posterior                           beta_step  1.018  (energy 11.82, n 211)
+
+--- t5_maskarm.py 150 4000 1.0     (all-uniform proposer)
+150 problems, 4000 episodes each (share 1.0 uniform proposals, rest q-sampling); scored post-verdict decisions on the q-greedy trajectory: 411
+mask arm, input = (state, goal, remaining budget): fitted on 310 decisions (0.65 of the signal energy); beta = 0.345; after an accept 0.429, after a rejection 0.097; mean TV to m 0.086, to q 0.097; on the same decisions beta[qP] 0.212, beta[rule mask] 0.475
+mask arm, input = (state, goal) only: fitted on 346 decisions (0.80 of the signal energy); beta = 0.125; after an accept 0.162, after a rejection 0.017; mean TV to m 0.076, to q 0.106; on the same decisions beta[qP] 0.249, beta[rule mask] 0.527
+check — token-arm key (state, budget, P, A), empirical label mean: 202 decisions (0.25 of energy); beta = 0.991; mean TV to q 0.0172
+
+--- t5_maskarm.py 150 4000 0.0     (all q-sampling proposer)
+150 problems, 4000 episodes each (share 0.0 uniform proposals, rest q-sampling); scored post-verdict decisions on the q-greedy trajectory: 411
+mask arm, input = (state, goal, remaining budget): fitted on 411 decisions (1.00 of the signal energy); beta = 0.464; after an accept 0.530, after a rejection 0.226; mean TV to m 0.072, to q 0.065; on the same decisions beta[qP] 0.252, beta[rule mask] 0.547
+mask arm, input = (state, goal) only: fitted on 411 decisions (1.00 of the signal energy); beta = 0.217; after an accept 0.247, after a rejection 0.106; mean TV to m 0.051, to q 0.081; on the same decisions beta[qP] 0.252, beta[rule mask] 0.547
+check — token-arm key (state, budget, P, A), empirical label mean: 406 decisions (0.99 of energy); beta = 1.001; mean TV to q 0.0076
+
+Note: the half/half run (t5_maskarm_150x4000_mix0.5.txt) was made before the proposer share became a command-line argument;
+its header line reads "half q-sampling, half uniform proposals". The current script with argument 0.5 alternates episodes
+in the same way.

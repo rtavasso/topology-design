@@ -1,0 +1,5 @@
+(1) rule-identity lookup on a frozen belief: beta = 0.524 over 1618 decisions after a verdict (600 instances, seed 0)
+(2) N = 8: no training world agrees with the evidence on 12% of held-out decisions; they carry 41% of gamma's denominator
+(2) N = 16: no training world agrees with the evidence on 14% of held-out decisions; they carry 38% of gamma's denominator
+(2) N = 32: no training world agrees with the evidence on 9% of held-out decisions; they carry 35% of gamma's denominator
+(2) N = 64: no training world agrees with the evidence on 0% of held-out decisions; they carry 0% of gamma's denominator
