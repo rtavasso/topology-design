@@ -1797,6 +1797,16 @@ Addendum to Entry 77, which was written while the eval sets at sizes 6–7, the 
 
 **Lesson recorded:** L48.
 
+## Entry 90 (13 Nov 2026): the latent arm stays, at one coverage level — design revision 2
+
+**Premise.** Revision 1 deferred the latent arm because it served only the unscored Q4. The researcher asked what that meant. Answering, I had to say what I had not flagged: the latent arm is the variant that holds the verdict history inside the model, which is the researcher's own idea of 11–12 Nov; without it the first grid would test belief updating only where the history is handed over as tokens. I offered three options (defer; one coverage level, about five runs; every coverage level, about twenty). The researcher chose the second.
+
+**Decision.** **D136 (the researcher's, 13 Nov):** the latent arm is trained at one coverage level (N = 64, five seeds). P1 is read for it as for the token arm; the difference between the two is reported, not scored. Main grid about 34 runs. The pilot checks that training with gradients across rounds is stable.
+
+**Defaults stated to the researcher and in force unless overruled:** H8 on the existing executor; on-policy data only on pilot evidence of shift.
+
+**Next.** Independent design review of revision 2 (review 1 of this experiment), started the same day.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
