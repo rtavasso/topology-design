@@ -1,163 +1,247 @@
 # Belief updating in a looped prover on a hidden-world carrier — design
 
-**Revision 2, 13 Nov 2026.** Nothing is built and no model has been run. The only numbers in this document are exact, model-free computations ([prelim_info.md](prelim_info.md), [power.md](power.md), scripts beside them). Not yet reviewed; an independent design review comes before any code is trusted (§8). This replaces the rung-5 outline of 6 Nov (history Entries 83–89 give the path here).
+**Revision 3, 13 Nov 2026.** Nothing is built and no model has been run. Every number here is an exact, model-free computation ([refs3.md](refs3.md), [power.md](power.md), [prelim_info.md](prelim_info.md); scripts beside them). Revision 2 was reviewed independently and found **not sound as written** ([review/review1_design.md](review/review1_design.md)); this revision answers that review and has **not yet been re-reviewed**. No stage-0 code is to be trusted before design review 2.
 
-**Changes from revision 0** (after the researcher fixed the scored scope and a power analysis, history Entry 89): the scored questions are Q1 and Q2 and nothing else; the scored statistic is a projection coefficient instead of a vote count (§7); the coverage grid moves to where the two references differ (§6, §8). **Revision 2** (the researcher's decision, same day): the latent arm is kept at one coverage level, so that Q1 is answered for both ways of holding the evidence; the comparison between them stays unscored.
+**What changed from revision 2.**
+1. Question 1 is re-aimed (the researcher's decision, 13 Nov): from "does the model update beyond a mask, in distribution" — which a rule-identity lookup passed and which is the training objective's own optimum — to "what does the model do when the evidence leaves every world it trained on". It is scored on counterfactual rejection probes at a fixed state.
+2. Question 2 is scored only where it has a defined answer: on decisions where some training world still fits the evidence.
+3. The references are four **named mechanisms**, each exact, instead of two posteriors and a convention. The fourth, an **optimistic planner** that holds no belief, was found while computing this revision: under the statistics as first re-aimed it read as the generalising posterior on every count ([refs3.md](refs3.md), reading 1).
+4. The mask arm is dropped: its own optimum was not the symbolic mask, and the new change statistic is zero for every deleting model by construction.
+5. The conditions under which the training optimum is the Bayes predictor are stated (§7); they are the Decision-Pretrained Transformer's, and the design no longer calls them new.
+6. World sets are drawn five times and runs are spread over the draws; goals, not (start, goal) pairs, are held out; the carrier and the grid are fixed here, model-free.
+
+§14 lists where each of review 1's findings went.
 
 ## 1. Questions
 
-**Core (scored).**
-- **Q1 — Updating.** After the kernel's verdicts on its own proposals, does the model's distribution over next steps move as the exact posterior does, *beyond* what masking the rejected actions gives?
-- **Q2 — Coverage.** On worlds it never trained on, is the model's belief the *generalising* posterior (prior over all rule sets) or the *memorising* one (prior over its training worlds only), as a function of the number of training worlds?
+A prover works in a world whose rules it is never told. The kernel's verdicts on its own proposals are its only evidence. It trained on N worlds.
 
-**Secondary (reported, not scored; the researcher's decision of 13 Nov).**
-- **Q3 — Belief from the problem alone.** Before any verdict, how close is the model to the exact posterior given only the state and the goal?
-- **Q4 — Where the evidence is held.** A latent carried across rounds against verdicts appended as tokens: belief quality, and FLOPs.
-- **Q5 — Thinking against asking.** What does one more loop iteration buy, in belief quality, against one more kernel call?
+**Scored.**
+- **Q1 — outside the training worlds.** When the verdicts so far fit *none* of the worlds the model trained on, and one more rule is rejected, what does the model do with the rest of its answer: nothing beyond deleting that rule; reroute as the exact posterior over all worlds does; or reroute as a planner with no belief does? As a function of N.
+- **Q2 — inside them.** While some training world still fits the verdicts, is the model's answer the memorising posterior (the optimum of its training objective), the generalising posterior, or the planner's? As a function of N.
 
-**Not asked here.** Reuse of latent moves ("soft programs"); size or depth extrapolation; experts; parallel streams; real Lean; comparison with published systems. Each was discussed on 10–12 Nov; each would add a variable.
+**Reported, not scored.** Q3: the answer before any verdict. Q4: evidence held in a carried latent against evidence appended as tokens. Q5: what one more loop iteration buys against one more kernel call.
 
-**Why these.** The original thesis said the router is an amortized posterior over programs. Q1–Q3 are that claim, measured against a posterior that can be computed exactly. Q2 is rung 4's recombination question asked the way the literature says to ask it (INT 2021; Raventós et al. 2023): coverage is the variable, and two exact references make opposite predictions on held-out worlds.
+**Not asked here.** Reuse of latent moves; size or depth extrapolation; experts; parallel streams; real Lean; comparison with published systems.
 
-## 2. What is already known, so that it is not re-asked
+**Why these.** The thesis said the router is an amortized posterior over programs. A posterior that is correct in distribution is what supervised training produces by construction (§2), so the claim with content is about what was learned *as a rule*: does a belief about worlds, learned from N of them, extend to combinations of rules never seen together? That is rung 4's recombination question, asked of beliefs, with coverage as the variable (INT 2021; Raventós et al. 2023).
 
-- With the world known and a deterministic kernel, a verdict carries 0 bits and the exact update is a mask (history Entry 87). So the world must be hidden for Q1 to mean anything.
-- Feedback loops through a checker work at scale in token form (COPRA; Goedel-Prover-V2); search in a model's own context can be learned (Stream of Search; Thinker). These are system results; none compares a model's belief with an exact posterior.
-- A coverage threshold exists in theorem proving (INT: 25 against ≥ 100 axiom combinations) and in in-context regression (Raventós et al.). Neither has a kernel in the loop.
-- Not found in targeted searches (not a full review): a recurrent prover's belief compared with the exact posterior conditioned on kernel evidence.
+## 2. What is already known
 
-## 3. The carrier
+- With the world known, a verdict carries no information and the exact update is a mask (history Entry 87). Hence a hidden world.
+- **A model trained by supervised learning to predict the optimal action, on histories whose actions do not depend on the hidden task, behaves as the Bayes posterior over tasks** — Theorem 1 of the Decision-Pretrained Transformer (Lee et al. 2023), under three conditions: the model fits its training distribution, the histories are "compliant", and there is support. Meta-trained recurrent agents match Bayes-optimal agents in behaviour and internal state (Mikulik et al. 2020). Small transformers match exact posteriors closely (entropy error of order 10⁻³–10⁻² bits) when a fresh hypothesis is drawn for every sequence (Agarwal, Dalal & Misra 2025). So an in-distribution match to the posterior is expected; here it is a gate, not a finding. (All three read in full; [literature.md](../../docs/literature.md), 13 Nov.)
+- With a *finite* pool of tasks the optimum of the training objective is the posterior over that pool. In-context regression shows a threshold in the number of tasks above which a transformer behaves like the generalising solution instead (Raventós et al. 2023); INT reports generalisation in theorem proving with ≥ 100 axiom combinations and not with 25.
+- Not found (five searches by reviewer 1, three papers read by me): a finite pool of hidden worlds with both posteriors exact, evidence the model elicits from a checker, evidence patterns outside every training world, and cheap non-Bayesian mechanisms scored beside the posterior.
 
-**Terms and rules.** As rung 4: terms over a, b, c, d, 0 with +; size cap 5 in training and evaluation alike (no size extrapolation anywhere); the eight directed rewrite rules Af, Ab, C, If, IbR, IbL, Df, Db; an action is (rule, node).
+## 3. The carrier (fixed; no pilot reading may change it)
 
-**Worlds (H8).** A world W is a non-empty set of the eight rules — 255 worlds. The model is never told W. The kernel accepts an action iff its rule is in W; an accepted action rewrites the state, a rejected one leaves it unchanged. Whether a rule's pattern matches at a node is visible in the term, so a rejection means "this rule is not in the world".
+**Terms and rules.** As rung 4: terms over a, b, c, d, 0 with +, at most five leaves (47,155 terms; the whole state graph has about 0.43 M edges and is built once); eight directed rewrite rules Af, Ab, C, If, IbR, IbL, Df, Db; an action is (rule, node). No size extrapolation anywhere.
 
-**Why eight rule-units.** Computed ([power.md](power.md)): with the four axioms as hidden units the problem itself nearly identifies the world (2.0 bits left; the exact update differs from a mask by TV 0.037 on average). With the eight rules, 6.2 bits are left and the mean difference is 0.094. Finer groupings on the same executor (ten or twelve units, splitting some rules by whether they apply at the root) raise it to 0.121 and 0.134 and add about one usable point to the coverage grid; they are the fallback if the pilot puts Q2's crossover beyond 32 training worlds, not the starting point. A new algebra is not needed for power.
+**Worlds (H8).** A world is a non-empty set of the eight rules: 255 worlds. The model is never told the world. The kernel accepts an action iff its rule is in the world; an accepted action rewrites the state, a rejected one leaves it unchanged. The model's output ranges only over actions that are valid whatever the world (pattern matches, state changes, within the size cap; computed by the executor), so a rejection always means "this rule is not in the world".
 
-**Generator** (parameters provisional; fixed at stage 0, §8).
-1. u ~ the term sampler, sizes 2–5; k ~ {2, …, k_max}; s uniform on the full-world sphere of radius k around u. The problem (u, s) is drawn without reference to the world.
-2. W: each rule present independently with probability ρ, conditioned on d_W(u, s) ≤ k + Δ.
-3. Budget: at most k + Δ accepted steps; rejections are counted, not capped below 8.
+**Generator.** Start u from the term sampler; k uniform on {2, 3, 4}; goal s uniform on the sphere of radius k around u with all eight rules; budget B = k + 2 accepted steps. Then the world: uniform over the worlds of the pool in use that can reach s from u within B (the prior is ρ = 0.5 per rule, which is uniform over worlds). A problem no world of the pool can solve is redrawn.
 
-Provisional values: ρ = 0.5, Δ = 2, k_max = 5.
+**An episode ends** at the goal; when the budget is used; when the true world can no longer reach the goal within what is left of the budget (nothing after that point is trained on or scored); or, in a model's own rollouts, after 16 kernel calls.
 
-**Evidence.** After any history, what the kernel has revealed is two sets of rules: known present, known absent.
+**Why H8, decided here.** With the four axioms as hidden units the problem nearly identifies the world. With the eight rules both scored statistics have signal at 4, 8, 16 and 32 training worlds in each of five draws (§5). Finer units (H10, H12) would, by the first power analysis ([power.md](power.md)), extend the readable range to about the same *fraction* of worlds (an eighth) at about four times the exact-computation cost, and they split rules by position, which is an artefact of the carrier. If the main grid returns "memorising" at every size, the larger carrier is the declared follow-up, as a new experiment.
 
-**Separation of training and evaluation.** (u, s) pairs are disjoint between the two; a held-out set of 64 worlds is excluded from every training set. The build writes a counted overlap table (pairs, start terms, goals, worlds) into the dataset's meta file and a test asserts it (L45).
+**Separation.** Five independent draws of the world sets; each draw is 64 held-out worlds and nested training sets T₄ ⊂ T₈ ⊂ T₁₆ ⊂ T₃₂ from the other 191. A sixth draw is used only by the pilot. A fixed fifth of all terms are evaluation-only goals; since the goal is constant along an episode, no scored (state, goal) row occurs in training. The build writes counted overlap tables (goals, worlds, rows) and a test asserts them (L45).
 
-## 4. Exact quantities (code, no model)
+## 4. Four mechanisms, each exact
 
-- **Posterior over worlds.** P(W | u, s, evidence) ∝ ρ^|W| (1 − ρ)^(8 − |W|) · 1[d_W(u, s) ≤ k + Δ] · 1[W agrees with every verdict].
-- **Step target and its Bayes predictor.** The label at a decision is an action optimal in the true world, sampled uniformly. The cross-entropy minimiser given (state, goal, evidence) is
-  q(a) = Σ_W P(W | …) · 1[a optimal in W] / #optimal_W, over the worlds that can still finish within the budget.
-  The posterior is never a training target; it is only the yardstick.
-- **Mask-only update m̃.** The belief over worlds frozen at P(W | u, s), with the actions rejected at this state removed.
-- **Memorising posterior q_train.** The same formula with the prior restricted to the training worlds.
-- **Reference policies.** Oracle (knows W); q-greedy; mask-greedy; q_train-greedy.
-- **Projection coefficients (the scored statistics).** For a model's distribution p at a decision,
-  β = Σ ⟨p − m̃, q − m̃⟩ / Σ |q − m̃|² over all decisions after a verdict — the share of the exact update the model makes (0 for a mask, 1 for the posterior);
-  γ = Σ ⟨p − q_train, q − q_train⟩ / Σ |q − q_train|² over all decisions in held-out worlds — 0 for the memorising posterior, 1 for the generalising one.
-  Decisions where the references coincide add nothing to either sum, so no threshold is needed (L42 is met by construction).
-- **Informative decisions (reported).** I_upd = decisions after a verdict with TV(q, m̃) > 0.05; I_cov likewise for q against q_train.
+At a decision the model's inputs are the state v, the goal s, the remaining budget b, and the verdicts so far (rules known present, rules known absent). Four ways of answering:
 
-**Preliminary numbers** (H8, ρ = 0.5, k ∈ {2, 3, 4}, 300 instances; [prelim_info.md](prelim_info.md)).
+| | name | output |
+|---|---|---|
+| **M** | memorising posterior | Σ_W P_T(W \| inputs) · uniform over W's optimal actions, with the prior on the training worlds T. Defined when some training world fits the inputs — the decision is then **in support** |
+| **G** | generalising posterior | the same with the prior on all 255 worlds |
+| **O** | optimistic planner | no belief: uniform over the optimal actions of the single world made of every rule not yet rejected |
+| **D** | deletion | the previous answer with the rejected action or rule removed and the rest renormalised. Every belief that is never revised is a case of D |
 
-| quantity | value |
+"Fits" means: contains every rule known present, none known absent, and can reach s from v within b. The posterior needs nothing else, so it is a function of the model's inputs.
+
+**What training fixes and what it leaves open.** On training problems, M is the unique minimiser of the training loss (§7). Evaluation uses goals never trained on, so a model is at M there only if it learned the computation and not the problems; the gate (§5) checks that on training worlds. Out of support the training distribution has no examples at all, so the loss says nothing; what the model does there is its own generalisation. On held-out worlds 33–72 % of decisions are in support with 4 training worlds and 89–98 % with 32.
+
+**Why O is on the list.** It is the cheapest thing that generalises: it needs no list of worlds and no probabilities, only shortest paths under "everything not yet refused". It differs from G in not hedging. A model could be right about every new world this way without holding a belief, and the two must be told apart for the thesis to have been tested.
+
+## 5. Statistics: regression on the mechanisms
+
+Every statistic is a set of least-squares coefficients of the model's output (or its change) on the mechanisms' outputs (or changes), pooled over decisions (or probes) of an evaluation set. They are linear in the model's output, so independent output noise adds variance and no bias.
+
+**Levels — where the answer sits** (in-support decisions, held-out worlds):
+ (p − M) ≈ c_G (G − M) + c_O (O − M).   M reads (0, 0); G (1, 0); O (0, 1).
+
+**Changes — what a rejection does.** A *probe* at a decision is a rule r not yet tested, with a valid action there, that some fitting world lacks. The model is run twice at the same state and budget: on the evidence E, and on E plus "r rejected". Let RM_r delete r's actions and renormalise. The model's change beyond deletion is
+ dp = RM_r[p(E + r−)] − RM_r[p(E)],
+and dG, dO, dM are formed the same way from G, O, M. dp is exactly zero for D: a model that ignores the verdict, deletes the tried action, or deletes the rule. (RM_r is applied to both outputs; applied only to the earlier one, a model that ignores the verdict reads 0.09 instead of 0.)
+
+- **Out of support** (no training world fits E + r−; held-out worlds):
+ dp ≈ b_G dG + b_O dO + s_G g + s_O h,
+ where g and h are the two switches of base a model sitting at M may make at the moment the evidence leaves support (M → G and M → O; zero when E was already out of support). G reads (1, 0); O (0, 1); "M in support, G outside" (1, 0) with s_G = 1; "M in support, O outside" (0, 1) with s_O = 1; D zero.
+- **In support** (a training world fits E + r−; held-out worlds; reported):
+ dp ≈ a_M dM + a_G dG + a_O dO.
+- **Gate** (in-support probes, *training* worlds, held-out goals): U = a_M + a_G + a_O, the share of revision by any non-deleting mechanism. M, G and O each read 1; D reads 0.
+
+**Probes as inputs.** Token arm: the pair (r, rejected) is appended to the verdict list. Latent arm: it is fed as the latest verdict, with the registers the model produced at this decision. A rejection changes neither state nor budget, so a probe is an input the model could meet one step later.
+
+**What planted models read** (five draws; full tables in [refs3.md](refs3.md)).
+
+| planted model | levels (c_G, c_O) | out-of-support changes (b_G, b_O) | class it must get (§8) |
+|---|---|---|---|
+| M | (0, 0) | "M in support, G outside": (0.87–1.02, −0.03–0.08); "…, O outside": (0.00–0.15, 0.84–1.00) | M; G or O outside |
+| G | (1, 0) | (1, 0) | G; G |
+| O | (0, 1) | (0, 1) | O; O |
+| half G, half O | (0.5, 0.5) | (0.44–0.50, 0.50–0.54) | mixed |
+| training prior, never revised | (0.00–0.25, −0.02–0.20) | 0 | M (mixed on some draws at 16–32); D |
+| full prior, never revised | (0.85–0.99, 0.02–0.11) | 0 | G; D — "a prior without revision" |
+| memoriser that falls back to the nearest training worlds | — | (−0.22–0.11, −0.05–0.25); within ±0.11, ±0.08 up to 16 worlds | D (mixed possible at 32) |
+| posterior with marginals estimated from the training worlds | (0.52–1.06, −0.24–0.13) | (0.91–1.31, −0.21–0.10) | G — it is one (mixed on levels at 4 on some draws) |
+| updater that goes half-way | — | (0.44–0.51, −0.01–0.04) | mixed |
+| fitted 8 × 8 rule table | — | 0.12–0.22 up to 16 worlds, ≤ 0.41 at 32 (single-direction statistic) | D or mixed, never G |
+| noisy stand-ins at 0 / 0.5 / 1 of the way M → G (noise TV 0.12) | 0.01–0.10 / 0.49–0.64 / 0.95–1.08 | −0.13–0.23 / 0.36–0.62 / 0.88–1.33 | as the noiseless model, within the cell's sampling error |
+
+**Power** (H8, five draws). Signal per instance, levels: 0.16–0.40 at 4 training worlds, 0.05–0.16 at 32, 0.03–0.06 at 64. Out-of-support probes per instance: 8–11 at 4, 0.7–3.1 at 32, under 1 at 64. Sampling sd of each coefficient at 150 instances: levels ≤ 0.05; out-of-support ≤ 0.11 up to 16 training worlds and 0.07–0.25 at 32. Scaled to 4,000 instances per draw: ≤ 0.01, ≤ 0.02 and 0.01–0.05. **Both statistics are readable at 4, 8, 16 and 32 training worlds and at neither at 64**; the 32 cell is the thin one and stage 0 checks it (§9).
+
+**What the statistics cannot see.** Updating on *accepted* steps: an accept changes the state, so there is no fixed-state counterfactual; accepted evidence enters only through levels. Mechanisms outside the span of the four: the residual is reported (share of Σ|dp|² and of Σ|p − M|² not explained), and a large residual is itself a finding.
+
+## 6. Models
+
+One shared transformer block applied n = 4 times with the input re-injected on each pass; logits over (rule, node), with the world-independent validity mask applied in the loss and in evaluation alike (validity is not a question here, and no mass can leak to invalid actions). No halting head. Width and depth start from rung 4's and are set in the pilot.
+
+| arm | what it receives | runs |
+|---|---|---|
+| **token** | state, goal, remaining budget, and every (rule, verdict) so far; no state carried between rounds | N ∈ {4, 8, 16, 32} × 5 draws × 2 seeds = 40 |
+| **latent** | state, goal, remaining budget, only the *latest* (rule, verdict), and four register tokens it wrote in the previous round | N = 16 × 5 draws × 2 seeds = 10 |
+| token, loop count n ∈ {1, 8} | as token | N = 16 × 3 draws = 6 (reported) |
+
+**Latent arm, specified.** Four registers of model width; a learned initial value; a "none" verdict token at the first decision; a round's registers are the block's output at the register positions on its last loop iteration; training runs each episode in order with gradients through all its rounds (no truncation; if the pilot shows this unstable, truncation at four rounds is the one permitted change and is reported as a deviation). It sits at N = 16 because both scored statistics are well powered there. Its reading conflates three things — can it revise, can it remember sixteen bits across rounds, was training across rounds stable — so a failure is placed with a linear probe of the registers for the known-present and known-absent sets (reported), and its difference from the token arm is reported, not scored.
+
+**Seeds.** Ten runs per scored cell (five draws × two seeds) is the repository's minimum for a reported result (AGENTS.md, rule 4); the draws are the unit review 1 showed to matter. It is below the ≈ 29 asked for headline claims; results from this grid are "reported".
+
+## 7. Training
+
+- **Supervised only.** Every decision of an episode is a training row: inputs as in §6, target one action sampled uniformly from those optimal in the true world. Loss at the last loop iteration.
+- **Fresh episodes throughout.** Problems are never repeated; the N training worlds are the only finite resource. All arms train for the same number of steps, fixed after the pilot; fewer worlds therefore means more steps per world, which is noted with the result, not controlled.
+- **Conditions under which M is the minimiser of the loss in support** (Lee et al. 2023, Theorem 1 and Definition 6.1, specialised; review 1, finding 4):
+  (a) rows where the true world can no longer finish are not generated;
+  (b) the remaining budget is a model input;
+  (c) no episode or row is selected on anything that depends on the world beyond (a) — in particular, unsuccessful episodes are kept;
+  (d) the problem is drawn first and the world second, as in §3;
+  (e) **compliance:** each proposal is conditionally independent of the world given the model's inputs.
+- **Proposers.** Each proposal in a generated episode comes, with probability ½ each, from (i) uniform over valid actions of rules not yet rejected, (ii) uniform over the actions optimal if every rule not yet rejected were present. Both are functions of the model's inputs. Neither receives the world; a test asserts that no proposer is called with it (rung 4's proxy proposer took the world as an argument and is not used). The uniform part puts every probe input in the support of training. Histories from the model's own samples are added only if the pilot shows a shift between proposer histories and the scored trajectories.
+- **Kept.** Every trained model (L40) and ten checkpoints at fixed steps.
+
+## 8. Measurements, classes and predictions
+
+**Evaluation sets** (exact mechanisms computed once per draw; all on evaluation-only goals).
+- *Held-out worlds*: 4,000 instances per draw, decisions along G's greedy trajectory (ties broken by the first maximiser in a fixed action order), teacher-forced. Used at every N of the draw; which decisions are in support depends on N.
+- *Training worlds*: 1,000 instances per (draw, N), along M's greedy trajectory. The gate.
+- *Own rollouts*: 1,000 per run. Solved, kernel calls, rejections, beside the four mechanisms run as policies. Reported.
+
+**Per run, by code, with 95 % bootstrap intervals** (over held-out worlds; over instances for the gate):
+
+| reading | rule |
 |---|---|
-| world entropy after seeing (u, s) | 6.2 bits; 82 of 255 worlds consistent |
-| first-step entropy, world known / hidden | 0.95 / 1.57 bits |
-| oracle: solved / kernel calls / rejections | 1.00 / 3.5 / 0.0 |
-| q-greedy | 0.93 / 3.8 / 0.4 |
-| mask-greedy | 0.90 / 4.0 / 0.7 |
-| share of post-verdict decisions in I_upd | 33 % (mean TV 0.09) |
-| held-out worlds, 8–32 training worlds: share of decisions in I_cov | 46–47 % (mean TV 0.10–0.14) |
-| held-out worlds, 128 training worlds | 22 % (mean TV 0.06) |
-| solve-rate gap, generalising against memorising | ≤ 0.04 at every coverage |
-| cost | 0.15–0.3 s per instance, one core |
+| gate | passed if the lower bound of U ≥ 0.5; otherwise the run is "not trained to revise" and is counted as such |
+| levels class (Q2) | **M** if the upper bounds of c_G and c_O are both ≤ 0.25; **G** if the lower bound of c_G ≥ 0.5; **O** if the lower bound of c_O ≥ 0.5; otherwise **mixed** |
+| out-of-support class (Q1) | **D** if the upper bounds of b_G and b_O are both ≤ 0.25; **G** if the lower bound of b_G ≥ 0.5; **O** if the lower bound of b_O ≥ 0.5; otherwise **mixed** |
 
-**What these say about the design.** The two references separate clearly at the level of *distributions* and barely at the level of *solve rate*. So belief measures are primary and behaviour is secondary. A wrong proposal costs one rejection here; that is why behaviour is forgiving.
+**Per cell** (one N, ten runs): a class is the cell's verdict if at least 8 of the 10 runs have it and they come from at least 4 of the 5 draws. Otherwise the cell is "split" and the table of runs is the result. Read at the final step; the same readings at the ten checkpoints are reported as curves (a model may generalise early and memorise later; the verdict is not chosen from the curve).
 
-## 5. Models — as plain as the questions allow
+**Predictions** (directional, with falsifiers; AGENTS.md rule 3).
+- **P1 (Q1).** At 4 training worlds the out-of-support class is D. At 32 it is not D (G or O). Falsified at either end by the opposite verdict; a split cell is neither.
+- **P2 (Q2).** At 4 training worlds the levels class is M. At 32 it is not M. Falsified likewise.
+- **Between G and O I make no prediction.** I do not know whether a network that generalises here hedges. That split, and where between 4 and 32 each class changes, are the readings I expect to learn most from.
+- Basis: the task-count thresholds of Raventós et al. and INT. A G or O verdict at 4 training worlds would first be treated as a leak and audited.
 
-One shared transformer block applied n times with the input re-injected on every pass; a pointer output over (rule, node); no halting head (the episode ends at the goal). Width and depth of the block start from rung 4's and are set in the pilot.
+**How the two readings combine.**
 
-| arm | what it receives about the past | question |
+| in support (levels) | out of support (changes) | what the model is |
 |---|---|---|
-| **token** | every (rule, verdict) so far, appended to the input each round; no state carried | Q1, Q2 (and Q3, Q5 as reported) |
-| **latent** | only the latest verdict; a few register tokens carried from the previous round, so everything earlier has to be remembered inside the model | Q1 at one coverage level (N = 64); its difference from the token arm is reported, not scored |
-| **mask** | nothing; actions rejected at this state are masked at the output | the neural mask-only reference: its β must come out near 0 |
+| M | D | a lookup over its training worlds; nothing transfers |
+| M | G | at the training optimum where it exists, the posterior beyond it: a belief over rules was learned beside the list of worlds |
+| M | O | at the training optimum where it exists, optimistic replanning beyond it |
+| G | G | the generalising posterior |
+| O | O | a planner without belief: right about new worlds, without hedging |
+| G | D | a prior that is not revised |
 
-All arms share the looped encoder. The latent arm is the one that holds the history internally — the researcher's idea of 11–12 Nov — and is included at one coverage level so that the first grid says whether that version can update at all. Loop count n ∈ {1, 4, 8} on the token arm, three seeds each at one coverage, is the only other extra. No experts, no parallel streams.
+The in-support change coefficients (a_M, a_G, a_O) are printed beside each row as the check that a levels class comes with revision of the same kind.
 
-## 6. Training
+**Also reported.** Residual shares (§5). Levels at out-of-support decisions on (G − O). First-decision levels (Q3). Revision 2's β with its reference lines (rule-identity lookup 0.53; accepts conditioned plus rule mask 0.70), for continuity. Share of held-out episodes whose whole evidence some training world explains (L45). Latent against token (Q4); loop counts (Q5).
 
-- **Supervised only.** One sampled optimal action in the true world per decision; loss at the last loop iteration (a loss at every iteration is what the literature associates with early commitment).
-- **Proposals must be world-blind.** If the data's proposals were chosen by something that knows the world (an optimal teacher with random deviations, say), the choice of proposal would itself leak the world and q would no longer be the Bayes predictor. Histories are generated by proposers that see only what the model sees: the model's own samples (refreshed during training), mixed with a goal-directed proxy proposer and a uniform one.
-- **Latent arm.** Gradients flow across rounds; the truncation length and the stability of this are pilot questions.
-- **Coverage.** Training worlds N ∈ {8, 16, 32, 64}, drawn once, nested; the held-out worlds (a quarter of all worlds) are common to all. The grid sits where the generalising and memorising posteriors differ ([power.md](power.md)): with 8–32 training worlds they differ by TV 0.15–0.17 on average; with 64 or more by 0.04.
+**Planted tests, before any model.** The class code must return the right-hand column of §5's table for every planted model, at noise 0.05–0.20 for the stand-ins, on every draw and size (L39, L42, L48, L50).
 
-## 7. Measurements and predictions
+## 9. Stages and reviews
 
-All models are scored on the same decision points — the exact q-greedy trajectory, teacher-forced — and, separately, on their own trajectories.
-
-| | measure | read on |
+| stage | what | gate |
 |---|---|---|
-| M1 | β (§4), with TV(model, q) and TV(model, m̃) beside it | decisions after a verdict, training worlds |
-| M2 | γ (§4), with TV(model, q) and TV(model, q_train) beside it | all decisions, held-out worlds |
-| M3 | KL(q ‖ model) at the first decision | reported |
-| M4 | solved, kernel calls, rejections, beside the reference policies | own rollouts, reported |
-| M5 | β and M3 by loop iteration and by n | token arm, reported |
+| **Design review 2** | this document, by a reader who did not write it | — |
+| 0. Derive (CPU) | carrier module on the prebuilt state graph; the four mechanisms; statistics and class code with planted tests; evaluation sets; overlap tables; compliance test; data throughput | every planted model classed as §5 says; sampling sd of each scored coefficient ≤ 0.04 in every (draw, N) cell at the chosen evaluation size — a cell that cannot meet it is declared unscored *before* any model exists; episode generation ≤ 10 ms |
+| Code review | independent | — |
+| 1. Pilot (the pilot draw only) | token at N = 16 (two seeds) and N = 4 (one), latent at N = 16 (two): do the arms pass the gate; learning rate, width, step count; stability of the latent arm; shift between proposer histories and scored trajectories; cost per run | curves by window means (L46); cost projected from the last interval (L44) |
+| Pass-rule audit | pilot-blind, independent | — |
+| 2. Main grid | 56 runs (§6) | — |
+| Results review | independent | — |
 
-**Scored predictions.**
-- **P1 (Q1).** Token arm, and separately latent arm, at the largest coverage: β ≥ 0.5 (lower end of a 95 % bootstrap interval over instances) in at least 4 of 5 seeds — the model makes at least half of the exact update. Falsified if β ≤ 0.25 (upper end) in at least 4 of 5. Between: "partial". The mask arm must give |β| < 0.15; if it does not, the instrument is broken and nothing is read from P1.
-- **P2 (Q2).** γ at each coverage, per seed, bootstrap over held-out worlds. I expect γ near 0 at 8 training worlds and above 0.5 by 64; the result is the curve and where it crosses 0.5. γ > 0.5 at 8 would be generalisation from very few worlds; γ < 0.5 at 32 would be memorisation with an eighth of the space seen. At 64 the two references are close (mean TV 0.04), so a reading there is weak and is labelled so.
+**What the pilot may change:** optimisation settings, width, step count, the one latent-arm truncation, the addition of own-sample histories. **What it may not:** the carrier, the grid, the statistics, the classes, the predictions. No reading of a scored statistic is taken from the pilot (L30, L39).
 
-**Why a projection and not the vote count of revision 0.** Computed on stand-in models ([power.md](power.md)): at the noise rung 4's routers showed (TV 0.10–0.17 from their targets), a model making three quarters of the exact update gets a vote share of 0.65–0.73 — on the two-thirds line — while β reads 0.65–0.71; with no noise the vote share is a step function of the mixture. β tracks the mixture (0.00, 0.25, 0.45, 0.71, 0.98 at noise 0.10) with a sampling error of 0.004–0.008 at 2,000 instances.
+## 10. Confounds, and what the design does about each
 
-**Reported, with my expectation stated.** Q3: between the unconditioned mixture and q. Q5: belief error falls with n; the exchange rate against kernel calls is the result.
-
-**Thresholds** are fixed at stage 0, before any model exists, and the verdicts are computed by code with planted tests: exact q must give β = 1 and pass; exact m̃ must give β = 0; q_train must give γ = 0; stand-in models at noise 0.05–0.20 must be classed on the right side of each bound (L39, L42).
-
-**What the power analysis cannot see.** Seed-to-seed spread (wide in rung 4; the pilot runs three seeds to measure it before the main grid's seed count is fixed). Structured model error: the stand-in's noise has no direction, a real model's may, and β reads only the component along the exact update — hence the TVs beside it. Whether models of this size learn the task at all.
-
-## 8. Stages and gates
-
-| stage | what | gate to pass |
+| confound | where it bit | handled by |
 |---|---|---|
-| 0. Derive (CPU) | carrier module, exact-posterior code, tests; fix ρ, Δ, k_max, eval sizes, the bounds of P1 and P2 | world entropy ≥ 4 bits; sampling sd of β ≤ 0.02 and of γ ≤ 0.05 at the chosen eval sizes; reference and stand-in models classed correctly; overlap table clean |
-| 1. Pilot (three seeds, short) | the arms learn at all; learning rate; the latent arm's training across rounds is stable; own-rollout against proposer shift; seed spread of β and γ; step count for the main grid | curves rising; cost projection from the last interval (L44) |
-| 2. Main grid | ≈ 34 runs: token × N ∈ {8, 16, 32, 64} × 5 seeds; latent × 5 seeds at N = 64; mask × 3 seeds at N = 64; token with n ∈ {1, 8} × 3 seeds at N = 64 | — |
+| The mask does the work | rung 4 P8; Entry 87 | hidden world; change statistics that are zero for every deleting model |
+| A lookup passes the updating test | revision 2 (rule-identity lookup read 0.53) | counterfactual probes with the rule deleted from both outputs |
+| The pass is the training optimum | revision 2, P1 | the in-distribution reading is a gate; the scored reading is out of support |
+| An undefined reference on part of the set | revision 2, γ's fallback | Q2 on in-support decisions only; out of support scored by changes against defined mechanisms |
+| A mechanism with no belief reads as the posterior | this revision (optimistic planner) | O is a named direction in every regression |
+| The base moves when the evidence leaves support | this revision | two switch directions controlled for |
+| A prior that is never revised reads as its posterior | review 1 | levels and changes read together |
+| Proposals leak the world | Lee et al. 2023 (compliance) | proposers without access to the world, asserted by test |
+| Selection on outcomes | review 1 | conditions (a)–(d) of §7 |
+| One draw of the world sets | review 1 | five draws; verdict needs four of them |
+| Scored rows overlap training | rung 4 (36 %); review 1 | evaluation-only goals; counted and asserted |
+| Ties in the reference trajectory | review 1 (23 % of decisions) | one fixed tie rule |
+| Mass on invalid actions | review 1 | validity mask in the model |
+| Checkpoint choice | review 1; L46 | fixed final step; curves reported |
+| Carrier chosen by a pilot reading | review 1; L30 | carrier and grid fixed here |
+| Encoding range, canonical targets, early commitment | rung 4; HRM/TRM analyses | no size extrapolation; uniform over optimal actions; loss at the last iteration |
 
-**Reviews.** Independent design review of this document before stage 0's code is trusted; code review before the pilot; a pilot-blind audit of the pass rules before the main grid; a results review after it. As in rung 4, each by a reader who did not write the thing reviewed.
+## 11. Compute and data
 
-## 9. Confounds, and what the design does about each
+- **Exact side.** The state graph builds in 7 s. With it, an episode needs a bounded search in one world; the target is ≤ 10 ms per episode (to be measured at stage 0), so a million training episodes cost about three core-hours and can be streamed. Evaluation needs all 255 worlds per instance: about 1 s per held-out-world instance with today's script (most of it instances drawn and discarded), so five draws of 4,000 held-out-world instances and the training-world sets are of order ten core-hours, once.
+- **Training.** Rung 4's main grid was 41 runs in 45 process-hours. This grid is 56 runs, ten of them episode-ordered (L44: double their estimate): about 75 process-hours as a planning figure, to be replaced by the pilot's projection. If that exceeds what the researcher wants to spend, the cuts in order are: the loop-count runs (6), then three draws instead of five (which breaks the ten-run minimum and would be said so).
 
-| confound | where it bit before | handled by |
-|---|---|---|
-| The mask does the work | rung 4 P8; Entry 87 | hidden world; m̃ as the zero of β; the mask arm |
-| Proposals leak the world | (new) | world-blind proposers |
-| Reference equals target on part of the set | rung 4 P6 | projection coefficients weight each decision by how far the references are apart |
-| Too few worlds | rung 4 P2 | coverage as the variable; two exact references |
-| Eval overlaps training | rung 4 (36 %) | disjoint pairs, held-out worlds, counted and asserted |
-| One canonical target | rung 4 P6 | uniform over optimal actions |
-| Encoding range | rung 4 P3 | no size extrapolation; same sizes everywhere |
-| Early commitment from per-step loss | HRM, TRM analyses | loss at the last iteration |
-| Behavioural effect too small to read | prelim: ≤ 0.04 | belief measures primary |
-| A vote count that sits on its own threshold | revision 0 of this design | β and γ with intervals ([power.md](power.md)) |
-| Curve statistics without a null | L46 | window means; no "final minus max" |
+## 12. Decisions
 
-## 10. Compute
+**Taken by the researcher.** Scored questions are Q1 and Q2 (D134). The latent arm is included at one coverage level (D136). Q1 is re-aimed at evidence outside the training worlds, scored by counterfactual probes (D137, 13 Nov).
 
-Exact quantities: 0.15–0.3 s per instance on one core; evaluation sets of several thousand instances are affordable. Models of roughly rung 4's size; the main grid is budgeted at no more than rung 4's 45 process-hours, to be checked against the pilot.
+**Taken in this revision, open to the researcher and to review 2.**
+1. The optimistic planner as a third reference, so that each scored reading is one of four mechanism classes.
+2. Grid of 4, 8, 16, 32 training worlds; five draws × two seeds per cell; latent arm at 16.
+3. H8, fixed model-free; a larger carrier only as a declared follow-up.
+4. No mask arm.
 
-## 11. Decisions
+## 13. Limits, stated in advance
 
-**Taken by the researcher (13 Nov).** The scored questions are Q1 and Q2. The latent arm is included at one coverage level (five seeds).
+Synthetic, rewrite-only proofs; the hidden fact is the presence of a rule; eight rules, 255 worlds; small models. The readable range ends at 32 training worlds, an eighth of the worlds: a verdict of M at every size would say the threshold, if there is one, lies beyond the range, and would not show that the architecture cannot hold a belief over rules. The posterior and the planner are told apart only by hedging, on this carrier's geometry. Revision on accepted steps is not probed. The prior is uniform, so nothing is learned about whether a model picks up a prior's shape. Behavioural differences are small here (a wrong proposal costs one rejection), so the claims will be about answers, not solve rates. Nothing speaks to real Lean, and none of it is a comparison with existing provers.
 
-**Defaults in force unless overruled.**
-1. **Carrier.** H8 on the existing executor; the ten-unit grouping only if the pilot shows Q2's crossover beyond 32 training worlds.
-2. **On-policy data.** Added only if the pilot shows a shift between the model's own histories and the proposers'.
+## 14. Where review 1's findings went
 
-## 12. Limits, stated in advance
-
-Synthetic, rewrite-only proofs; the hidden fact is the presence of a rule, a crude stand-in for a library a model does not fully know; eight rules; small models. Solve-rate differences will be small, so the claims will be about beliefs. Nothing here speaks to real Lean, and none of it is a comparison with existing provers.
+| finding | disposition |
+|---|---|
+| 1. The mask arm's own optimum is not the mask | arm dropped; zero is by construction (§5) |
+| 2. A rule-identity lookup passes P1; the pass is foregone in distribution | Q1 re-aimed; probes; in-distribution reading demoted to a gate (§1, §5, §8) |
+| 3. γ's zero rests on a fallback; a non-updating model reads "generalising"; P2 had no rule | in-support decisions only; levels read with changes; rules over runs and draws with a falsifier and a split outcome (§5, §8) |
+| 4. Unstated conditions for the Bayes-predictor claim | §7 (a)–(e) |
+| 5. One draw of the world sets | five draws (§3, §8) |
+| 6. Disjoint pairs do not separate rows | evaluation-only goals (§3) |
+| 7. Ties in the scored trajectory | fixed rule (§8) |
+| 8. Dead-world decisions scored | never generated or scored (§3) |
+| 9. Text and code disagreed on the mask reference | that reference is gone; mechanisms are defined once, in §4, and the code's docstring repeats them |
+| 10. A pilot reading decided the carrier | fixed here (§3, §9) |
+| 11. No checkpoint rule; N confounded with steps per world | final step, curves reported; confound stated (§7, §8) |
+| 12. Prior work | §2; literature.md |
+| 13. Latent arm unspecified; its reading conflated | §6 |
+| 14. Compute and data not budgeted | §11 |
+| 15. Input and output underspecified; seeds; saving models | §3, §6, §7 |
+| 16–22 (notes) | product-of-marginals learner classed with G (§5); the count of held-out episodes explained by a training world is printed (§8); uniform prior stated as a limit (§13) |
