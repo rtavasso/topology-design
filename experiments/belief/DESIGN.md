@@ -1,6 +1,8 @@
 # Belief updating in a looped prover on a hidden-world carrier — design
 
-**Revision 0, 12 Nov 2026. Draft for the researcher.** Nothing is built and no model has been run. The only numbers in this document are exact, model-free computations ([prelim_info.md](prelim_info.md), script beside it). Not yet reviewed; an independent design review comes before any code is trusted (§8). This replaces the rung-5 outline of 6 Nov (history Entries 83–88 give the path here).
+**Revision 1, 13 Nov 2026.** Nothing is built and no model has been run. The only numbers in this document are exact, model-free computations ([prelim_info.md](prelim_info.md), [power.md](power.md), scripts beside them). Not yet reviewed; an independent design review comes before any code is trusted (§8). This replaces the rung-5 outline of 6 Nov (history Entries 83–89 give the path here).
+
+**Changes from revision 0** (after the researcher fixed the scored scope and a power analysis, history Entry 89): the scored questions are Q1 and Q2 and nothing else; the scored statistic is a projection coefficient instead of a vote count (§7); the coverage grid moves to where the two references differ (§6, §8); the latent arm is deferred with Q4.
 
 ## 1. Questions
 
@@ -8,7 +10,7 @@
 - **Q1 — Updating.** After the kernel's verdicts on its own proposals, does the model's distribution over next steps move as the exact posterior does, *beyond* what masking the rejected actions gives?
 - **Q2 — Coverage.** On worlds it never trained on, is the model's belief the *generalising* posterior (prior over all rule sets) or the *memorising* one (prior over its training worlds only), as a function of the number of training worlds?
 
-**Secondary (reported, not scored).**
+**Secondary (reported, not scored; the researcher's decision of 13 Nov).**
 - **Q3 — Belief from the problem alone.** Before any verdict, how close is the model to the exact posterior given only the state and the goal?
 - **Q4 — Where the evidence is held.** A latent carried across rounds against verdicts appended as tokens: belief quality, and FLOPs.
 - **Q5 — Thinking against asking.** What does one more loop iteration buy, in belief quality, against one more kernel call?
@@ -30,7 +32,7 @@
 
 **Worlds (H8).** A world W is a non-empty set of the eight rules — 255 worlds. The model is never told W. The kernel accepts an action iff its rule is in W; an accepted action rewrites the state, a rejected one leaves it unchanged. Whether a rule's pattern matches at a node is visible in the term, so a rejection means "this rule is not in the world".
 
-**Why eight rule-units and not the four axioms (H4).** Computed: under H4 the problem itself nearly identifies the world (2.0 bits left; the exact update differs from a mask on 12 % of decisions, mean TV 0.04). Under H8, 6.2 bits are left and 33 % of decisions differ (mean TV 0.09).
+**Why eight rule-units.** Computed ([power.md](power.md)): with the four axioms as hidden units the problem itself nearly identifies the world (2.0 bits left; the exact update differs from a mask by TV 0.037 on average). With the eight rules, 6.2 bits are left and the mean difference is 0.094. Finer groupings on the same executor (ten or twelve units, splitting some rules by whether they apply at the root) raise it to 0.121 and 0.134 and add about one usable point to the coverage grid; they are the fallback if the pilot puts Q2's crossover beyond 32 training worlds, not the starting point. A new algebra is not needed for power.
 
 **Generator** (parameters provisional; fixed at stage 0, §8).
 1. u ~ the term sampler, sizes 2–5; k ~ {2, …, k_max}; s uniform on the full-world sphere of radius k around u. The problem (u, s) is drawn without reference to the world.
@@ -52,7 +54,11 @@ Provisional values: ρ = 0.5, Δ = 2, k_max = 5.
 - **Mask-only update m̃.** The belief over worlds frozen at P(W | u, s), with the actions rejected at this state removed.
 - **Memorising posterior q_train.** The same formula with the prior restricted to the training worlds.
 - **Reference policies.** Oracle (knows W); q-greedy; mask-greedy; q_train-greedy.
-- **Informative decisions.** I_upd = decisions after at least one verdict with TV(q, m̃) > τ. I_cov = decisions in held-out worlds with TV(q, q_train) > τ. τ = 0.05 provisionally. Every scored rule is read on these sets only (L42: a rule is not scored where its reference equals its target).
+- **Projection coefficients (the scored statistics).** For a model's distribution p at a decision,
+  β = Σ ⟨p − m̃, q − m̃⟩ / Σ |q − m̃|² over all decisions after a verdict — the share of the exact update the model makes (0 for a mask, 1 for the posterior);
+  γ = Σ ⟨p − q_train, q − q_train⟩ / Σ |q − q_train|² over all decisions in held-out worlds — 0 for the memorising posterior, 1 for the generalising one.
+  Decisions where the references coincide add nothing to either sum, so no threshold is needed (L42 is met by construction).
+- **Informative decisions (reported).** I_upd = decisions after a verdict with TV(q, m̃) > 0.05; I_cov likewise for q against q_train.
 
 **Preliminary numbers** (H8, ρ = 0.5, k ∈ {2, 3, 4}, 300 instances; [prelim_info.md](prelim_info.md)).
 
@@ -77,18 +83,16 @@ One shared transformer block applied n times with the input re-injected on every
 
 | arm | what it receives about the past | question |
 |---|---|---|
-| **token** | every (rule, verdict) so far, appended to the input each round; no state carried | Q1, Q2, Q3, Q5 |
-| **latent** | only the latest verdict; a few register tokens carried from the previous round | Q4 (and Q1, Q2) |
-| **mask** | nothing; actions rejected at this state are masked at the output | the neural mask-only reference: it must *fail* Q1's rule |
+| **token** | every (rule, verdict) so far, appended to the input each round; no state carried | Q1, Q2 (and Q3, Q5 as reported) |
+| **mask** | nothing; actions rejected at this state are masked at the output | the neural mask-only reference: its β must come out near 0 |
 
-Loop count n ∈ {1, 4, 8} on the token arm for Q5. No experts, no parallel streams, no designed registers beyond the carried ones.
+Deferred with Q4: a **latent** arm (only the latest verdict as input, a few register tokens carried between rounds). It can be added to a later grid without touching the carrier or the measures. Loop count n ∈ {1, 4, 8} on the token arm, three seeds each at one coverage, is the only extra. No experts, no parallel streams.
 
 ## 6. Training
 
 - **Supervised only.** One sampled optimal action in the true world per decision; loss at the last loop iteration (a loss at every iteration is what the literature associates with early commitment).
 - **Proposals must be world-blind.** If the data's proposals were chosen by something that knows the world (an optimal teacher with random deviations, say), the choice of proposal would itself leak the world and q would no longer be the Bayes predictor. Histories are generated by proposers that see only what the model sees: the model's own samples (refreshed during training), mixed with a goal-directed proxy proposer and a uniform one.
-- **Coverage.** Training worlds N ∈ {16, 64, 160}, drawn once from the prior, nested; the 64 held-out worlds are common to all.
-- **Latent arm.** Gradients flow across rounds (truncation length set in the pilot).
+- **Coverage.** Training worlds N ∈ {8, 16, 32, 64}, drawn once, nested; the held-out worlds (a quarter of all worlds) are common to all. The grid sits where the generalising and memorising posteriors differ ([power.md](power.md)): with 8–32 training worlds they differ by TV 0.15–0.17 on average; with 64 or more by 0.04.
 
 ## 7. Measurements and predictions
 
@@ -96,28 +100,31 @@ All models are scored on the same decision points — the exact q-greedy traject
 
 | | measure | read on |
 |---|---|---|
-| M1 | D_q = TV(model, q) against D_m = TV(model, m̃) | I_upd |
-| M2 | D_full = TV(model, q) against D_train = TV(model, q_train) | I_cov, held-out worlds |
-| M3 | KL(q ‖ model) at the first decision | all instances |
-| M4 | solved, kernel calls, rejections, beside the four reference policies | own rollouts |
-| M5 | M1 and M3 by loop iteration and by n | token arm |
-| M6 | FLOPs per decision and per episode | all arms |
+| M1 | β (§4), with TV(model, q) and TV(model, m̃) beside it | decisions after a verdict, training worlds |
+| M2 | γ (§4), with TV(model, q) and TV(model, q_train) beside it | all decisions, held-out worlds |
+| M3 | KL(q ‖ model) at the first decision | reported |
+| M4 | solved, kernel calls, rejections, beside the reference policies | own rollouts, reported |
+| M5 | β and M3 by loop iteration and by n | token arm, reported |
 
 **Scored predictions.**
-- **P1 (Q1).** Token arm: D_q < D_m on at least two thirds of I_upd in at least 4 of 5 seeds. Falsified if D_q ≥ D_m on a majority in at least 4 of 5. The mask arm must come out on the other side; if it does not, the rule is broken and nothing is read from it.
-- **P2 (Q2).** I expect a crossover: closer to q_train at 16 training worlds, closer to q at 160. The result is where the crossover falls. Closer to q at 16 would be generalisation from very few worlds; closer to q_train at 160 would be no generalisation with most of the space covered, and against the thesis.
+- **P1 (Q1).** Token arm at the largest coverage: β ≥ 0.5 (lower end of a 95 % bootstrap interval over instances) in at least 4 of 5 seeds — the model makes at least half of the exact update. Falsified if β ≤ 0.25 (upper end) in at least 4 of 5. Between: "partial". The mask arm must give |β| < 0.15; if it does not, the instrument is broken and nothing is read from P1.
+- **P2 (Q2).** γ at each coverage, per seed, bootstrap over held-out worlds. I expect γ near 0 at 8 training worlds and above 0.5 by 64; the result is the curve and where it crosses 0.5. γ > 0.5 at 8 would be generalisation from very few worlds; γ < 0.5 at 32 would be memorisation with an eighth of the space seen. At 64 the two references are close (mean TV 0.04), so a reading there is weak and is labelled so.
 
-**Reported, with my expectation stated.** Q3: between the unconditioned mixture and q. Q4: belief parity between latent and token, and *little* FLOP difference — histories here are at most about eight verdicts, too short for the cost of a growing context to show; a carrier with longer histories would be needed to test the cost claim. Q5: belief error falls with n; the exchange rate is the result.
+**Why a projection and not the vote count of revision 0.** Computed on stand-in models ([power.md](power.md)): at the noise rung 4's routers showed (TV 0.10–0.17 from their targets), a model making three quarters of the exact update gets a vote share of 0.65–0.73 — on the two-thirds line — while β reads 0.65–0.71; with no noise the vote share is a step function of the mixture. β tracks the mixture (0.00, 0.25, 0.45, 0.71, 0.98 at noise 0.10) with a sampling error of 0.004–0.008 at 2,000 instances.
 
-**Thresholds** (the two-thirds, the seed counts, τ) are fixed at stage 0 from the reference policies and a noise floor, before any model exists, and the verdicts are computed by code with planted tests: exact q must pass P1, exact m̃ must fail it, q_train must land on the memorising side of P2, and a *noisy* q (the target plus estimation error of realistic size) must still pass (L39, L42).
+**Reported, with my expectation stated.** Q3: between the unconditioned mixture and q. Q5: belief error falls with n; the exchange rate against kernel calls is the result.
+
+**Thresholds** are fixed at stage 0, before any model exists, and the verdicts are computed by code with planted tests: exact q must give β = 1 and pass; exact m̃ must give β = 0; q_train must give γ = 0; stand-in models at noise 0.05–0.20 must be classed on the right side of each bound (L39, L42).
+
+**What the power analysis cannot see.** Seed-to-seed spread (wide in rung 4; the pilot runs three seeds to measure it before the main grid's seed count is fixed). Structured model error: the stand-in's noise has no direction, a real model's may, and β reads only the component along the exact update — hence the TVs beside it. Whether models of this size learn the task at all.
 
 ## 8. Stages and gates
 
 | stage | what | gate to pass |
 |---|---|---|
-| 0. Derive (CPU) | carrier module, exact-posterior code, tests; fix ρ, Δ, k_max, τ, eval sizes | world entropy ≥ 4 bits; I_upd ≥ 25 % of post-verdict decisions; I_cov ≥ 30 % at N = 16; reference policies land on the intended side of every rule; overlap table clean |
-| 1. Pilot (one seed, short) | each arm learns at all; learning rate; BPTT length; own-rollout against proposer shift; FLOP accounting; step count for the main grid | every arm's curve rising; cost projection from the last interval (L44) |
-| 2. Main grid | ≈ 39 runs: {token, latent} × N ∈ {16, 64, 160} × 5 seeds; mask × 3 seeds at N = 160; token with n ∈ {1, 8} × 3 seeds at N = 160 | — |
+| 0. Derive (CPU) | carrier module, exact-posterior code, tests; fix ρ, Δ, k_max, eval sizes, the bounds of P1 and P2 | world entropy ≥ 4 bits; sampling sd of β ≤ 0.02 and of γ ≤ 0.05 at the chosen eval sizes; reference and stand-in models classed correctly; overlap table clean |
+| 1. Pilot (three seeds, short) | the arms learn at all; learning rate; own-rollout against proposer shift; seed spread of β and γ; step count for the main grid | curves rising; cost projection from the last interval (L44) |
+| 2. Main grid | ≈ 29 runs: token × N ∈ {8, 16, 32, 64} × 5 seeds; mask × 3 seeds at N = 64; token with n ∈ {1, 8} × 3 seeds at N = 64 | — |
 
 **Reviews.** Independent design review of this document before stage 0's code is trusted; code review before the pilot; a pilot-blind audit of the pass rules before the main grid; a results review after it. As in rung 4, each by a reader who did not write the thing reviewed.
 
@@ -125,26 +132,32 @@ All models are scored on the same decision points — the exact q-greedy traject
 
 | confound | where it bit before | handled by |
 |---|---|---|
-| The mask does the work | rung 4 P8; Entry 87 | hidden world; m̃ as a reference; the mask arm; rules read on I_upd only |
+| The mask does the work | rung 4 P8; Entry 87 | hidden world; m̃ as the zero of β; the mask arm |
 | Proposals leak the world | (new) | world-blind proposers |
-| Reference equals target on part of the set | rung 4 P6 | informative sets I_upd, I_cov |
+| Reference equals target on part of the set | rung 4 P6 | projection coefficients weight each decision by how far the references are apart |
 | Too few worlds | rung 4 P2 | coverage as the variable; two exact references |
 | Eval overlaps training | rung 4 (36 %) | disjoint pairs, held-out worlds, counted and asserted |
 | One canonical target | rung 4 P6 | uniform over optimal actions |
 | Encoding range | rung 4 P3 | no size extrapolation; same sizes everywhere |
 | Early commitment from per-step loss | HRM, TRM analyses | loss at the last iteration |
 | Behavioural effect too small to read | prelim: ≤ 0.04 | belief measures primary |
+| A vote count that sits on its own threshold | revision 0 of this design | β and γ with intervals ([power.md](power.md)) |
 | Curve statistics without a null | L46 | window means; no "final minus max" |
 
 ## 10. Compute
 
 Exact quantities: 0.15–0.3 s per instance on one core; evaluation sets of several thousand instances are affordable. Models of roughly rung 4's size; the main grid is budgeted at no more than rung 4's 45 process-hours, to be checked against the pilot.
 
-## 11. Decisions that are the researcher's
+## 11. Decisions
 
-1. **Scored scope.** Q1 and Q2 only (my recommendation), or Q4 as well?
-2. **Carrier.** H8 on the existing algebra — ready now, about 6 hidden bits, modest behavioural headroom — or a larger algebra with more hidden bits, which needs a new executor and makes exact posteriors costlier?
-3. **On-policy data.** In the first grid, or only if the pilot shows a shift between the model's own histories and the proposers'?
+**Taken by the researcher (13 Nov).** The scored questions are Q1 and Q2.
+
+**Following from the power analysis, for the researcher to confirm or overrule.**
+1. **Carrier.** H8 on the existing executor; the ten-unit grouping only if the pilot shows Q2's crossover beyond 32 training worlds.
+2. **Latent arm.** Deferred, since it serves only Q4.
+
+**Still open.**
+3. **On-policy data.** In the first grid, or only if the pilot shows a shift between the model's own histories and the proposers'? My default is the second.
 
 ## 12. Limits, stated in advance
 

@@ -1775,6 +1775,28 @@ Addendum to Entry 77, which was written while the eval sets at sizes 6–7, the 
 
 **Decisions.** **D133 (open, the researcher's):** scored scope (Q1 and Q2 only, or Q4 too); the carrier (H8 on the existing algebra, or a larger algebra); on-policy data in the first grid or only on evidence of shift. **Next under the standing workflow:** an independent design review of revision 0 before any stage-0 code is trusted.
 
+## Entry 89 (13 Nov 2026): the scored scope is fixed, and a model-free power analysis — the existing executor suffices; the vote rule of revision 0 is replaced
+
+**Premise.** The researcher: "questions 1 and 2. evaluate the experiment power for answering q1 and q2 on our existing code or if we need larger algebra for more power."
+
+**Method.** [experiments/belief/power.py](../experiments/belief/power.py), [power_coverage.py](../experiments/belief/power_coverage.py) → [power.md](../experiments/belief/power.md). No model. A stand-in model is a point on the line between the two exact references of each question (mask-only update to exact update for Q1; memorising to generalising posterior for Q2) plus multiplicative noise calibrated to a chosen total-variation distance from its own target; rung 4's routers sat at 0.10–0.17. Sampling error by bootstrap over instances (Q1) and over held-out worlds (Q2). Carriers on the existing executor with 4, 6, 8, 10 and 12 hidden units (the last two by splitting some rules by whether they apply at the root — probes, not proposals).
+
+**Results.**
+- *Q1 on H8.* 2.7 decisions after a verdict per instance; exact and mask-only updates differ by TV > 0.05 on 32 % of them (mean 0.27 on those). The projection coefficient β = Σ⟨p − mask, exact − mask⟩ / Σ|exact − mask|² reads 0.00 / 0.25 / 0.45 / 0.71 / 0.98 for stand-ins making 0, ¼, ½, ¾ and all of the exact update at noise 0.10, with a sampling sd of 0.004 at 2,000 instances (about five minutes of one core).
+- *Revision 0's rule was weak.* The vote share (decisions nearer the exact update than the mask) for a three-quarter updater is 0.73 / 0.65 / 0.66 at noise 0.10 / 0.15 / 0.20 — on the two-thirds bar I had written — and is a step function at zero noise. I had fixed that rule without scoring a stand-in under it, which L39 and L42 both say to do first.
+- *Q2 on H8.* Generalising and memorising posteriors differ by mean TV 0.160 / 0.167 / 0.148 with 8 / 16 / 32 training worlds and by 0.042 / 0.041 with 64 / 128. γ is estimated to ± 0.01 at 8–32 (800 held-out instances) and ± 0.03–0.04 at 64–128. The informative range is three grid points.
+- *More hidden units.* Mean separation of the exact update from a mask: 0.037, 0.049, 0.094, 0.121, 0.134 for 4, 6, 8, 10, 12 units; sampling sd of β at 2,000 instances 0.008 down to 0.003. On the ten-unit grouping (1,023 worlds) the coverage signal is 0.218 / 0.176 / 0.084 / 0.049 / 0.029 at 16 / 32 / 64 / 128 / 256 training worlds — about one more usable grid point than H8.
+
+**Argument.** Sampling power is ample on the existing executor for both questions; a larger algebra would raise a signal-to-noise ratio that is already far above need. The real constraints are not visible to this analysis: seed-to-seed spread (wide in rung 4), structured model error (the stand-in's noise has no direction, so β is read with the plain TVs beside it), and learnability at this size. Q2's weakness is the length of its coverage axis, not its precision: if the crossover lies outside 8–32 training worlds the experiment returns a bound. The ten-unit grouping extends the axis by a point on the same executor and is kept as the fallback.
+
+**Design revision 1** ([DESIGN.md](../experiments/belief/DESIGN.md)). Scored scope Q1 and Q2 (the researcher's decision). Scored statistics β and γ with bootstrap intervals, no informative-set threshold; P1: β ≥ 0.5 (lower bound) in 4 of 5 seeds, falsified at β ≤ 0.25 (upper bound) in 4 of 5, mask arm |β| < 0.15 or the instrument is void; P2: the γ curve over coverage and where it crosses 0.5. Coverage grid 8, 16, 32, 64. Latent arm deferred with Q4. Pilot with three seeds to measure seed spread. Main grid about 29 runs.
+
+**An operational note.** The first run of the analysis held every instance's caches and climbed past 2 GB before the twelve-unit carrier; I stopped it and reran the remaining rows with the caches freed, rather than risk the container's memory limit again (Entry 78).
+
+**Decisions.** **D134 (the researcher's, 13 Nov):** the scored questions are Q1 and Q2. **D135 (proposed, from the power analysis):** H8 on the existing executor; the ten-unit grouping only on pilot evidence; latent arm deferred; β and γ replace the vote rule. **Open:** on-policy data in the first grid or on evidence of shift. **Next:** independent design review of revision 1, then stage 0.
+
+**Lesson recorded:** L48.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
