@@ -1906,6 +1906,19 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **Decisions.** None. D139 stays open. **Idea recorded** (ledger I-list): streams of learned functions inside the loop as an arm against a monolithic block, read against the carrier's known rules.
 
+## Entry 95 (13 Nov 2026): "per loop, not per token" — the original thesis with learned primitives; where it has been done and where its known failure lives
+
+**Premise.** Discussion, nothing run. Follow-up to Entry 94: route once per loop iteration for the whole state instead of per token.
+
+**What I told the researcher.**
+- Two things go by "per loop". Routers that differ by loop index but still route each token exist at scale and matter (*Looping Beyond Twice*: one shared router gives the same experts on every loop; *Done Right*: freezing routes to the first loop's hurts). A router that picks one learned block per loop for the whole state is the other, and it is the original thesis with learned primitives: a run becomes a sequence of primitives, a program, which is what a prior over routes is a prior over. Per-token routing partitions load and has no notion of a step.
+- It has been done outside looped transformers: Routing Networks (2018, reinforcement learning, with the 2019 catalogue of pathologies), Modular Networks (2018, EM), and this program's rungs 1–3 with designed primitives. In looped transformers I did not find it (one search, the survey's first quarter).
+- It is also the corner where the documented failure lives: a hard global choice per step, trained while the things chosen among are still changing. Reward-only signals collapse (F40); posterior and search targets work when primitives are handed over (F28, F35); joint training with a learned policy lost what the fixed loop had (F22, F23, F32); Mittal et al. find that the right modular architecture does not produce the right specialisation end to end. The known ways out are external structure, EM or posterior targets, and staging.
+- A softened version (one mixture over primitives per loop, shared by all tokens) is a block whose weights are a function of the state — trainable, but the choice is no longer a choice and there is no program to read.
+- On the rewrite carrier a step is (rule, node). That is the natural division: *which operation* is a per-loop decision, *where* it applies is per position. And each accepted step is one known rule, so a per-loop choice has a ground truth it lacks elsewhere.
+
+**Decisions.** None. D139 stays open. I37 extended in the ledger.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
