@@ -1891,6 +1891,21 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **Lessons recorded:** L52, L53.
 
+## Entry 94 (13 Nov 2026): the researcher's "middle way" — primitives as learned streams inside the loop; it exists as Neural Interpreters; what would make it a contribution
+
+**Premise.** Discussion, nothing run. With D139 (scope of design revision 4) still open, the researcher raised a different thought: an architecture as the novel contribution. The original thesis had designed primitives and a prior-fitted router over them; the move to a looped transformer dropped the explicit router because the monolithic loop "solved the problems". The middle way: primitives as separate continuous transformations on parallel streams inside the looped block, learned by gradient descent and not defined by hand, with a learned recombination across streams — "sort of like an MoE router of a kind in a loop transformer". Question: has it been done?
+
+**What I read** ([literature.md](literature.md), section of 13 Nov on streams). Neural Interpreters (Rahaman et al. 2021), in full: learned functions as parallel streams through a shared, code-modulated interpreter, soft sparse routing by learned type matching, outputs summed by compatibility, applied recurrently, trained end to end — the idea's shape, five years old. TIM (abstract): hidden state and parameters split into mechanisms that talk only through attention. A 2026 survey of looped language models (first quarter) and *Towards Looped Models Done Right* (in full): experts routed inside loops exist at 9–20B parameters; routes differ across iterations and that matters; a two-state hierarchy through a shared module gave no consistent benefit.
+
+**What I told the researcher.**
+- The architecture is not new. Neural Interpreters is the template; its gains were parity in distribution and a few points on out-of-distribution splits of Raven-style matrices, with fragile training (fixed signatures, a second-order optimiser).
+- Two versions of the idea should be kept apart. Routing a token to *one* expert that replaces the feed-forward (experts in loops, done at scale, for capacity) is not the proposal; keeping several streams in parallel and recombining them is, and that is Neural Interpreters' form.
+- The program's own evidence bears on it. With soft recombination the collapse seen with hard, jointly trained routers (F22, F40; Rosenbaum's pathologies) mostly does not arise — but then nothing makes a stream a primitive: gradient descent divides labour across free capacity (Entry 85), and specialisation is not composability. In the papers of 12 Nov, structure followed training conditions, not modules.
+- What is missing in the literature is a ground truth for what a stream should be. Evidence that streams are reusable is a toy retuning experiment and embedding plots. A carrier with known primitive operations and held-out combinations of them — which this program has — could say whether streams align with the operations and whether a streamed loop recombines where a matched monolithic loop does not. Rung 4 left exactly that gap: 0.47 on instances that needed an unseen combination, against 0.94 when all combinations were trained.
+- So the contribution, if there is one, is a measurement with an architecture as one arm, not the architecture; and a prediction that separates the streamed block from the monolithic one at matched parameters and compute has to be stated before it is worth a run (the researcher's own standing rule on diversions). INT's reading — recombination came with coverage, not architecture — is the null to beat.
+
+**Decisions.** None. D139 stays open. **Idea recorded** (ledger I-list): streams of learned functions inside the loop as an arm against a monolithic block, read against the carrier's known rules.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
