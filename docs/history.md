@@ -1931,6 +1931,14 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **Decisions.** None. D139 stays open.
 
+## Entry 97 (13 Nov 2026): why choosing a learned block per loop is unstable — the explanation given to the researcher
+
+**Premise.** Discussion, nothing run, nothing new read. After two inline drawings (a looped transformer; a mixture-of-experts layer) the researcher asked why putting the choice inside the loop — one learned block per pass for the whole state — is unstable.
+
+**What I told the researcher.** Two learners each train on what the other currently does, and five things turn that from the benign clustering of a mixture of experts into a failure: (1) a hard choice gives no gradient about the blocks not chosen, so an early lead is amplified until one block is always picked — the collapse of F40, and the result is a plain loop; (2) choices compound: the first pass's choice changes what every later pass sees, the answer arrives only at the end, and the number of possible routes grows as blocks to the power of passes, so the credit signal per choice is thin and noisy; (3) a wrong choice moves the whole state and nothing downstream absorbs it; (4) nothing gives a block an identity at the start, and the loss is as happy with one block doing everything as with a clean division (Mittal et al. 2022; Rosenbaum et al. 2019); (5) the same block is reused at several passes, so improving its use at one pass disturbs it at another — F23's "reached mid-training and then lost". A router trained on its own current beliefs confirms them (F36). What is known to stabilise it: hold one side still (staging), give the router a target that does not come from itself (posterior, search, EM — F28, F35), or soften the choice, which trains but leaves no program.
+
+**Decisions.** None. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
