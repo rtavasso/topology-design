@@ -1919,6 +1919,18 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **Decisions.** None. D139 stays open. I37 extended in the ledger.
 
+## Entry 96 (13 Nov 2026): why mixture-of-experts training survives the moving-target problem, and why that does not carry over to choosing a primitive per loop
+
+**Premise.** Discussion, nothing run. The researcher asked how mixtures of experts learn at all if the experts change as the routing changes. Answered from standard knowledge of the method and from papers already in [literature.md](literature.md); nothing new read.
+
+**What I told the researcher.**
+- The feedback loop is real and in a mixture of experts it is benign: an expert improves on the tokens it receives, the router then prefers it for those tokens, and the partition settles — clustering, not a search for a correct assignment.
+- It is benign for four reasons. The gate is soft where it counts (the output is a gate-weighted sum of the chosen experts, so the router gets gradient through the gate values of the experts it picked). No assignment is wrong: experts are interchangeable function approximators, so any stable partition works — a fixed hash of the token does about as well as a learned router (Roller et al. 2021), and untying routers barely moves the loss (*Tying the Loop*). Each decision is tiny and local (one token, one layer, added to a residual stream that the shared attention and the other layers can correct). And the one real failure, a few experts taking everything, is handled by a load-balancing loss and noise, not solved.
+- None of the four holds for one primitive per loop: there the choice is a step of a program, order matters, credit arrives at the end, there are few decisions per example, and a wrong one is not absorbed by anything. That is why the same loop is benign in one setting and is F22, F32 and F40 in the other.
+- Reading: a mixture of experts learns because it asks almost nothing of its router. The thesis asks the router to carry the program.
+
+**Decisions.** None. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
