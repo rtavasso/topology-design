@@ -168,21 +168,21 @@ def test_A7_once_the_gate_has_decided_running_only_the_top_stream_changes_little
 
 def test_round_M_monoliths_are_parameter_matched_and_test_sets_are_clean():
     from loopmoe import make_programs
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "experiments", "theory", "streams"))
     import arch_m
     n = {}
-    for label, units, over in arch_m.ROWS:
-        if over is None:
-            continue
+    for key, (label, fam, over) in arch_m.ROWS.items():
         cfg = dict(DEF); cfg.update(over)
         S = Student(cfg, 0)
-        n[label.split()[0]] = sum(v.numel() for v in S.params())
+        n[key] = sum(v.numel() for v in S.params())
         progs = torch.zeros(2, 5, dtype=torch.long)
         h, _ = S.forward(progs, torch.randn(2, 3, cfg["d"], generator=torch.Generator().manual_seed(0)))
         assert h.shape == (2, 3, cfg["d"]) and torch.isfinite(h).all()
         tr, te = make_programs(cfg, 3)
         assert not ({tuple(r) for r in te[4].tolist()} & {tuple(r) for r in tr[4].tolist()})
-    for cand, monos in (("M1", ("M2", "M3", "M4", "M7")), ("M8", ("M9", "M10")), ("M12", ("M13", "M15"))):
+    for cand, monos in (("M1", ("M3", "M16", "M4")), ("M8", ("M9", "M17", "M10")), ("M12", ("M13", "M15"))):
         for m in monos:
             assert abs(n[m] - n[cand]) / n[cand] < 0.03, (cand, m, n[cand], n[m])
-    assert n["M5"] < n["M1"] and n["M11"] < n["M8"] and n["M14"] < n["M12"]      # compute-matched blocks are smaller
+    assert 1.7 < n["M3b"] / n["M1"] < 2.2 and 1.7 < n["M13b"] / n["M12"] < 2.2      # the "twice the parameters" rows
+    # multiply-adds per pass in the block at run time: the candidate runs one stream and a linear gate
+    assert arch_m.madds(arch_m.ROWS["M1"][2]) == 176 and arch_m.madds(arch_m.ROWS["M3"][2]) == 580
+    assert arch_m.madds(arch_m.ROWS["M12"][2]) == 608 and arch_m.madds(arch_m.ROWS["M13"][2]) == 989

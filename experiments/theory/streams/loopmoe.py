@@ -35,7 +35,7 @@ DEF = dict(task="program", d=6, P=3, n=4, eps=0.4, K=4, w=12, mc=8, mv=8, H=24,
            score="softmax", topk=0, renorm=False,
            noise=0.0, xdrop=0.0, ent=0.0, zloss=0.0, fill="none", anneal=0.0,
            sched=None, explore="none", topk_eval=None, auto=0.0, tseed=10, probe=False,
-           block="streams", W=0, ctx="attn", clean_test=False, scales=(),
+           block="streams", W=0, ctx="attn", clean_test=False, scales=(), ckpts=(),
            steps=3000, lr=3e-3, B=16, ntrain=40, clip=0.0, lens=None, test_lens=None)
 LMAX = 16
 TAPE = 8                                                              # longest sequence the no-attention block is shown
@@ -207,6 +207,8 @@ class Student:
                 q = p["beta"] * (rms(reg) if c["ln"] else reg)
             a = torch.softmax(q @ keys.T, -1)                          # [M,B,n]
             r = torch.einsum("mbi,miv->mbv", a, vals) if vals is not None else None
+            if record:
+                aux["attn"].append(a.detach())
             if c["block"] != "streams":
                 if c["ctx"] == "tape":
                     tape = torch.nn.functional.one_hot(progs, self.ntok).to(h.dtype)
@@ -250,7 +252,7 @@ class Student:
                 reg = reg + reg @ p["M"].T
             aux["logits"].append(s); aux["ran"] += mask.sum(-1).mean().item() / n
             if record:
-                aux["gates"].append(g.detach()); aux["attn"].append(a.detach()); aux["states"].append(h_in)
+                aux["gates"].append(g.detach()); aux["states"].append(h_in)
         return h, aux
 
 
@@ -311,6 +313,7 @@ def run(over, seed, ret_model=False):
     lens = list(tr.keys())
     diverged = False
     switch = None
+    curve = {}
     at_switch = None
     ran_sum = 0.0
     for it in range(cfg["steps"]):
@@ -345,6 +348,12 @@ def run(over, seed, ret_model=False):
                 switch = it + 1
         if not torch.isfinite(loss):
             diverged = True; break
+        if (it + 1) in cfg["ckpts"]:
+            with torch.no_grad():
+                Lc = cfg["n"] if cfg["n"] in te else sorted(te)[0]
+                xc = torch.randn(len(te[Lc]), 64, cfg["d"], generator=torch.Generator().manual_seed(4242))
+                hc, _ = S.forward(te[Lc], xc)
+                curve[it + 1] = err(hc, T(te[Lc], xc), xc).item()
         opt.zero_grad(); loss.backward()
         if cfg["clip"]:
             torch.nn.utils.clip_grad_norm_(S.params(), cfg["clip"])
@@ -367,6 +376,11 @@ def run(over, seed, ret_model=False):
         if cfg["test_lens"]:
             out["by_len"] = {L: ev({L: pr}) for L, pr in te.items()}
             out["scaled"] = {sc: {L: ev({L: pr}, scale=sc) for L, pr in te.items()} for sc in cfg["scales"]}
+            out["train_by_len"] = {L: ev({L: pr}) for L, pr in tr.items()}
+            L4 = cfg["n"] if cfg["n"] in te else sorted(te)[0]
+            _, ax = S.forward(te[L4], torch.randn(len(te[L4]), 8, cfg["d"], generator=g), record=True)
+            out["addr"] = (torch.stack(ax["attn"], 1).mean(2).argmax(-1) == torch.arange(L4)[None, :]).double().mean().item()
+        out["curve"] = curve
         out["nparams"] = sum(v.numel() for v in S.params())
         if cfg["block"] != "streams":
             return (out, S, T, tr, te) if ret_model else out
