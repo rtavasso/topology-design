@@ -2014,6 +2014,17 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **Decisions.** None. D139 stays open.
 
+## Entry 103 (15 Nov 2026): the researcher's design position on the gate, and what the formalisation says about gating before the streams
+
+**Premise.** Discussion, nothing run. The researcher's position: gates that change across loop passes should depend on the original sequence and on the state, so that different streams respond to different contexts; and the gate should act *before* the streams, so that a stream that is not needed is not computed.
+
+**What I told the researcher.**
+- The first half is what Entry 102's check points to: the gate needs the instruction (the original sequence), a progress signal (the state), and an operation that addresses one by the other. A gate that is an attention readout — the state as query, the original sequence as keys — is context- and state-dependent in exactly that sense, and re-injecting the input by attention would supply it.
+- The second half changes the training signal, not only the cost. In every model of Entries 98–102 the gate already reads the state and not the streams' outputs, so "before" adds no information constraint; the saving comes from *not running* the streams with small gates, i.e. from sparsity. By M1 and M2 a stream that is not run gets no gradient, and the gate gets no gradient about it: the exact comparison of the gated sum (S1) shrinks to a comparison among the streams that ran. With one stream run per pass there is nothing to compare, which is the hard-choice regime of the routing note's §3; and the idle-stream dead end (H5) goes from "barely trained" to "not trained".
+- The ways to have both, each with a known cost: train with the soft sum and run sparse (the sharpness this needs raises the loop's gain through the boundary term, lens 3); run the top two during training (the gate then gets an exact comparison between its two leading candidates, at twice the cost of one); or keep one stream per pass and give the gate a target from outside itself (Entry 98). A small exploration floor is not one of them (X48).
+
+**Decisions.** None taken by me. The researcher's position is recorded in I37. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
