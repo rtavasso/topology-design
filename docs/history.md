@@ -1939,6 +1939,25 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **Decisions.** None. D139 stays open.
 
+## Entry 98 (15 Nov 2026): a formalisation of training signal and stability for a mixture of experts, a looped block and a loop of learned blocks; two toy predictions failed
+
+**Premise.** The researcher asked for a mathematical formalisation of the distinctions drawn in Entries 94–97. No model trained. The note is [routing_signal_stability.md](routing_signal_stability.md); each numbered statement has a check in `tests/test_routing_signal.py` (10 tests, 5 s); the toy runs are in [experiments/theory/routing_toy.md](../experiments/theory/routing_toy.md), with predictions written in the script before each batch.
+
+**What is derived.**
+- *Mixture of experts.* The mixture sits inside the loss, so the router's gradient is exact and local: ∂L/∂s_j = g_j(⟨δ, f_j⟩ − Σ g_k⟨δ, f_k⟩), the replicator form. In a scalar toy the router–expert loop has gain |r|/K and the residual decays at rate 1/K, so an initial asymmetry is amplified by exactly cosh|r₀|, for every K: the loop is driven by the error still to be fitted and stops with it. For quadratic loss the mixture-inside and mixture-outside objectives differ by the curvature-weighted spread of the expert outputs.
+- *Looped block.* Gradient a sum over passes; sensitivity a sum of Jacobian products; in the scalar case it grows as n² at unit gain. A conditioning problem, not a feedback problem.
+- *Loop of learned blocks, one per pass.* The mixture sits outside the loss over Kⁿ routes; ∂p/∂s = π_j(Q_j − p) with Q a counterfactual return. ∇(−log p) = −∇p/p, and at a stationary point the Hessians differ by the factor p. Score-function signal-to-noise for one correct route: K^(−n/2) with a sensible baseline, √(K−1)·K^(−n) without. In a toy where a block's competences over the n jobs sum to one: the unspecialised point is a saddle with escape rate 1/K for the likelihood and p/K = n⁻ⁿ/K for expected loss; a route that reuses a block is a dead end for exact gradient ascent (the idle block is not trained); under a fixed uniform prior the objective is flat in the direction of specialisation; every deterministic router is a fixed point of its own posterior.
+
+**What the toy did** (ten seeds, K = n, one step size). Exact likelihood: 55, 99, 145 steps at 2, 3, 4 passes. Exact expected loss: 109, 540, 4,507. Fixed-prior posterior: 0/10 at every length. Reward with a baseline: 10/10 everywhere, at about the exact expected-loss speed. Lost runs: search 3/10 and 6/10 at 3 and 4 passes, own posterior from binary verdicts 3/10 at 4, reward without a baseline 3/10 at 4 — each one a reused block at success 0.25 with a deterministic router.
+
+**Predictions against results.** Held: the plateau scales as 1/p for expected loss and not for the likelihood. Failed: that a fixed-prior posterior would learn (X46) — I derived why only after seeing it; and which sampled signals would fail (X47) — I expected the slow, noisy ones to, and it was the fast ones, by commitment. Partly held: search locks into block-reusing routes, in fewer runs than predicted.
+
+**Argument.** None of the three is unstable in the sense of a rising loss; each is exact gradient descent on one objective. What differs is the gain of the loop between router and blocks, what ends it, and whether the place it ends matters. In a mixture of experts the gain is the residual and the loss is indifferent to the assignment. In a loop of blocks the gain is the probability that every other pass already succeeds, the loop ends in commitment, and most committed states are not programs. The corrected statement of Entry 97: a posterior under a fixed prior is not a remedy when the blocks are learned — it removes the lock-in by removing the only thing that breaks the symmetry.
+
+**Limits.** The toy's router sees only the pass index, success factorises over passes, blocks are competence vectors. It does not reproduce F40. The two-timescale remark (H7) is a condition, not a result.
+
+**Decisions.** None. D139 stays open. **Recorded:** X46, X47, L54, a derived constraint, I37 extended.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
