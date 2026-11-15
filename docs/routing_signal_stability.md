@@ -121,6 +121,8 @@ Ten seeds, $K=n$, step size 0.5, 16 sampled routes per step; "learned" means $p>
 | sampled own posterior, binary verdicts | 48 | 99 | 7/10 (271) | $p=0.25$, router deterministic |
 | search (best route under current blocks) | 38 | 7/10 (79) | 4/10 (119) | $p=0.25$, router deterministic |
 
+**More starts for the exact signals (added the same day, after an interactive drawing of the toy showed a start from which both exact signals stalled).** Over 200 starts the exact likelihood ended in the reused-block state ($p=\tfrac14$) in 11 at $n=4$ and 1 at $n=3$; exact expected loss in 1 of 40 at $n=4$ and 0 of 100 at $n=3$. So the dashes in the last column mean "none in ten seeds", not "never": the dead end of H5 is reachable by exact gradients from a few per cent of starts, more often for the higher-gain signal.
+
 Predictions were written in the script before each batch.
 - **Held.** Likelihood-type signals learn in a number of steps that grows about linearly in $K$ (55, 99, 145); exact expected loss grows about as $1/p_0$ (17–27 steps per unit of $1/p_0$).
 - **Failed: the fixed prior.** I predicted the exact posterior under a fixed prior would learn at every $n$. It never did, for the reason in H6, which I derived after seeing it.
@@ -132,7 +134,7 @@ Predictions were written in the script before each batch.
 1. **The three differ in where the mixture sits.** Inside the loss, the router's comparison is exact, local and first order, and it is valid because each expert's contribution is a small residual step (M2, M5). Outside the loss, the comparison is between whole routes.
 2. **Gain.** The router–block loop has gain proportional to the residual in a mixture of experts (self-limiting), to $p$ under expected loss in a loop of blocks (a plateau exponential in the route length), to a constant under the likelihood, and to zero under a fixed uniform prior.
 3. **Stopping.** A mixture of experts stops when the data are fitted, wherever that leaves the assignment, and the loss does not care. A loop of blocks stops at commitment, and most committed states are not programs.
-4. **A trade the toy makes visible.** Signals with high gain escape the plateau quickly and commit to the first asymmetry; signals with low gain are slow and commit less often to a wrong one. Among the signals that work from binary verdicts, none was both fast and safe at $n=4$: reward with a baseline was safe and slow (3,211 steps), the own posterior fast (271) and lost 3 of 10; search was fastest and lost 6 of 10. The signals that were both fast and safe needed either all $K^n$ routes or the graded success probability of each sampled route.
+4. **A trade the toy makes visible.** Signals with high gain escape the plateau quickly and commit to the first asymmetry; signals with low gain are slow and commit less often to a wrong one. Among the signals that work from binary verdicts, none was both fast and safe at $n=4$: reward with a baseline was safe and slow (3,211 steps), the own posterior fast (271) and lost 3 of 10; search was fastest and lost 6 of 10. The signals that were fast and lost no run in ten needed either all $K^n$ routes or the graded success probability of each sampled route — and over 200 starts even the exact likelihood lost about one in twenty.
 5. **Idle blocks are the mechanism of the dead end** (H5): a block that is not chosen is not trained, so it cannot become worth choosing.
 
 ## 6. Limits

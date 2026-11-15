@@ -1958,6 +1958,14 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **Decisions.** None. D139 stays open. **Recorded:** X46, X47, L54, a derived constraint, I37 extended.
 
+## Entry 99 (15 Nov 2026): correction to Entry 98 — the exact signals also reach the reused-block dead end
+
+**Premise.** The researcher asked for a visual of the learnability difference. I built an interactive drawing that runs the toy's equations in the browser (three panels: mixture of experts, looped block, loop of learned blocks; not kept in the repository). Testing its "new start" control, one of six starts left *both* exact signals at success 0.25.
+
+**Check.** Over 200 starts of the Python toy, the exact likelihood ended in the reused-block state in 11 at four passes and 1 at three; exact expected loss in 1 of 40 at four passes and 0 of 100 at three. Entry 98's "10/10" for the exact signals was ten seeds, and its table's dashes meant "none in ten".
+
+**What changes.** The dead end of H5 is not only a sampling effect: exact gradient flow reaches it from a few per cent of starts, more often under the higher-gain objective. The note's §4 and §5 now say so. The ordering of the signals by speed and by losses is unchanged.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
