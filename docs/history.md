@@ -1980,6 +1980,26 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **Decisions.** None. D139 stays open. **Recorded:** X48; the derived constraint extended.
 
+## Entry 101 (15 Nov 2026): streams in a loop through four lenses — 26 predictions over three rounds; what held and what did not
+
+**Premise.** The researcher asked for an iterative exploration: the mathematical structures around streams in a looped block, different ways of organising them, my expectations about learnability and stability, and verification in code of the predictions about information flow. Derivations, random-initialisation analyses and small linear students only. Note: [stream_topologies.md](stream_topologies.md); code and tables in `experiments/theory/streams/`; five exact statements tested in `tests/test_stream_topologies.py`. Every prediction was written into its script before the run.
+
+**The lenses.** (1) Symmetry and gauge: streams as a dictionary of operators, a token's effective operator C_i = Σ_k E_ik B_k. (2) Order: streams as control vector fields, order carried by commutators. (3) A state-read gate as a partition of unity over state space, with itineraries as programs. (4) Separate stream states coupled through a graph Laplacian, with the shared residual as the strongly coupled limit.
+
+**Round 1 (17 predictions: 9 held, 4 in part, 4 failed).** Held: identical streams stay identical; gauge invariance; streams needed = affine dimension of the primitives + 1 (four collinear primitives learned by two streams; four generic ones need four); the order-blind floor grows as ε² (× 4.1–4.2 per doubling); a gate given the pass index and the stored program generalises (8e-6); heavier gain tail under a sharp gate; itineraries fragile only near boundaries; an exact light cone on the ring; the stability threshold cλ_max = 2. Failed or half-failed: "no stream matches a primitive" (they did, cosine 0.99–1.00); the order-dependent gradient share (× 2.7–3.3, not × 2); a state-read gate above 0.1 and helped by an always-on stream (0.036, and no help); gain peaking at intermediate temperature (monotone); gradient concentration in the nearest tenth of inputs (14 %, not > 50 %); ring more diverse than star (reverse); coupling leaving the common-mode gain alone (it fell 40 %).
+
+**Round 2 (7 revisions: 4 held, 3 in part).** The alignment of streams with primitives comes from the softmax's competition (unnormalised gates: 0.77–0.90). The gradient-share measurement had pooled a reversal-closed set; per program it is linear at small steps. The state-read student's 0.036 is the order-blind floor (0.034); the ordered solution is exactly representable (7e-27) and locally stable (4e-5 from 5 % noise) and is not found from scratch with three times the steps (0.037). Two round-1 failures had one cause: averaging different streams contracts (uniform blend 2.97 against soft gate 3.04 at τ = 4; averaged separate states 1.28 against shared state 1.24). The gate's gradient falls with margin/τ (ratio 0.005 beyond 5τ). Diversity follows the whole Laplacian spectrum (within 4 %). Still failing: the sharp-gate gain (7.75) against single streams (5.17).
+
+**Round 3 (1 held, 1 failed).** I predicted the excess came from composing different streams. With itineraries frozen the gain is 4.33, below single streams: the excess is the gate's own boundary term (near a boundary 8.87 soft against 4.00 frozen; far from boundaries the two agree exactly), and switching streams lowers gain (3.90 against 5.77).
+
+**Argument.** Three things moved. First, with the instruction supplied to the gate, a gated sum of learned streams does become a set of primitives and recombines exactly on held-out programs; the blend-not-program worry of Entry 100 needs the qualifier "when the gate must work out for itself what to apply". Second, that is where it breaks: a gate reading only the state has an exact, stable solution that training does not reach — it learns the bag — so the difficulty of the autonomous design is finding, not representing or holding. Third, order is a second-order quantity in the step size, so a well-conditioned loop of small steps has little to learn from order; the three knobs (step size, temperature, coupling) each trade the property that makes a program against the property that makes training easy.
+
+**What I got wrong, and how.** Twice I reasoned from one term of a Jacobian and left out averaging; once I set a threshold (0.1) without computing the reference it should have been compared with (the order-blind floor, 0.034); once I measured a pooled quantity whose leading term cancels by symmetry; once I guessed a mechanism (composition) that the direct test reversed. All were caught by numbers written down first.
+
+**Limits.** Linear streams in every trained check; tiny sizes; three to five seeds; lenses 3 and 4 are untrained. One task for the state-read result.
+
+**Decisions.** None. D139 stays open. **Recorded:** X49–X51, L55, a derived constraint, I37 extended.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
