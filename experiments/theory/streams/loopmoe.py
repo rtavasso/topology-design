@@ -35,8 +35,10 @@ DEF = dict(task="program", d=6, P=3, n=4, eps=0.4, K=4, w=12, mc=8, mv=8, H=24,
            score="softmax", topk=0, renorm=False,
            noise=0.0, xdrop=0.0, ent=0.0, zloss=0.0, fill="none", anneal=0.0,
            sched=None, explore="none", topk_eval=None, auto=0.0, tseed=10, probe=False,
+           block="streams", W=0, ctx="attn", clean_test=False, scales=(),
            steps=3000, lr=3e-3, B=16, ntrain=40, clip=0.0, lens=None, test_lens=None)
 LMAX = 16
+TAPE = 8                                                              # longest sequence the no-attention block is shown
 
 
 def rms(h):
@@ -121,9 +123,29 @@ class Student:
             p["W2"] = 0.1 * rn(K, H) / H ** 0.5
         if c["fill"] == "lin":
             p["L"] = torch.zeros(K, d, d)
+        if c["block"] != "streams":
+            # One monolithic block in place of the K streams and their gate. It is given the same instruction read r
+            # (ctx "attn"), or - with no attention at all - the whole padded sequence plus the register (ctx "tape").
+            for k in ("B", "V", "G", "W1", "b1", "W2"):
+                p.pop(k, None)
+            W = c["W"]
+            cin = mv if c["ctx"] == "attn" else TAPE * ntok + mc
+            if c["ctx"] == "tape":
+                p.pop("E", None)
+            if c["block"] == "mono2":                                 # two hidden layers on [h, context]
+                p["mB1"] = rn(W, d + cin) / (d + cin) ** 0.5
+                p["mb1"] = torch.zeros(W)
+                p["mB2"] = rn(W, W) / W ** 0.5
+                p["mb2"] = torch.zeros(W)
+            else:                                                     # one hidden layer: additive or per-unit gate
+                p["mB"] = rn(W, d) / d ** 0.5
+                p["mC"] = rn(W, cin) / cin ** 0.5
+                p["mb"] = torch.zeros(W)
+            p["mV"] = 0.1 * rn(d, W) / W ** 0.5
         self.p = {k: (v if k in frozen else v.requires_grad_(True)) for k, v in p.items()}
         self.ema = torch.zeros(K, d)
         self.g = g
+        self.ntok = ntok
         self.k_now, self.explore_now = c["topk"], c["explore"] != "none"
 
     def params(self):
@@ -166,7 +188,7 @@ class Student:
     def forward(self, progs, x, train=False, hard=True, record=False):
         c, p = self.c, self.p
         M, Bx, n = progs.shape[0], x.shape[1], progs.shape[1]
-        vals, keys = p["E"][progs], p["keys"][:n]
+        vals, keys = (p["E"][progs] if "E" in p else None), p["keys"][:n]
         h = x
         pr = c["progress"]
         if pr.startswith("reg"):
@@ -184,7 +206,25 @@ class Student:
             else:
                 q = p["beta"] * (rms(reg) if c["ln"] else reg)
             a = torch.softmax(q @ keys.T, -1)                          # [M,B,n]
-            r = torch.einsum("mbi,miv->mbv", a, vals)
+            r = torch.einsum("mbi,miv->mbv", a, vals) if vals is not None else None
+            if c["block"] != "streams":
+                if c["ctx"] == "tape":
+                    tape = torch.nn.functional.one_hot(progs, self.ntok).to(h.dtype)
+                    tape = torch.nn.functional.pad(tape.reshape(M, -1), (0, (TAPE - n) * self.ntok))
+                    ctx = torch.cat([tape[:, None, :].expand(-1, Bx, -1), rms(reg)], -1)
+                else:
+                    ctx = r
+                if c["block"] == "mono2":
+                    z = torch.tanh(torch.cat([h, ctx], -1) @ p["mB1"].T + p["mb1"])
+                    z = torch.tanh(z @ p["mB2"].T + p["mb2"])
+                elif c["block"] == "mono_mul":
+                    z = torch.sigmoid(ctx @ p["mC"].T + p["mb"]) * torch.tanh(h @ p["mB"].T)
+                else:
+                    z = torch.tanh(h @ p["mB"].T + ctx @ p["mC"].T + p["mb"])
+                h = h + c["eps"] * z @ p["mV"].T
+                if pr.startswith("reg"):
+                    reg = reg + reg @ p["M"].T
+                continue
             s = r @ p["G"].T
             if c["gate_h"]:
                 s = s + torch.tanh(torch.cat([r, hn], -1) @ p["W1"].T + p["b1"]) @ p["W2"].T
@@ -220,6 +260,11 @@ def make_programs(cfg, seed):
     if cfg["lens"]:                                                  # mixed lengths: random programs per length
         tr = {L: torch.randint(ntok, (cfg["ntrain"], L), generator=g) for L in cfg["lens"]}
         te = {L: torch.randint(ntok, (100, L), generator=g) for L in cfg["test_lens"]}
+        if cfg["clean_test"]:                                        # drop test programs that also occur in training
+            for L in te:
+                if L in tr:
+                    seen = {tuple(r) for r in tr[L].tolist()}
+                    te[L] = te[L][torch.tensor([tuple(r) not in seen for r in te[L].tolist()])]
         return tr, te
     allp = all_programs(ntok, cfg["n"])
     tr, te = split(allp, cfg["ntrain"] / len(allp), seed)
@@ -309,10 +354,10 @@ def run(over, seed, ret_model=False):
         out["at_switch"] = at_switch
         out["at_end"] = probe(S, tr[lens[0]], cfg)
     with torch.no_grad():
-        def ev(prs, hard=True):
+        def ev(prs, hard=True, scale=1.0):
             num = den = 0.0
             for L, pr in prs.items():
-                x = torch.randn(len(pr), 128, cfg["d"], generator=g)
+                x = scale * torch.randn(len(pr), 128, cfg["d"], generator=g)
                 h, aux = S.forward(pr, x, hard=hard)
                 tgt = T(pr, x)
                 num += ((h - tgt) ** 2).sum().item(); den += ((tgt - x) ** 2).sum().item()
@@ -321,6 +366,10 @@ def run(over, seed, ret_model=False):
         out["test_dense"] = ev(te, hard=False)
         if cfg["test_lens"]:
             out["by_len"] = {L: ev({L: pr}) for L, pr in te.items()}
+            out["scaled"] = {sc: {L: ev({L: pr}, scale=sc) for L, pr in te.items()} for sc in cfg["scales"]}
+        out["nparams"] = sum(v.numel() for v in S.params())
+        if cfg["block"] != "streams":
+            return (out, S, T, tr, te) if ret_model else out
         # which stream runs for which token (program task): purity of the token -> stream map, and pass dependence
         L0 = lens[0]; pr = te[L0] if L0 in te else tr[L0]
         x = torch.randn(len(pr), 32, cfg["d"], generator=g)

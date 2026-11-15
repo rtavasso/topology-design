@@ -164,3 +164,25 @@ def test_A7_once_the_gate_has_decided_running_only_the_top_stream_changes_little
         gV = Sd.p["V"].grad.flatten(1).norm(dim=1)
         ref = torch.stack([torch.autograd.grad((Sd.p["V"][k] @ torch.tanh(Sd.p["B"][k].detach() @ x[0, 0])).sum(), Sd.p["V"])[0][k].norm() for k in range(cfg["K"])])
         assert torch.allclose(gV, cfg["eps"] * g * ref, atol=1e-12)
+
+
+def test_round_M_monoliths_are_parameter_matched_and_test_sets_are_clean():
+    from loopmoe import make_programs
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "experiments", "theory", "streams"))
+    import arch_m
+    n = {}
+    for label, units, over in arch_m.ROWS:
+        if over is None:
+            continue
+        cfg = dict(DEF); cfg.update(over)
+        S = Student(cfg, 0)
+        n[label.split()[0]] = sum(v.numel() for v in S.params())
+        progs = torch.zeros(2, 5, dtype=torch.long)
+        h, _ = S.forward(progs, torch.randn(2, 3, cfg["d"], generator=torch.Generator().manual_seed(0)))
+        assert h.shape == (2, 3, cfg["d"]) and torch.isfinite(h).all()
+        tr, te = make_programs(cfg, 3)
+        assert not ({tuple(r) for r in te[4].tolist()} & {tuple(r) for r in tr[4].tolist()})
+    for cand, monos in (("M1", ("M2", "M3", "M4", "M7")), ("M8", ("M9", "M10")), ("M12", ("M13", "M15"))):
+        for m in monos:
+            assert abs(n[m] - n[cand]) / n[cand] < 0.03, (cand, m, n[cand], n[m])
+    assert n["M5"] < n["M1"] and n["M11"] < n["M8"] and n["M14"] < n["M12"]      # compute-matched blocks are smaller
