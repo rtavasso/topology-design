@@ -238,3 +238,86 @@ def test_H6_fixed_uniform_prior_is_flat_and_every_deterministic_router_is_a_fixe
     fixed = q.T / q.T.sum(1, keepdim=True)                                # posterior under the fixed uniform prior
     assert (own - pi).abs().max() < 1e-9
     assert (fixed - pi).abs().max() > 0.3
+
+
+# ---------------------------------------------------------------- streams recombined by a gated sum inside the loop (S)
+
+def _soft_loop(Ws, gates, h0, scale=1.0, linear=False):
+    h = h0
+    for t in range(gates.shape[0]):
+        f = [Wk @ h if linear else scale * torch.tanh(Wk @ h) for Wk in Ws]
+        h = h + sum(gates[t, k] * f[k] for k in range(len(Ws)))
+    return h
+
+
+def _route(Ws, z, h0, scale=1.0, linear=False):
+    h = h0
+    for k in z:
+        h = h + (Ws[k] @ h if linear else scale * torch.tanh(Ws[k] @ h))
+    return h
+
+
+def test_S1_gate_gradient_is_the_mixture_of_experts_form_with_the_backpropagated_signal():
+    g_ = torch.Generator().manual_seed(5)
+    d, K, n = 5, 3, 4
+    Ws = [(0.5 * torch.randn(d, d, generator=g_)).requires_grad_(True) for _ in range(K)]
+    S = torch.randn(n, K, generator=g_, requires_grad=True)
+    h0, y = torch.randn(d, generator=g_), torch.randn(d, generator=g_)
+    hs, fs, h = [h0], [], h0
+    for t in range(n):
+        f = [torch.tanh(W @ h) for W in Ws]
+        gate = torch.softmax(S[t], 0)
+        h = h + sum(gate[k] * f[k] for k in range(K))
+        h.retain_grad()
+        hs.append(h); fs.append(f)
+    loss = 0.5 * ((h - y) ** 2).sum()
+    loss.backward()
+    gates = torch.softmax(S.detach(), 1)
+    for t in range(n):
+        lam = hs[t + 1].grad                                              # lambda_{t+1}
+        proj = torch.stack([lam @ fs[t][k].detach() for k in range(K)])
+        assert torch.allclose(S.grad[t], gates[t] * (proj - (gates[t] * proj).sum()), atol=1e-10)
+    for k in range(K):                                                    # a stream learns in proportion to its gate, summed over passes
+        Wk = Ws[k].detach().clone().requires_grad_(True)
+        sum(gates[t, k] * (hs[t + 1].grad @ torch.tanh(Wk @ hs[t].detach())) for t in range(n)).backward()
+        assert torch.allclose(Ws[k].grad, Wk.grad, atol=1e-10)
+
+
+def test_S2_S3_gated_sum_equals_the_route_average_for_linear_streams_and_differs_at_third_order_otherwise():
+    g_ = torch.Generator().manual_seed(6)
+    d, K, n = 4, 3, 3
+    Ws = [0.4 * torch.randn(d, d, generator=g_) for _ in range(K)]
+    gates = torch.softmax(torch.randn(n, K, generator=g_), 1)             # one gate vector per pass, not a function of the state
+    h0 = torch.randn(d, generator=g_)
+    routes = list(itertools.product(range(K), repeat=n))
+    weight = lambda z: torch.stack([gates[t, z[t]] for t in range(n)]).prod()
+    avg = sum(weight(z) * _route(Ws, z, h0, linear=True) for z in routes)
+    assert torch.allclose(_soft_loop(Ws, gates, h0, linear=True), avg, atol=1e-10)                 # S2
+
+    def gap(scale):
+        avg = sum(weight(z) * _route(Ws, z, h0, scale) for z in routes)
+        return (_soft_loop(Ws, gates, h0, scale) - avg).norm().item()
+    ratio = gap(0.02) / gap(0.01)
+    assert 7.0 < ratio < 9.0, ratio                                       # S3: the gap is third order in the size of a stream's step
+
+
+def test_S4_jacobian_of_a_gated_pass_and_the_bound_on_the_gate_term():
+    g_ = torch.Generator().manual_seed(7)
+    d, K, tau = 5, 4, 0.5
+    Ws = [0.5 * torch.randn(d, d, generator=g_) for _ in range(K)]
+    V = torch.randn(K, d, generator=g_)
+    h = torch.randn(d, generator=g_)
+
+    def step(v):
+        gate = torch.softmax(V @ v / tau, 0)
+        return v + sum(gate[k] * torch.tanh(Ws[k] @ v) for k in range(K))
+    J = torch.autograd.functional.jacobian(step, h)
+    gate = torch.softmax(V @ h / tau, 0)
+    F = torch.stack([torch.tanh(Ws[k] @ h) for k in range(K)], 1)         # d x K: the streams' outputs
+    through = sum(gate[k] * torch.diag(1 - torch.tanh(Ws[k] @ h) ** 2) @ Ws[k] for k in range(K))
+    C = torch.diag(gate) - torch.outer(gate, gate)
+    gate_term = F @ C @ V / tau
+    assert torch.allclose(J, torch.eye(d) + through + gate_term, atol=1e-10)
+    assert torch.linalg.matrix_norm(C, 2) <= 0.5 + 1e-12
+    Fc = F - (F @ gate).unsqueeze(1)                                      # outputs centred on the gated mean
+    assert torch.allclose(F @ C, Fc @ C, atol=1e-12)                      # only the spread of the streams' outputs enters

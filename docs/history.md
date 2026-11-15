@@ -1966,6 +1966,20 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **What changes.** The dead end of H5 is not only a sampling effect: exact gradient flow reaches it from a few per cent of starts, more often under the higher-gain objective. The note's §4 and §5 now say so. The ordering of the signals by speed and by losses is unchanged.
 
+## Entry 100 (15 Nov 2026): the gated-sum topology — what changes in the mathematics; one more toy prediction failed
+
+**Premise.** The researcher asked how the formalisation changes if the looped block holds K separate streams recombined by a gate and a sum on the residual stream. Derivation and toy only. Added as §6 of [routing_signal_stability.md](routing_signal_stability.md) with three new checks (S1–S4) in `tests/test_routing_signal.py`, and [experiments/theory/routing_floor.md](../experiments/theory/routing_floor.md).
+
+**What changes.** The mixture moves back inside the loss, at every pass. (S1) The gate's gradient is the mixture-of-experts form with the backpropagated signal in place of the loss gradient, and each stream learns in proportion to its gate summed over passes: exact, at nK stream evaluations where the hard choice needed Kⁿ routes; the sampling costs of H3 disappear. (S2) For linear streams and gates that do not read the state, the gated sum equals the average over routes exactly — the conjunctive toy is such a case, so the exact-signal results of Entry 98 are results about this topology: no plateau under a likelihood loss. (S3) Otherwise the blended state differs from the route average at third order in the size of a stream's step (checked: the gap grows eightfold when the size doubles) and the loss at second order; the gate learns which blend is good, which is a first-order stand-in for which stream to apply. (S4) The loop's Jacobian gains a term (1/τ)·F·(diag g − ggᵀ)·∂s/∂h, of norm at most half the spread of the streams' outputs times the gate's sharpness: specialisation and a sharp gate are what this penalises.
+
+**What does not change.** The loop between gate and streams has the residual as its gain and stops when the training loss is fitted; if a blend of unspecialised streams fits, the gate stays soft and there is no program. The reused-stream dead end is unchanged — the toy in which exact gradients reached it from about one start in twenty *is* this topology.
+
+**Prediction that failed (X48).** I predicted that a gate floor of 0.05 (every stream always gets a share) would leave at most 2 of 200 starts outside a program, by training the idle stream up to parity. Observed 15, 11, 8, 0 of 200 at floors 0, 0.01, 0.05, 0.2. The floor trains the idle stream on every pass's job at once, so it becomes a weaker generalist; only a floor large enough to be a blend removed the dead end.
+
+**Argument.** The gated sum buys an exact, cheap signal and loses the guarantee that what is learned is a route. It moves the design from the regime of Entry 98's third column toward its first: trainable like a mixture of experts, and for the same reason indifferent to whether a program forms.
+
+**Decisions.** None. D139 stays open. **Recorded:** X48; the derived constraint extended.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

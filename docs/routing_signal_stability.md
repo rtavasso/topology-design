@@ -137,6 +137,54 @@ Predictions were written in the script before each batch.
 4. **A trade the toy makes visible.** Signals with high gain escape the plateau quickly and commit to the first asymmetry; signals with low gain are slow and commit less often to a wrong one. Among the signals that work from binary verdicts, none was both fast and safe at $n=4$: reward with a baseline was safe and slow (3,211 steps), the own posterior fast (271) and lost 3 of 10; search was fastest and lost 6 of 10. The signals that were fast and lost no run in ten needed either all $K^n$ routes or the graded success probability of each sampled route — and over 200 starts even the exact likelihood lost about one in twenty.
 5. **Idle blocks are the mechanism of the dead end** (H5): a block that is not chosen is not trained, so it cannot become worth choosing.
 
-## 6. Limits
+## 6. Streams recombined by a gated sum inside the loop
 
-The toy's router sees only the pass index; success factorises over passes; blocks are competence vectors, not functions; $K=n$; ten seeds and one step size. M5 is exact only for quadratic loss, and the toy cannot show the gap compounding over passes because its success is multiplicative. The toy does not reproduce F40 (reward-only signals collapsing whatever the baseline): here a baseline was enough, so F40 involves something the toy lacks, most likely a state-dependent router. H7 is a condition, not a result. Nothing here is a statement about any trained network.
+The researcher's variant (15 Nov, history Entry 100): $K$ streams inside the looped block, each a learned map of the shared state, recombined by a gate and added to the residual stream; the same streams and gate at every pass:
+
+$$h_{t+1}=h_t+\sum_{k=1}^{K} g_k(h_t)\,f_k(h_t;\theta_k),\qquad g=\mathrm{softmax}\big(s(h_t;\phi)/\tau\big),\qquad t=0,\dots,n-1 .$$
+
+This puts the mixture *inside* again, at every pass. Four things change relative to §3, and one does not.
+
+**S1 (identity): the signal becomes exact and cheap.** With $\lambda_{t+1}=\partial L/\partial h_{t+1}$,
+
+$$\frac{\partial L}{\partial s_{t,j}}=g_{t,j}\Big(\langle\lambda_{t+1},f_j(h_t)\rangle-\sum_k g_{t,k}\langle\lambda_{t+1},f_k(h_t)\rangle\Big),\qquad \nabla_{\theta_k}L=\sum_t g_{t,k}\,\big(\partial f_k/\partial\theta_k\big)_t^{\top}\lambda_{t+1}.$$
+
+It is M2 at every pass, with the loss gradient replaced by the signal backpropagated through the remaining passes. No sampling, no counterfactual return: $nK$ stream evaluations give the whole gradient, where the hard choice needed $K^n$ routes. H3 no longer applies.
+
+**S2 (identity): for linear streams and gates that do not depend on the state, the gated sum *is* the average over routes.** If $f_k(h)=A_kh$ and the gates are one vector per pass,
+
+$$h_n=\prod_t\Big(I+\sum_k g_{t,k}A_k\Big)h_0=\mathbb{E}_{z\sim g}\Big[\prod_t (I+A_{z_t})\,h_0\Big].$$
+
+The $K^n$ terms collapse into $n$ sums of $K$. The conjunctive toy is of this kind: its $p=\prod_t\sum_k\pi_{t,k}q_{k,t}$ is already a gated sum. So everything §3–§4 found for the *exact* signals is a statement about this topology: with a likelihood loss, escape rate $1/K$ and no plateau; with a loss linear in success, escape rate $p/K$.
+
+**S3 (computed): otherwise it is not, and the difference has a definite order.** For smooth streams of size $\epsilon$ (and independent gates) the blended state differs from the route average at order $\epsilon^3$ — the first two orders cancel; the gap doubles eightfold when $\epsilon$ doubles (checked: ratio 7–9). The *loss* differs at order $\epsilon^2$ by M5. So the gate's signal is the exact gradient of the blended computation, and a first-order stand-in for "what if stream $j$ were applied alone". For small residual steps the two agree; for steps large enough to count as a primitive they do not, and the gap compounds over passes. The gate learns which *blend* is good.
+
+**S4 (identity): the gate adds a term to the loop's Jacobian.** With $F=[f_1,\dots,f_K]$ and $C=\mathrm{diag}(g)-gg^{\top}$,
+
+$$J_t=I+\sum_k g_k\,\frac{\partial f_k}{\partial h}+\frac1\tau\,F\,C\,\frac{\partial s}{\partial h},\qquad \lVert C\rVert_2\le\tfrac12,$$
+
+and only the spread of the streams' outputs around their gated mean enters ($FC=F_cC$). By L2 the loop's conditioning worsens with this term: in proportion to how *different* the streams' outputs are, how sharp the gate is ($1/\tau$), and how fast the logits move with the state. It vanishes when the gate saturates ($C\to0$) and is largest where the gate is undecided. Specialisation and a sharp gate are what make a program readable, and they are what this term penalises.
+
+**What does not change: the stopping rule and the dead end.**
+- The loop between gate and streams is M4's: its gain is the residual, so it stops when the training loss is fitted. If a blend of unspecialised streams fits the data, nothing sharpens the gate and no program appears. Specialisation needs pressure: streams too small to each do everything, or data the blend cannot fit.
+- H5 holds unchanged, because the toy is this topology: a stream whose gate is near zero is barely trained, and exact gradients ended in the reused-stream state from about one start in twenty (§4).
+
+**A gate floor does not cure it at small values (toy; prediction failed).** Giving every stream at least $\varepsilon/K$ of the gate, $g=(1-\varepsilon)\,\mathrm{softmax}(s)+\varepsilon/K$, I predicted $\varepsilon=0.05$ would leave at most 2 of 200 starts outside a program at four passes. Observed ([routing_floor.md](../experiments/theory/routing_floor.md)): 15 of 200 with no floor, 11 at $\varepsilon=0.01$, 8 at $0.05$, 0 at $0.2$. My reasoning was that the idle stream would be trained up to parity with the stream doing two jobs. It is not: the floor trains the idle stream a little on *every* pass's job, which makes it a weaker generalist, not a specialist. Only a floor large enough to change the dynamics as a whole removed the dead end, and a floor that large is a blend.
+
+**Summary of the change.**
+
+| | hard choice per pass (§3) | gated sum of streams per pass (§6) |
+|---|---|---|
+| objective | average of the loss over $K^n$ routes | loss of the blended computation |
+| cost of the exact gradient | $K^n$ routes, or sampling, or search | $nK$ stream evaluations |
+| gate's signal | counterfactual return | exact, first order, along the blended path |
+| equals the route average | by definition | only for linear streams and state-independent gates; else off by $O(\epsilon^3)$ in the state, $O(\epsilon^2)$ in the loss |
+| plateau | $\propto 1/p$ under expected loss | none under a likelihood loss (rate $1/K$ in the toy) |
+| what ends the loop | commitment | the residual reaching zero — possibly with the gate still soft |
+| reused-block dead end | yes | yes, at a few per cent of starts in the toy |
+| loop conditioning | as L2 | L2 plus a gate term $\propto$ spread of streams $\times$ sharpness |
+| a program to read | yes, by construction | only if the gate ends near a vertex |
+
+## 7. Limits
+
+The toy's router sees only the pass index; success factorises over passes; blocks are competence vectors, not functions; $K=n$; ten seeds and one step size. M5 is exact only for quadratic loss, and the toy cannot show the gap compounding over passes because its success is multiplicative. The toy does not reproduce F40 (reward-only signals collapsing whatever the baseline): here a baseline was enough, so F40 involves something the toy lacks, most likely a state-dependent router. H7 is a condition, not a result. In §6, S2 needs linear streams and gates that do not read the state, and S3 is a computed order, not a bound with constants; what a state-dependent gate does to the correspondence with routes is not analysed. Nothing here is a statement about any trained network.
