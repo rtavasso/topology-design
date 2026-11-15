@@ -2000,6 +2000,20 @@ Others: intervals quote within-model noise only (at 32 worlds 3–12 effective h
 
 **Decisions.** None. D139 stays open. **Recorded:** X49–X51, L55, a derived constraint, I37 extended.
 
+## Entry 102 (15 Nov 2026): what a dynamic gate needs — feeding it the input or the previous state helps a little; even the pass index is not enough without a way to address the program
+
+**Premise.** After a visual of lens 2 and two clarifications (the streams are parallel within a pass; order lives across passes, in how the gate pattern changes), the researcher asked how to get informative dynamic gates, and whether feeding the gate the re-injected input or the prior pass's state solves it. One small check, predictions written first ([gate_inputs.md](../experiments/theory/streams/gate_inputs.md); added to [stream_topologies.md](stream_topologies.md)).
+
+**Result.** Stored-program task, streams on the data only, MLP gate. Training / held-out error: state and program only 8.8e-3 / 0.053; plus the input 3.4e-3 / 0.034; plus the previous state 7.5e-3 / 0.048; plus both 3.3e-3 / 0.019; plus the pass index 3.2e-4 / 0.031. The order-blind floor is 0.034; lens 2's structured clock gate reached 8e-6 held out.
+
+**Predictions.** Held: the previous state adds little; the input helps training error. Failed: that the pass index would solve it (X52) — it fitted the training programs and did not generalise.
+
+**Argument.** A dynamic gate needs three things, not one: a progress signal (the input as a reference point supplies a weak one; a clock a strong one), the stored instruction, and an operation that combines them — selecting the instruction *at* the current position. An MLP over concatenated features has to learn that selection separately for each program it sees; a readout indexed by position has it built in. In a transformer that operation is attention over the program with a position-dependent query. Feeding more state into the gate addresses the first need only.
+
+**Limits.** Twelve training and four held-out programs, three seeds, one gate architecture; held-out medians are noisy.
+
+**Decisions.** None. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

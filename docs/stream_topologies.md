@@ -92,6 +92,20 @@ The carrier for the trained checks: a state h ∈ ℝ^d, P instruction tokens, a
 
 **Reading.** The star beat the ring because it has fewer edges: at a handful of passes total diversity follows the whole spectrum (roughly the number of edges), and the second eigenvalue matters only in the long run. Coupling is not neutral on the shared direction, because streams that respond differently to the same input turn a shared perturbation into disagreement, which the coupling then removes.
 
+### Follow-up: what the gate is fed (added the same day)
+
+The researcher asked whether feeding the gate the re-injected input, or the previous pass's state, gives it what it needs. Same stored-program task; streams act on the data only; the gate is a small MLP over the current state and the stored program, plus the extra input ([gate_inputs.md](../experiments/theory/streams/gate_inputs.md)).
+
+| gate also sees | training error | held-out error | prediction |
+|---|---|---|---|
+| nothing more | 8.8e-3 | 0.053 | at the floor: held on held-out programs |
+| the input | 3.4e-3 | 0.034 | "helps but does not solve (1e-3 to 0.017)": held on training error, failed on held-out |
+| the previous pass's state | 7.5e-3 | 0.048 | "no better than nothing more": held |
+| both | 3.3e-3 | 0.019 | "like the input alone": held on training error |
+| the pass index | 3.2e-4 | 0.031 | "solves it (< 1e-3)": **failed** on held-out programs |
+
+**Reading.** The input gives the gate a reference point — how far the state has moved — and lowers training error 2.6-fold; the previous state adds little, because the last write says what was just applied and not where the loop is. The surprise is the last row: even told the pass index, a generic MLP gate fitted the 12 training programs and did not carry over to new ones, while lens 2's gate that was *built* as a per-pass readout of the stored program did (8e-6). So information is not sufficient. The gate must also be able to *address* the program by position — use "where am I" to select "what is the instruction here" — and learn that as a rule and not per program. Held-out medians here come from four programs and three seeds and are noisy (ranges span 0.016–0.075).
+
 ## 6. Expectations about each way of organising, after the checks
 
 | organisation | learnability | stability |
