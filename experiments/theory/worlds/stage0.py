@@ -22,7 +22,8 @@ def cell(v):
 def regime(r, task):
     """Where a run's held-out error sits against the exact references (DESIGN.md section 2)."""
     h, ref = r["held"], r["ref"]
-    if h <= 3 * r["seen"]:
+    bar = 0.5 * (ref["blend"] if task == "select" else min(ref["allmean"], ref["one"]))
+    if h <= 3 * r["seen"] and h <= bar:      # full: recombines, and is within 3x of its own error on seen worlds
         return "full"
     if task == "select":
         return "garbage" if h >= ref["allmean"] else "beyond" if h <= 0.5 * ref["trans"] else "recombines" if h <= 0.5 * ref["blend"] else "no-choice"
