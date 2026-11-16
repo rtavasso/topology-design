@@ -1,5 +1,5 @@
-"""Stage 0 of experiments/theory/worlds/DESIGN.md: does the monolith fail on held-out worlds? EXPLORATORY.
-Predictions P0a-P0d are in DESIGN.md section 7, committed before this was run."""
+"""Stage 0 of experiments/theory/worlds/DESIGN.md (revision 2): the two monoliths, no streams. EXPLORATORY.
+Predictions R0a-R0e are in DESIGN.md section 7, committed before this was run."""
 import json
 import os
 import statistics
@@ -8,35 +8,70 @@ from worlds import run
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 med = statistics.median
-RUNS = [(t, s) for t in (10, 11, 12) for s in (0, 1)]
+CK = (1000, 2000, 3000)
+
+
+def cfg(task, arm, cover, split, **kw):
+    return dict(task=task, arm=arm, cover=cover, split=split, tseed=10 + split % 3, **kw)
 
 
 def cell(v):
-    return f"{med(v):.1e} [{min(v):.1e}, {max(v):.1e}]"
+    return f"{med(v):.2g} [{min(v):.2g}, {max(v):.2g}]"
 
+
+def regime(r, task):
+    """Where a run's held-out error sits against the exact references (DESIGN.md section 2)."""
+    h, ref = r["held"], r["ref"]
+    if h <= 3 * r["seen"]:
+        return "full"
+    if task == "select":
+        return "garbage" if h >= ref["allmean"] else "beyond" if h <= 0.5 * ref["trans"] else "recombines" if h <= 0.5 * ref["blend"] else "no-choice"
+    return "garbage" if h >= min(ref["allmean"], ref["one"]) else "recombines" if h <= 0.5 * min(ref["allmean"], ref["one"]) else "partial"
+
+
+def row(label, rs, task):
+    if rs[0]["nheld"] == 0:
+        return f"| {label} | {cell([r['seen'] for r in rs])} | - | - | - | - | - |"
+    reg = {}
+    for r in rs:
+        reg[regime(r, task)] = reg.get(regime(r, task), 0) + 1
+    refs = "; ".join(f"{k} {med([r['ref'][k] for r in rs]):.2f}" for k in rs[0]["ref"] if k != "forced")
+    return (f"| {label} | {cell([r['seen'] for r in rs])} | {cell([r['held'] for r in rs])} | {refs} | "
+            f"{', '.join(f'{k} {v}' for k, v in sorted(reg.items()))} | {med([r['r2'] for r in rs]):.2f} | {med([r['mass_on_pair'] for r in rs]):.2f} |")
+
+
+HEAD = "| run | seen | held out | references (median) | regime (runs) | one-pass R2 on the true primitives | share of weight on the world's two |\n|---|---|---|---|---|---|---|"
 
 if __name__ == "__main__":
-    mode, task = sys.argv[1], sys.argv[2]
+    mode, task, arm = sys.argv[1], sys.argv[2], sys.argv[3]
+    lrfile = os.path.join(HERE, f"stage0_lr_{task}_{arm}.json")
     if mode == "rates":
-        print(f"| task | rate | seen | held out | held out / seen |\n|---|---|---|---|---|", flush=True)
-        best = {}
-        for lr in [float(x) for x in sys.argv[3:]] or (0.003, 0.01, 0.03, 0.1):
-            rs = [run(dict(task=task, cover=9, lr=lr, tseed=t), 100) for t in (10, 11, 12)]
+        print(HEAD, flush=True)
+        best, rates = {}, [float(x) for x in sys.argv[4:]] or [0.003, 0.01, 0.03, 0.1]
+        for lr in rates:
+            rs = [run(cfg(task, arm, 9, s, lr=lr), s) for s in (100, 101, 102)]
             best[lr] = med([r["seen"] for r in rs])
-            print(f"| {task} | {lr:g} | {cell([r['seen'] for r in rs])} | {cell([r['held'] for r in rs])} | {med([r['held'] / r['seen'] for r in rs]):.1f} |", flush=True)
-        json.dump({task: min(best, key=best.get)}, open(os.path.join(HERE, f"stage0_lr_{task}.json"), "w"))
+            print(row(f"{task} {arm} rate {lr:g}", rs, task), flush=True)
+        old = json.load(open(lrfile)) if os.path.exists(lrfile) else {}
+        old.update({str(k): v for k, v in best.items()})
+        json.dump(old, open(lrfile, "w"))
+        print("\nbest by seen error:", min(old, key=old.get), flush=True)
     else:
-        lr = json.load(open(os.path.join(HERE, f"stage0_lr_{task}.json")))[task]
-        store = {}
-        print(f"| task | coverage | width | seen | held out | held out / seen (median of per-run ratios) | reference: blend | reference: one |\n|---|---|---|---|---|---|---|---|", flush=True)
-        for cover, W in [(7, 40), (9, 40), (11, 40), (13, 40), (15, 40), (7, 80)]:
-            rs = [run(dict(task=task, cover=cover, lr=lr, tseed=t, W=W), s) for t, s in RUNS]
-            store[f"{cover}_{W}"] = rs
-            if cover < 15:
-                ratio = f"{med([r['held'] / r['seen'] for r in rs]):.1f}"
-                refs = f"{med([r['ref']['blend'] for r in rs]):.2f} | {med([r['ref']['one'] for r in rs]):.2f}"
-                held = cell([r["held"] for r in rs])
-            else:
-                ratio, refs, held = "-", "- | -", "-"
-            print(f"| {task} | {cover} | {W} | {cell([r['seen'] for r in rs])} | {held} | {ratio} | {refs} |", flush=True)
-            json.dump(store, open(os.path.join(HERE, f"stage0_{task}.json"), "w"))
+        seen = json.load(open(lrfile))
+        lr = float(min(seen, key=seen.get))
+        store, out = {}, os.path.join(HERE, f"stage0_{mode}_{task}_{arm}.json")
+        print(HEAD, flush=True)
+        if mode == "dial":
+            plan = [(f"coverage {c}", dict(cover=c)) for c in ((7, 9, 11, 13, 15) if task == "select" else (7, 9, 15))]
+        elif mode == "fit":
+            plan = [("coverage 9, 8,000 steps", dict(cover=9, steps=8000))]
+            if arm == "mono":
+                plan += [("coverage 9, width 120", dict(cover=9, W=120)), ("coverage 9, width 120, 8,000 steps", dict(cover=9, W=120, steps=8000))]
+        else:                                # control: all primitives identical, so the world is irrelevant
+            plan = [("irrelevant world, coverage 9", dict(cover=9, same=True))]
+        for label, kw in plan:
+            c = kw.pop("cover")
+            rs = [run(cfg(task, arm, c, s, lr=lr, ckpts=CK, **kw), s) for s in range(6 if mode != "control" else 3)]
+            store[label] = rs
+            print(row(f"{task} {arm} rate {lr:g}, {label}", rs, task), flush=True)
+            json.dump(store, open(out, "w"))

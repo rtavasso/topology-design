@@ -1,107 +1,94 @@
 # Do streams recombine where a monolithic block does not? — staged design on a "worlds" carrier
 
-**Status: EXPLORATORY design, revision 1 (15 Nov 2026). Nothing run except 100–300-step smoke tests** (which I saw: a monolith at 300 steps had seen-world error 0.26 and held-out 0.92 on `select`, 0.055 and 0.66 on `sum`). History Entries 106–108; idea I37 in the ledger. Code `worlds.py`; exact statements `tests/test_worlds.py`.
+**Status: EXPLORATORY design, revision 2 (15 Nov 2026).** Revision 1 is in git at 808286e. It was reviewed before any run (`review/review_design.md`: "run after changes"); this revision makes those changes. What I had seen when writing it: 100–300-step smoke tests of every arm, and the reviewer's untuned one-seed probes at coverage 9 (table in the review). History Entries 106–108; idea I37 in the ledger. Code `worlds.py`, `stage0.py`; exact statements `tests/test_worlds.py`.
 
 ## 1. The question and the logic
 
 I37: does breaking the block into streams of learned primitives, recombined by a gate, let a loop handle combinations it was not trained on where one monolithic block does not? Its null: recombination comes with coverage, not architecture.
 
-The claim is an interaction — arms agree on combinations they were trained on and differ on combinations they were not — so the experiment is staged (Entry 107):
-
-- **Stage 0.** The monolith alone, over a dial of coverage. Does it fail on held-out combinations while fitting seen ones? If not, stop: the carrier cannot test the claim.
-- **Stage 1.** A ceiling: streams whose gate is set from the truth. Is modularity rewarded here at all?
-- **Stage 2.** The comparison, at the coverage stage 0 fixes.
-- **Stage 3.** Mechanism checks on whichever arm closes the gap.
-
-Entry 105's comparison failed on four counts (Entry 106): the baseline never failed; programs were held out but nothing was held out from the block; the task named one primitive per pass; a shared controller did the recombining. This design is built against those four.
+Entry 105's comparison failed on four counts (Entry 106): the baseline never failed; programs were held out but nothing was held out from the block; the task named one primitive per pass; a shared controller did the recombining. Revision 1 of this design fixed those and, the review showed, walked into a fifth: its monolith read the world as one summed vector and failed on held-out worlds by producing an *unconstrained function of an unfamiliar vector* — worse than not moving, worse than ignoring the world — which is not the failure rung 4 showed (a model sitting *at* its non-composing reference), and a monolith that reads the world one token at a time recombined with no streams at all. So "streams against monolith" was confounded with **how the world is read**. Revision 2 separates the two.
 
 ## 2. The carrier
 
-Six primitives f_p(h) = tanh(A_p h) on a six-dimensional state, each with a trigger direction w_p. A **world** is a set of two primitives, stated in the input as two tokens. Fifteen worlds exist. A block is applied four times; on every pass it receives the state h and one read of the world, r = E[a] + E[b] (E learned by each arm). There is no clock, no register and no attention: the same input every pass, and nothing outside the block decides anything.
+Six primitives f_p(h) = tanh(A_p h) on a six-dimensional state, each with a trigger direction w_p. A **world** is a set of two primitives, stated in the input as two tokens; fifteen worlds exist. A block is applied four times; on every pass it gets the state h and the world's two tokens (embeddings E, learned by each arm). No clock, no register, nothing outside the block.
 
-Two task families (two notions of "combination"):
+- **select** (primary). Each pass applies *one* of the world's two primitives: the one whose trigger ⟨w_p, h⟩ is larger. Which one is not stated; it depends on the state and changes from pass to pass. Step 0.4.
+- **sum** (secondary). Each pass applies *both*, summed. Step 0.2.
 
-- **select.** Each pass applies *one* of the world's two primitives — the one whose trigger ⟨w_p, h⟩ is larger. Which one is not stated; it depends on the state and changes from pass to pass. (Step 0.4.)
-- **sum.** Each pass applies *both*, summed. (Step 0.2.)
+**Held-out worlds and the dial.** Each split is a random order of the fifteen worlds; the training set of coverage c is its first c worlds (7, 9, 11, 13, 15), so the dial is nested. The first seven already form a graph on the primitives that is 2-connected (connected, and still connected with any one primitive removed) and contains an odd cycle. Splits do not depend on the model's seed; twelve distinct splits, cycling through three teachers.
 
-**Held-out combinations.** Training uses a subset of the worlds; the rest are never trained on. The training set always satisfies: every primitive is in at least two training worlds, the graph of training worlds is connected, and it contains an odd cycle. Under these conditions the right behaviour in a held-out world is *determined* by the training worlds (test `test_training_worlds_determine…`): in `select`, the rule in world {a, b} is the sign of ⟨w_a − w_b, h⟩, and w_a − w_b is a signed sum of trained differences; in `sum`, each f_p is recoverable from the trained sums. **Coverage dial:** 7, 9, 11, 13 or all 15 worlds in training.
+**What the training worlds determine** (test `test_what_training_worlds_determine…`). `sum`: every primitive is recoverable from the trained sums. `select`: less than revision 1 claimed. Training shows only the *sign* of each trained comparison. A held-out choice between a and b is forced by the data only where a chain of trained comparisons forces it at that state (a beats c, c beats b); that is 30–60 % of decisions. Beyond that, the right answer follows only under an assumption about the form of the bids (linear triggers). So there are three levels on held-out worlds, each with an exact reference computed from the teacher:
 
-This is rung 4's split in miniature: there, worlds were sets of stated axioms, fifteen of them, and the instances that failed (0.47 against 0.94) were those needing a pair of axioms never together in a training world.
-
-**The properties Entry 107 asked for.**
-
-| Property | Here | Shortfall |
+| Reference (select) | What it knows | Typical error |
 |---|---|---|
-| Primitives not named by the input | `select`: the input names two candidates; which applies is decided by the state through triggers that are never shown. `sum`: no primitive is ever seen alone. | Tokens map one-to-one to primitives. The *identity* of the candidates is given; what must be discovered is the per-primitive function and (select) the per-primitive trigger, from pairs only. |
-| Every primitive seen, combinations held out, a dial | yes | fifteen combinations is small |
-| A held-out combination is new at the block's own input | yes: r = E[a] + E[b] is a vector the block has never received | — |
-| A memorising solution exists | a block can fit each trained world with its own boundary or its own summed function | not shown until stage 0 |
-| Both arms can represent the truth | streams: exact (test `test_the_modular_solution_is_exact…`). Monolith: by approximation; **checked by the full-coverage column of stage 0** | the monolith's fit may be poorer; see §6 |
-| Exact scoring, true primitive per step known | yes | — |
-| Several task instances | three teachers | three |
-| No shared controller | nothing but the block | — |
+| no change | nothing | 1.0 |
+| `allmean` | ignores the world: applies the mean of all six primitives | 0.8 |
+| `blend` | which two primitives; cannot choose | 0.5 |
+| `trans` | chooses correctly wherever trained comparisons force it, blends elsewhere | 0.3 |
+| the arm's own error on seen worlds | everything | floor |
 
-**A limit stated now.** The teacher of `select` — an available set, per-primitive bids, the larger bid wins — has the same shape as the "each stream bids" arm below. That is deliberate (the claim is conditional: *if* the data have modular structure, does a matching architecture use it where a monolith does not), and it bounds the conclusion: this carrier cannot show that streams help when the data are not of this shape.
+For `sum` the references are `allmean` and `one` (applies one of the two).
 
-## 3. Arms
+**Regimes**, read off those references: *garbage* (at or above `allmean`: worse than ignoring the world); *does not choose* (around `blend`); *recombines* (at most half of `blend`); *beyond what the data force* (at most half of `trans`); *full* (within 3× of its own seen error). Rung 4's model was in the second.
 
-All have the same number of trainable parameters to within 3 % (about 2,500; test). All get h and r and nothing else.
+**Controls for the unfamiliar-input confound** (F52): a teacher whose primitives are all identical, so the world is irrelevant — any gap there is the input alone; and a one-pass regression of the block's update on the six true primitive outputs on held-out worlds (R², and the share of weight on the world's own two primitives).
 
-| Arm | Block | Isolates |
+**Limits stated now.** Tokens map one-to-one to primitives: the candidates are named; what must be discovered is each primitive's function and trigger, from pairs only. The `select` teacher (an available set, per-primitive bids, larger bid wins) has the shape of the "bids" arms below; the carrier cannot show that streams help when the data are not of this shape. Fifteen worlds, three teachers.
+
+## 3. Arms: read × block
+
+All have about 2,500 trainable parameters (within 3 %; test).
+
+| | One block | Streams |
 |---|---|---|
-| `mono` | two hidden layers of 40 on [h; r] | the baseline |
-| `streams_joint` | 8 streams V_k tanh(B_k h) of width 16; gate logits G r + MLP([r; h]) | the candidate's form (Entry 104) |
-| `streams_self` | the same streams; gate logit of stream k = G_k·r + s_k(h): each stream bids from the state alone, the world only adds a bias | a gate that is itself modular |
-| `unit` | 60 units, each with a soft gate from C r + MLP([r; h]), all summed | gating without grouping |
-| `mono` + weight decay | as `mono` | any regulariser, as against modularity |
-| `oracle` | six streams; gate set from the truth (the chosen primitive, or both) | the ceiling |
+| **Summed read** r = E[a] + E[b] | `mono`: two hidden layers of 40 on [h; r] | `streams_self`: 8 streams of width 16; gate logit of stream k = G_k·r + s_k(h) (each stream bids from the state; the world adds a bias). Also `streams_joint` (logits G r + MLP([r; h]), Entry 104's form) |
+| **One branch per token**, pooled by a softmax over the branches' bids | `tok_mono`: the same two-layer block run on [h; E[a]] and on [h; E[b]]; each branch emits an update and a bid | `tok_streams`: each token picks streams (softmax of G·E[p]); a branch's update and bid are those of its streams |
 
-Streams arms run every stream (no sparsity): the question here is recombination, and Entry 104 treats cost. Scores: softmax or sigmoid is tuned per arm (softmax can represent both tasks; an additive sigmoid bid cannot represent `select`).
+`tok_mono` is one set of weights instantiated once per token — monolithic in parameters, branched in computation (the shared, code-conditioned interpreter of Neural Interpreters). `tok_streams` differs from it only in keeping each primitive in its own parameters. So the two columns ask I37's question twice, once under each read, and the two rows ask the question the review raised.
 
-**References, exact from the teacher**, for held-out worlds: `blend` (select: apply the average of the two primitives — knows which two, cannot choose) and `one` (apply only one of the two).
+Further rows: `unit` (summed read; a soft gate on each of 60 units — gating without grouping); `mono` with weight decay (grid 1e-3, 1e-2, 1e-1; its **best held-out** error is reported, which is generous to it); `oracle` (streams with the gate set from the truth: the floor). Streams run densely; cost is Entry 104's subject.
 
 ## 4. Outcomes
 
-Error = squared error of the change h_4 − h_0 relative to the teacher's change, on fresh inputs. **Seen** = training worlds; **held-out** = worlds never trained on. Primary outcome of stage 2: the held-out error itself, on the scale given by the seen error (floor) and the references (ceiling of not composing), and paired against the monolith's.
+Error = squared error of the change h_4 − h_0 relative to the teacher's change, on fresh inputs fixed per split (the same for every arm). Reported per run for seen and held-out worlds, per held-out world, and placed in the regimes of §2. The held-out/seen ratio is *not* an outcome (it grows with fit). Comparisons between arms are paired ratios of held-out error over the same splits: median, number of splits won, and a bootstrap interval over splits; an **identical-arm null** (`tok_mono` against itself with a different initialisation) gives the spread such ratios have by chance.
 
-## 5. Tuning rules (from L57)
+## 5. Tuning rules (L57)
 
-- Every arm gets its own learning rate from {0.003, 0.01, 0.03, 0.1} with cosine decay; if the best sits at an edge the grid is extended until it does not.
-- Selection is by **seen-world error** on separate seeds — the only legitimate criterion, since held-out worlds cannot be used. Because that criterion cannot see the primary outcome, the held-out error is **reported for every configuration in the grid**, so that the reading can be checked against the selection.
-- 4,000 steps; if an arm's seen error is still falling by more than a factor 1.5 over the last quarter, steps are doubled for all arms.
+- Each arm: learning rate from {0.003, 0.01, 0.03, 0.1}, cosine decay; extended if the best is at an edge. Summed-read streams arms also choose softmax or sigmoid scores.
+- Selection by seen-world error on three other splits (100–102). Since that cannot see the outcome, held-out error is reported for every configuration, and **a verdict must hold at every rate whose seen error is within 2× of the best**.
+- Steps: 4,000 and 8,000 are compared directly in stage 0; seen and held-out error are recorded every 1,000 steps.
+- Fit: `mono`'s seen error must come within 2× of `tok_mono`'s at some width (40 or 120) and step count; if it cannot, `mono` is reported as under-fitting and its row is a reference, not a baseline.
 
-## 6. Stages, criteria, stop rules
+## 6. Stages
 
-**Stage 0** — `mono` only. (i) Rates: at coverage 9, four rates × three teachers, both tasks. (ii) Dial: coverage 7, 9, 11, 13, 15 × six runs (three teachers × two seeds), both tasks, at the chosen rate. (iii) A monolith twice as wide, at coverage 7.
+**Stage 0 — the two monoliths, no streams.** (i) Rates at coverage 9. (ii) The dial: `select` at 7, 9, 11, 13, 15; `sum` at 7, 9, 15; six splits. (iii) Fit: `mono` at width 120; both at 8,000 steps (coverage 9, `select`). (iv) The irrelevant-world control.
+Questions: which regime is each monolith in on held-out worlds, at each coverage? Is the summed read's failure the input alone (control) or an unconstrained function of it? Does the per-token monolith leave anything to fix?
+**Stop rule:** if `tok_mono` is *full* on `select` at coverages 7 and 9 and `mono` is too, nothing can differ between arms: stop and report. Otherwise stage 2 runs. (If only `tok_mono` is full, the per-token column has no room; stage 2 still runs for the summed-read column and to confirm.)
 
-For each task family:
-- **Passes** if, at the lowest coverage where the seen error is within 2× of the full-coverage seen error, the held-out error is at least 5× the seen error (median of per-run ratios), and the ratio is lower at coverage 13 than at 7.
-- **Weak** if that ratio is between 2 and 5: carry on, flagged as low power.
-- **Dropped** if the ratio is below 2 at every coverage. If both families are dropped, **stop and report**: this carrier cannot test the claim.
-- The coverage used in stage 2 is the lowest one that passes the fit condition.
+**Stage 2 — the 2 × 2 and the further rows**, twelve splits, coverages 9 and 11 (7 as a secondary: eight streams there outnumber seven training worlds), both tasks, each arm tuned as in §5. The four contrasts (paired ratios of held-out error):
+- C1 streams under the per-token read: `tok_streams` / `tok_mono`.
+- C2 streams under the summed read: `streams_self` / `mono`.
+- C3 the read, one block: `tok_mono` / `mono`.
+- C4 the read, streams: `tok_streams` / `streams_self`.
 
-**Stage 1** — `oracle`, six runs at the stage-2 coverage. Modularity "is rewarded" if its held-out error is within 2× of its own seen error and at least 10× below the monolith's held-out error. If not, stop: even a perfectly modular block does not recombine here.
+Readings fixed in advance:
+- **Support for I37** (under a given read): C1 or C2 at most 1/2 in at least 10 of 12 splits, outside the identical-arm null, with the streams arm at least *recombining* (≤ half of `blend`), and the weight-decay monolith not doing the same.
+- **The read, not streams:** C3 and C4 at most 1/5, and C1 within [1/2, 2].
+- **Gating, not grouping:** `unit` within 2× of `streams_self` where `streams_self` beats `mono`.
+- **Null:** all four contrasts within [1/2, 2].
 
-**Stage 2** — all arms, twelve paired runs (three teachers × four seeds) at the stage-2 coverage, each arm tuned as in §5; `mono`, `streams_joint`, `streams_self`, `unit` also at one higher coverage.
-- **Support** for I37 on this carrier: a streams arm's held-out error is at most a third of the monolith's in at least 10 of 12 paired runs *and* below half the non-composing reference (median), while the regularised monolith is not (within 2× of the plain one).
-- **Gating, not streams:** `unit` meets the same bar.
-- **Null:** every arm's held-out error is within 2× of the monolith's (median of paired ratios).
-- Anything else is reported as mixed, by arm and task.
+**Stage 3 — mechanism**, for any arm that recombines: agreement between the branch or stream with the largest weight and the true primitive on held-out worlds; removing a stream and checking which primitives suffer.
 
-**Stage 3** — for arms that meet the bar: agreement between the gate's largest stream and the true primitive on held-out worlds; removing one stream and checking which primitives suffer.
+Independent review of results after stage 2 (or at a stop).
 
-Independent review of this design before stage 0; of the results after stage 2 (or at a stop).
+## 7. Predictions (committed before stage 0; I had seen the smoke tests and the reviewer's probes named above)
 
-## 7. Predictions (before any run beyond the smoke tests named above)
+Stage 0. **R0a** `mono` on `select` at coverage 9 is in the *garbage* regime in at least 5 of 6 splits, at width 40 and 120. **R0b** In the irrelevant-world control both monoliths have held-out error within 1.5× of seen. **R0c** `tok_mono` on `select` at coverage 9 *recombines* in at least 5 of 6 splits and is below `trans` in at least 4, but is not *full* in at least 4. **R0d** `tok_mono` on `sum` is *full* at every coverage. **R0e** `tok_mono`'s held-out error on `select` falls from coverage 7 to 13.
 
-Stage 0. P0a `select` passes: held-out ≥ 5× seen at coverage 7, falling with coverage, and the held-out error at coverage 7 is at least half the `blend` reference. P0b `sum` passes too, and is still ≥ 2× at coverage 13. P0c seen error at coverage 7 within 2× of that at 15, both tasks. P0d doubling the monolith's width changes the ratio at coverage 7 by less than 2×.
+Stage 2 (`select` unless stated). **R2a** C3 ≤ 1/5 in 12 of 12 splits, both tasks. **R2b** C1 within [1/2, 2]: with the per-token read, separate streams add nothing clear (confidence about 0.55). **R2c** C2 ≤ 1/2 in at least 10 of 12, but `streams_self` does not *recombine* (median above half of `blend`). **R2d** C4 ≤ 1/5. **R2e** `sum`: both per-token arms *full*; neither summed-read arm *recombines* (median above half of the smaller reference). **R2f** the weight-decay monolith's best is within 2× of `mono`. **R2g** `unit` within 2× of `streams_self`.
 
-Stage 1. P1 the oracle meets both conditions on both tasks (a check, not a bet).
-
-Stage 2 (to be re-stated, not changed in direction, once stage 0 fixes the coverage). P2a `select`: `streams_self` meets the support bar. P2b `select`: `streams_joint` is better than the monolith but does not meet the bar (median paired ratio between 1/3 and 1). P2c `select`: `unit` is within 2× of `streams_joint`. P2d the regularised monolith is within 2× of the plain one, both tasks. P2e `sum`: all three gated arms meet the bar, and `streams_self` and `streams_joint` are within 2× of each other.
-
-My confidence in P2a is about 0.6 and in P2b about 0.5; if P2a fails with the oracle passing, the reading is that a matching architecture does not find the modular solution by gradient descent on this carrier.
+If R2a, R2b and R2d hold, the answer to I37 on this carrier is: recombination comes from branching the computation per available primitive and pooling by a simple rule, whether or not the branches have separate weights.
 
 ## 8. Budget
 
-One run is 10–40 s on one core. Stage 0: about 100 runs. Stage 1: 12. Stage 2: tuning about 200 short runs, main about 250. Two processes; roughly two hours of wall time in all.
+One run is 10–40 s on one core. Stage 0: about 170 runs. Stage 2: tuning about 250 short runs, main about 300. Two processes; two to three hours of wall time.
