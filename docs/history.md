@@ -2194,6 +2194,20 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. Registered as I38. D139 stays open.
 
+## Entry 111 (16 Nov 2026): formalising the lookup that builds one block from a bank of weights
+
+**Premise.** The researcher: "let's formalize the attention lookup mechanism for the weights and how they recombine to form a single block. what are our queries? input and state? are we keying individual rows/columns of the weight matrices and doing a complete attn build up of the weight matrix for the block? how can this look?" Discussion and formalisation; nothing trained. Note: [weight_lookup.md](weight_lookup.md); exact statements U1–U4 in `tests/test_weight_lookup.py`, written and run first.
+
+**Answers.**
+- *What is keyed.* Units: a read row of B together with its write column of V, one key per unit. Not whole matrices (averaging two matrices is not invariant to reordering one stream's units, U2 — the fragility of Entry 110), and not rows and columns independently (half a unit). The reason is the block's permutation symmetry. With units as atoms, assembling the block's matrices from retrieved units *is* gating units (U1), loading two sets of units is exactly the sum of two blocks (U1), and relabelling the bank changes nothing (U2). Blending rows inside one slot brings interference back (U3), so retrieval into a slot is hard even when the slot's weight is soft. For linear maps the atom is a rank-one term.
+- *What the queries are.* Both the input and the state, in different roles and not concatenated: each item of the input, separately, asks which units it makes available (matched against address keys); the state decides among what is available (matched against the units' own read rows, which already score the state). A pooled query is the routing form that did not recombine in Entry 108.
+- *One pass.* Load (per item, sparse attention over the bank) → read (loaded units read the state) → compete (each item bids from its units; softmax over items) → assemble and apply (unit weight = Σ_j π_j a_{ji}; the block is the loaded rows and the weighted loaded columns).
+- *Tie to what has been tested.* With address keys shared inside fixed groups this is exactly the per-token streams arm of the worlds carrier (U4), the arm that recombined; the formalisation shrinks the stream to a unit and leaves the grouping to be learned.
+
+**Left open.** Address keys free, shared in groups, or derived from the unit's content (the last is "lookup over the weights themselves" and closes the competitive-learning loop of Entry 110); items competing against units competing (a Hopfield retrieval step); the sparsity schedule; where items come from when the input does not name them.
+
+**Decisions.** None. I38 updated. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
