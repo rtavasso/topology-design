@@ -2208,6 +2208,21 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. I38 updated. D139 stays open.
 
+## Entry 112 (16 Nov 2026): keys computed from the weights, one key head per site
+
+**Premise.** The researcher: "we treat the parallel blocks as learnable parameters like a prior of primitives, then we learn a key head per matrix that works on the blocks, so if a block has multiple matrices interacting, each matrix (and the tied row/columns that interact) share a key projection, but a different matrix in the same block has its own key projection. does that make sense?" Discussion; nothing trained. Recorded in [weight_lookup.md](weight_lookup.md) section 8. Tests U5–U8 in `tests/test_weight_lookup.py` were committed with their predictions before the first run; all four held.
+
+**Answer: yes, with three sharpenings.**
+- *The grouping is by site.* A site is a set of hidden units with everything tied to it under reordering (rows of B with columns of V). Inside a site the read and the write need one key, not only one projection: fetched separately the result depends on how units are labelled (U5). Across sites nothing is tied, so sites can be retrieved from different blocks: K blocks with S sites give K^S well-defined, distinct assembled blocks (U5) — a second axis of recombination. The testbed block has one site.
+- *The key has to be unchanged by the site's symmetries.* A key linear in a unit's row and column flips when the unit's sign is flipped, though the block is the same; a product key does not (U6). The general recipe: key a primitive by what it computes, the site's outputs on a few learned probe inputs; that is unchanged by reordering and sign flips, and its linear case is a readout of the block's Jacobian at the origin (U8). Probes are per site because sites take different inputs.
+- *One key per block and site, not per unit.* A key from one unit's own weights addresses by similarity, and a primitive's units are not similar to each other. On the worlds teacher (ten teachers, sixty primitives): a linear key on the read row separates a primitive's six units from the other thirty in 0/60 cases; with the write column, 5/60 and never a whole teacher; with the full outer product always, as a table over units (U7). So membership comes from the block structure and the key is computed from the whole block at that site — U4's arrangement with the group key computed from the group's weights.
+
+**Expected, untested.** Address follows content (nothing to go stale; near-identical primitives cannot be addressed apart); the loss can reshape a primitive to change who retrieves it unless the gradient from address to weights is cut; soft retrieval has a merging feedback; addresses can no longer lead the content.
+
+**Limits.** U7 is the minimal exact bank of the teacher with signs fixed, not a trained bank. The transformer reading of sites (heads, feed-forward units) is from the standard symmetries of those layers, not tested here.
+
+**Decisions.** None. I38 updated. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
