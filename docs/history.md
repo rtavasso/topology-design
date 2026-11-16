@@ -2121,6 +2121,39 @@ Also: the "normalised against raw" comparison in round C is confounded (the flag
 
 **Decisions.** None. D139 stays open.
 
+## Entry 108 (15 Nov 2026): the staged test of I37 on a "worlds" carrier — recombination came from giving each available primitive its own branch and pooling by bids; separate weights per stream were not needed, and streams behind a pooled gate did not recombine
+
+**Premise.** The researcher, after Entries 106–107: "PROCEED". I took that as: build the staged design and run it, starting with the monolith alone. Run on a new small carrier here (the rewrite carrier needs trained-model runs I cannot launch); I said so before starting. EXPLORATORY. Everything is in `experiments/theory/worlds/`: [DESIGN.md](../experiments/theory/worlds/DESIGN.md), [RESULTS.md](../experiments/theory/worlds/RESULTS.md), [stage0.md](../experiments/theory/worlds/stage0.md), [stage2.md](../experiments/theory/worlds/stage2.md), reviews in `review/`; exact statements in `tests/test_worlds.py`.
+
+**Carrier.** Six primitives on a six-dimensional state, each with a trigger. A world is a set of two primitives, named in the input; fifteen worlds, 7–13 of them trained, the rest held out (nested splits, 2-connected, every primitive trained). Four passes of one block that gets only the state and the world: no clock, no register, no shared controller. `select`: each pass applies the one primitive of the two whose trigger is larger at the current state; `sum`: both. Rung 4's split in miniature (worlds as sets of stated axioms; pairs never together in training). Exact references from the teacher: not moving 1.0; ignoring the world about 0.8; knowing the two and blending 0.5; choosing only where trained comparisons force the choice 0.2–0.3.
+
+**Process.** Design committed before any run; independent design review ("run after changes"); revision 2; the same reviewer re-checked it (three small fixes); each stage's script and predictions committed before its runs; independent results review ("sound with corrections"). The design review is what made the experiment informative. Revision 1 compared streams with a monolith that read the world as one summed vector. The reviewer showed that this monolith fails by producing an unconstrained function of a vector it has not seen — worse than not moving, which is not rung 4's failure — and that a monolith run once per token recombines with no streams at all, so revision 1 would have measured how the world is read and called it streams. Revision 2 is a 2 × 2: read (summed, or one branch per token pooled by a softmax over bids) × block (one block, or streams).
+
+**Results** (`select`, 9 of 15 worlds trained, twelve splits, medians; about 2,500 parameters per arm).
+
+| Read | Block | Trained worlds | Held-out worlds | Against the references |
+|---|---|---|---|---|
+| summed | one block | 0.066 | 1.3 | worse than not moving, 12/12 (also at 6.8× the parameters, where it fits as well as the per-token block) |
+| summed | a gate on every unit | 0.015 | 0.63 | above blending |
+| summed | streams | 0.0071 | 0.42 | around blending |
+| per token | one block | 0.025 | 0.059 | 0.13 of blending; below a third of what the data force |
+| per token | streams | 0.0081 | 0.041 | 0.08 of blending |
+| — | streams, gate set from the truth | 2e-5 | 6e-6 | floor |
+
+Contrasts fixed in advance (ratio of held-out errors, paired over splits): the read with one block 0.05 (12/12); the read with streams 0.10 (12/12); streams under the per-token read 0.65 [0.51, 0.86] (9/12; 0.85 at coverage 7; two initialisations of one arm: 0.94); streams under the summed read 0.32 (12/12; 0.55 at coverage 7). Pre-fixed readings: "the read, not streams" met; "gating, not grouping" met; "support for I37" (streams against one block under the same read) not met; null not met. Mechanism: on one pass both per-token arms pick the teacher's primitive in 0.93–0.94 of held-out decisions that the trained comparisons do not force; the learned bid difference is linear in the true one.
+
+**Argument.** I37 has two halves and the carrier separates them. (1) *Parallel learned transformations recombined by a gate* — the shape of the computation. Here that shape is what recombines: one branch per available primitive, each emitting an update and a bid, pooled competitively. (2) *Each primitive in its own weights.* Not needed: one shared block conditioned on the token and run once per branch recombines (Neural Interpreters' shared interpreter); separate weights lower held-out error by a further 15–35 %, short of the factor of two fixed in advance, and whether that is fit or recombination is unresolved (the held-out-minus-trained difference is the same in both arms, 0.031 against 0.034; but more steps or width do not lower the single block's held-out error). Separate streams behind a gate that reads a pooled summary of the context — the form Entry 104 arrived at — stay at the level of blending on `select`. So the candidate of Entry 104 has the wrong gate for recombination: it selects streams from a summary of the context, where what transfers is a branch and a bid per item of the context.
+
+**How much is by construction.** A good deal, and the results review insisted on it: a per-token branch sees a state and one named primitive, both covered in training; on `sum` nothing is held out from a branch. Entry 107's first property — primitives not named by the input — is not met. What is not by construction: bids learned from some comparisons transfer to comparisons never trained, and a pooled gate fails where a per-item gate works.
+
+**What the reviews changed.** Design review: the 2 × 2 itself; exact references in place of a held-out/trained ratio; 2-connected nested splits; that `select` is determined by the data only where a chain of trained comparisons forces it (my test had assumed linear triggers). Results review: my headline "the answer to I37 is no, as posed" was wrong on the ledger's own wording of I37, under which the per-token single block *is* the idea with shared weights; "streams do not supply recombination" rested on a ratio the design had excluded; "they know which two and do not choose" was an error level presented as a mechanism; the 0.999 on forced decisions was selection by margin.
+
+**Predictions** (not blind: written after the design reviewer's probes). Twelve: nine held, three partly (the per-token monolith recombined more fully than I predicted; summed-read streams did partly recombine on `sum`; streams beat the summed-read monolith by a factor of two at coverage 9 but not at 7).
+
+**Limits.** The candidates are named by tokens; the `select` teacher has the shape of the per-token arms; a stream contains the teacher's primitive exactly while the single block must approximate six; fifteen worlds, three teachers, twelve splits; rates chosen on three splits by trained-world error.
+
+**Decisions.** None that commit the program. I37 restated in the ledger with its two halves. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
