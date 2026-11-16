@@ -10,7 +10,7 @@ The object, as the researcher put it: several learned streams **in parallel insi
 
 **What it did** (round E, ten seeds). One stream per pass matched the network that runs every stream: program task 3.0e-5 against 3.2e-5 (four streams), 1.8e-5 against 2.6e-5 (eight streams); branch task 1.1e-3 against 1.4e-3; all 10/10. Trained on 3–5 passes it ran 6 and 8 with no loss (10/10; 3.1e-5 at eight passes). Training cost 1.1–2.3 streams per pass instead of 4 or 8. Five other teachers gave the same (round H).
 
-**What the search found** (68 predictions written before the runs: 46 held, 6 partly, 16 failed).
+**What the search found** (84 predictions written before the runs: 57 held, 8 partly, 19 failed).
 
 1. **The gate needs two separate things from the state.** A progress signal — which pass is this — and, for data-dependent choices, the data. A query read from the data state alone leaves the gate order-blind (0/5). A register that the block advances every pass solves it (5/5), as well as one router per loop does, and it learned to move from a standing start — I had predicted it often would not. The register is itself a clock, carried in the state; what it adds over one router per loop is a single tied gate and (point 5) extra passes.
 2. **Gating before the streams from the first training step is unreliable, and how unreliable depends on what the gate reads.** Gate that reads only the instruction: solved 2/10 (0/5 when the register must also learn to move), and none of the published aids I tried rescued it at five seeds (sigmoid scores, expert dropout, selection noise, stand-ins for unrun streams, an extra explorer stream). Gate that also reads the data: 8/10 with four streams, 3/10 with eight, 10/10 on the branch task. *Corrected by the review:* I first wrote that it "cannot be trained sparse from the start"; that was a statement about instruction-only gates.
@@ -18,8 +18,9 @@ The object, as the researcher put it: several learned streams **in parallel insi
 4. **Softmax or sigmoid scores: not settled.** At top-2 from the start softmax did better (5/5 against 2/5, five seeds — the opposite of the published recommendation and of my prediction), but under the candidate's own schedule sigmoid solved 9/10 and softmax 8/10 (softmax with 4.7 times lower median error). The one thing to avoid is renormalising over the streams that ran: at top-1 the gate then gets no gradient (A3d; 0/5). *Corrected by the review:* I first reported softmax as the finding.
 5. **More passes than trained needs a built-in advance.** A learned advance, or one router per loop, fails at six passes (0–2/5); a register started as the exact one-position shift runs eight (5/5), and the streams' error does not grow with the extra passes.
 6. **Reading the data is where the loop's sensitivity rises.** Register-driven switching adds no term to it (A2); with the data read, the largest gain over 96 sampled cases was 2.7 times higher. No run diverged.
+7. **Against one monolithic block (round M, added after the first version of this note): streams do not recombine better, gating is what buys accuracy, and running one stream buys compute.** With the same controller, no block had a gap between held-out and training programs (ratio 0.98–1.22 in all sixteen rows), so on this testbed recombination comes from the controller, not the block. At equal parameters a block that takes the instruction as one more input was about 80–170 times worse than the candidate (36 times at twice the parameters, 41 times at twice the training). A block with a soft gate on every hidden unit, all of them computed, matched the candidate (0.8 and 1.1 times its error) at 3.3 and 5.6 times the multiply-adds per pass.
 
-**Limits** (§7). One-vector state, tiny streams, at most eight passes; the register is a clock carried in the state, not yet control flow; the sequence names its operations outright; one teacher for all but one check; why the dense start works is not known; no comparison with a monolithic block.
+**Limits** (§7). One-vector state, tiny streams, at most eight passes; the register is a clock carried in the state, not yet control flow; the sequence names its operations outright; one teacher for all but two checks; why the dense start works is not known; the monolithic baselines of round M are untuned beyond their learning rate.
 
 ## 1. The family
 
@@ -84,7 +85,8 @@ Scoreboard of the predictions written before each run (details in each script's 
 | D | More passes than trained | 5 | 5 | 0 | 0 |
 | E | The candidate at ten seeds | 7 | 7 | 0 | 0 |
 | H | Checks called for by the review (predictions written after reading it) | 8 | 6 | 0 | 2 |
-| | **Total** | **68** | **46** | **6** | **16** |
+| M | Against one monolithic block: first design (7 scored of 9), revised after the design review (9) | 16 | 11 | 2 | 3 |
+| | **Total** | **84** | **57** | **8** | **19** |
 
 ### Round A — the progress signal (`arch_a.md`)
 
@@ -216,6 +218,48 @@ What is in place when the dense start ends (still register, four streams, ten se
 - **A fixed 10 % is not fully reliable at eight streams** (8/10, 9/10); the confidence trigger was (10/10, and 10/10 in round E).
 
 
+### Round M — the streamed block against one monolithic looped block (`arch_m.md`)
+
+Added after the first version of this note, at the researcher's request. The design was committed before any run, reviewed independently before running (`review/review_round_m_design.md`: "run after changes"), revised, and committed again. Everything outside the block is shared — register, keys, attention read of the sequence, residual step, optimiser, 3,000 steps, ten paired seeds — and only the block differs:
+
+- **Streams, the candidate**: one stream computed per pass after the dense start.
+- **One block, additive**: V tanh(B h + C r + b) — the instruction read r is one more input. Also with two hidden layers.
+- **Per-unit gate**: V (sigmoid(C r + b) · tanh(B h)), every unit computed. This is *not* a monolith in I37's sense; it is the streams family with as many width-one streams as units. It separates "gating" from "grouping into streams and running one".
+- **One block, no attention**: the whole padded sequence and the register as inputs, three times the parameters.
+
+Parameters are matched to within 3 % unless stated; compute is reported as multiply-adds per pass inside the block. Each family ran at its own best of four learning rates, chosen on three other seeds by training error (`arch_m_sweep.md`). Trained on lengths 3–5; errors below are on held-out programs of length 4.
+
+| Block | Multiply-adds per pass | Held-out error (median) | Error against the candidate's (median of per-seed ratios) | Candidate better in |
+|---|---|---|---|---|
+| **Program, four streams, three primitives** | | | | |
+| Streams, candidate | 176 | 6.5e-5 | — | — |
+| Per-unit gate | 580 | 2.8e-5 | 0.8 | 3/10 |
+| One block, additive | 580 | 5.8e-3 | 93 | 10/10 |
+| One block, two layers | 576 | 4.7e-3 | 79 | 10/10 |
+| One block, additive, twice the parameters | 1,160 | 1.8e-3 | 36 | 10/10 |
+| Per-unit gate, 18 units (two thirds of the parameters) | 360 | 8.8e-4 | 7.4 | 8/10 |
+| One block, no attention, three times the parameters | 2,112 | 3.1e-2 | 527 | 10/10 |
+| **Program, eight streams, five primitives** | | | | |
+| Streams, candidate | 208 | 6.8e-5 | — | — |
+| Per-unit gate | 1,160 | 7.0e-5 | 1.1 | 5/10 |
+| One block, additive | 1,160 | 1.1e-2 | 174 | 10/10 |
+| One block, two layers | 1,196 | 6.1e-3 | 105 | 10/10 |
+| **Branch task, four streams** | | | | |
+| Streams, candidate | 608 | 1.1e-3 | — | — |
+| One block, two layers | 989 | 8.0e-3 | 7.8 | 10/10 |
+| One block, two layers, twice the parameters | 2,016 | 6.3e-3 | 5.8 | 10/10 |
+| One block, one layer | 1,000 | 2.1e-2 | 21 | 10/10 |
+
+- **No block has a recombination gap.** Held-out over training error at length 4 is between 0.98 and 1.22 in all sixteen rows. The controller hands the block one instruction per pass, and a held-out program is a new order of the same instructions, so any block that fits the training programs fits the held-out ones. On this testbed I37's null holds by construction: recombination comes from the controller, and the testbed cannot show streams recombining better than a monolith. The block with no attention does not get that far: at three times the parameters it does not fit the *training* programs (2.4e-2).
+- **What separates the blocks is multiplicative gating, not streams.** A block whose every unit has its own soft gate matches the candidate (0.8 and 1.1 times its error; within a factor 3 for four of five other teachers). Blocks that take the instruction as an added input are 79–174 times worse at equal parameters, with one hidden layer or two; 36 times at twice the parameters; 41 times after twice the training (three seeds). For all five other teachers the additive block was 57–285 times worse.
+- **What grouping into streams and running one of them buys is compute.** The candidate reaches the per-unit-gated block's error with 176 multiply-adds per pass against 580 (four streams) and 208 against 1,160 (eight). Shrinking the per-unit-gated block towards the candidate's cost loses accuracy: at 360 multiply-adds its median error is 7.4 times the candidate's (I predicted at least 10; one seed matched the candidate outright).
+- **On the branch task the candidate is 6–8 times better than a two-layer block**, at equal and at twice the parameters, in every seed — and at 0.6 and 0.3 of the multiply-adds.
+- **Outside the trained range there is no consistent story.** More passes: every block's error at length 8 is 0.9–1.6 times its error at length 4 in the median (2.2 for the one-layer branch block); my first prediction that the additive block would degrade failed. In one to three seeds of nine of the fifteen blocks that read the sequence by attention — one seed each for the candidate and the per-unit gate, three for the two-layer block — the error at length 8 jumps by 12 to 3,000 times; a probe of the worst seed of each shows the trained register losing the address at passes 6–8, so this is the shared controller, in every kind of block. Inputs twice as large: on the program task the candidate's error rises least (2 times, against 3.5–4.3 for the per-unit gate and 4–14 for the additive and two-layer blocks), but on the branch task it rises most (13 times, against 3.6–4.6), which shrinks its lead over the two-layer blocks to 2–3 times, and no block is below 10⁻² on the branch task with doubled inputs. My revised prediction that no block would stand out failed.
+- **Caveats.** The three-seed selection put the candidate at a learning rate of 0.01; over the ten seeds that gave 6.5e-5, about twice its error at 0.003 in round E (2.7e-5), and its error wanders between 5e-6 and 2e-4 late in training. The ordering does not depend on it (the per-unit gate is at 2.8e-5). Nothing has converged at 3,000 steps. The additive and two-layer blocks are the plainest monoliths; a sceptic's stronger monolith with multiplicative conditioning is the per-unit-gated block, which is already the streams family.
+
+Predictions. First design (nine, seven scored, two rows dropped as uninformative): four held, two partly, one failed. Revised after the design review (nine; four of them had been previewed by the reviewer's one-seed probes): seven held, two failed.
+
+
 ## 5. The candidate
 
 ```
@@ -270,4 +314,4 @@ What is and is not new in it. Nothing is new piece by piece, and the gate is clo
 - **The score function is not settled**, and neither is the reason a dense start works (round H).
 - **Five seeds per cell in rounds A–D.** A negative claim ("did not help") at five seeds is weak; the comparisons the candidate rests on were rerun at ten in rounds E and H.
 - **One teacher.** Every round uses the same random teacher; five others were tried only for the candidate (round H: 5/5 on each task).
-- **No comparison with one monolithic looped block at matched parameters and compute.** That comparison, on a carrier with known rules, is what idea I37 in the ledger requires before any claim that streams are worth having. This note finds a trainable form of the streamed block; it does not show the streamed block is better.
+- **The comparison with a monolithic block (round M) is on this testbed only, and its baselines are simple.** Each monolith got its own learning rate and nothing else; none converged in 3,000 steps; the eight-stream and width rows inherit their family's rate. The comparison I37 asks for on a carrier with known rules has not been made, and round M says what to expect of it: a gap between additively conditioned and gated blocks, not between gated blocks and streams.
