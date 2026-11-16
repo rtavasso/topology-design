@@ -2170,6 +2170,30 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. D139 stays open.
 
+## Entry 110 (16 Nov 2026): recombining streams in weight space, by attention over the streams — how the dynamics would change
+
+**Premise.** The researcher's idea: instead of summing the streams' outputs, gate and recombine their *weights* into a single block that is then applied; and since a naive gate-and-sum over weights is fragile, do the recombination with an attention operation that looks at the state, the query and the weights themselves — a generalised lookup over primitives. Question: how would that change the dynamics of the model? Discussion. Nothing trained; the six exact statements below are tests in `tests/test_weight_mixing.py` (W1–W6, written and run before this entry). The rest is reasoning from them and is marked as expectation.
+
+**Exact (streams V_k tanh(B_k h); mixed block (Σ g_k V_k) tanh((Σ g_k B_k) h)).**
+- W1. At a one-hot gate, weight mixing and output mixing are the same function. For linear streams they are the same everywhere. Inside the simplex, with a nonlinearity, the mixed block is a new function, not a blend.
+- W2. Every stream receives the *same gradient direction*, scaled by its gate: ∂L/∂W_k = g_k ∂L/∂W̄. (In output mixing each stream is differentiated through its own features and the directions differ.)
+- W3. The gate's gradient for stream k is ⟨∂L/∂W̄, W_k⟩: the gate sees a stream only through a first-order move of the mixed weights towards it, not through the stream's own output.
+- W4. Adding weights adds functions exactly when the streams use disjoint hidden units; with overlapping units there is interference.
+- W5. A soft gate acts twice (inside and outside the nonlinearity): for small activations its effect is g², against g in output mixing.
+- W6. For small deltas on a shared base, W_0 + Σ g_k Δ_k, weight mixing equals the blend up to second order in the deltas.
+
+**What follows for the dynamics** (expectations).
+1. *Cost and starvation.* One block is computed whatever K is, and every stream with a non-zero gate still gets gradient. That removes the problem of Entries 103–104 (a stream that is not run learns nothing) without a dense start. Mixing costs K × (size of the weights) per gate decision, so it pays when one decision serves many tokens — per pass, as the researcher proposed in Entry 95 — and not per token, unless the streams are low-rank deltas.
+2. *Who leads.* By W2, with gates that do not vary across inputs the differences between streams never change: all move in parallel. Streams can specialise only through the way the gate divides the data, d(W_k − W_j)/dt = −E[(g_k − g_j) ∂L/∂W̄]. In output mixing streams can lead (differ in function, and the gate follows); here the gate must lead, and by W3 it compares streams only locally. Expect slower and more fragile symmetry breaking, and a new failure state: K copies of one averaged block.
+3. *Where the fragility is.* Not at the vertices (W1) but in the interior: soft gates produce functions that are neither stream nor blend, the loss is no longer convex in the gate, and a stream that would be good alone can look bad from the mixture's tangent (W3). Two regimes are safe by construction: streams on disjoint units (W4) — which is the per-unit gate of Entry 105 — and streams as small deltas around a shared base (W6), where alignment is automatic.
+4. *What attention over the streams adds to a free gate.* (a) A softmax keeps the mixed weights in the convex hull of the streams', so their norm is bounded; sigmoid gates can sum to K. (b) Sharp attention is a lookup: the block sits near a vertex except near decision boundaries, which avoids the interior. (c) If a stream's key is tied to its content, its address moves as it learns: selection by match rather than by a router's table — the "binding" of Entry 109, *provided the query is per item of context*. One pooled query retrieving one mixture is routing again, and Entry 108 says what to expect of that. (d) Tying key to content closes a loop — retrieved more, trained more, key moves towards its queries — the dynamics of competitive learning: a self-organising partition of query space, with its known failures (dead streams, one stream taking everything), and the known cure of starting soft and sharpening.
+5. *Composition.* Retrieving two operators and adding their weights applies both only under W4 or W6; otherwise the sum of weights is not the sum of functions.
+6. *In the loop.* The block's weights change from pass to pass (a fast-weights recurrent net). Its state Jacobian is that of one block in the convex hull; the term through a gate that reads the state is steeper than before, because the output is curved in the gate.
+
+**Relatives, from memory and not re-read this session:** soft merging of experts by averaging their parameters under a router (SMEAR, Muqeeth et al. 2023); per-example mixtures of convolution kernels (CondConv, Yang et al. 2019; Dynamic Convolution, Chen et al. 2020, which anneals the attention temperature for the reason in point 2); hypernetworks; task arithmetic and its tangent-space analysis (Ortiz-Jimenez et al. 2023) for W6; modern Hopfield retrieval for point 4b. To be read before any claim about what is new.
+
+**Decisions.** None. Registered as I38. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
