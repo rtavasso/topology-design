@@ -35,7 +35,7 @@ DEF = dict(task="program", d=6, P=3, n=4, eps=0.4, K=4, w=12, mc=8, mv=8, H=24,
            score="softmax", topk=0, renorm=False,
            noise=0.0, xdrop=0.0, ent=0.0, zloss=0.0, fill="none", anneal=0.0,
            sched=None, explore="none", topk_eval=None, auto=0.0, tseed=10, probe=False,
-           block="streams", W=0, ctx="attn", clean_test=False, scales=(), ckpts=(),
+           block="streams", W=0, ctx="attn", clean_test=False, scales=(), ckpts=(), decay=False, Hg=12,
            steps=3000, lr=3e-3, B=16, ntrain=40, clip=0.0, lens=None, test_lens=None)
 LMAX = 16
 TAPE = 8                                                              # longest sequence the no-attention block is shown
@@ -142,6 +142,10 @@ class Student:
                 p["mC"] = rn(W, cin) / cin ** 0.5
                 p["mb"] = torch.zeros(W)
             p["mV"] = 0.1 * rn(d, W) / W ** 0.5
+            if c["block"] == "mono_mul" and c["gate_h"]:              # the per-unit gates may also read the data state
+                p["gW1"] = rn(c["Hg"], cin + d) / (cin + d) ** 0.5
+                p["gb1"] = torch.zeros(c["Hg"])
+                p["gW2"] = 0.1 * rn(W, c["Hg"]) / c["Hg"] ** 0.5
         self.p = {k: (v if k in frozen else v.requires_grad_(True)) for k, v in p.items()}
         self.ema = torch.zeros(K, d)
         self.g = g
@@ -220,7 +224,10 @@ class Student:
                     z = torch.tanh(torch.cat([h, ctx], -1) @ p["mB1"].T + p["mb1"])
                     z = torch.tanh(z @ p["mB2"].T + p["mb2"])
                 elif c["block"] == "mono_mul":
-                    z = torch.sigmoid(ctx @ p["mC"].T + p["mb"]) * torch.tanh(h @ p["mB"].T)
+                    lg = ctx @ p["mC"].T + p["mb"]
+                    if c["gate_h"]:
+                        lg = lg + torch.tanh(torch.cat([ctx, hn], -1) @ p["gW1"].T + p["gb1"]) @ p["gW2"].T
+                    z = torch.sigmoid(lg) * torch.tanh(h @ p["mB"].T)
                 else:
                     z = torch.tanh(h @ p["mB"].T + ctx @ p["mC"].T + p["mb"])
                 h = h + c["eps"] * z @ p["mV"].T
@@ -319,6 +326,9 @@ def run(over, seed, ret_model=False):
     for it in range(cfg["steps"]):
         L = lens[it % len(lens)]
         pr = tr[L]
+        if cfg["decay"]:                     # cosine decay of the learning rate to zero
+            for gr in opt.param_groups:
+                gr["lr"] = cfg["lr"] * 0.5 * (1 + math.cos(math.pi * it / cfg["steps"]))
         x = torch.randn(len(pr), cfg["B"], cfg["d"], generator=g)
         hard = it >= cfg["anneal"] * cfg["steps"]
         if cfg["auto"]:                      # dense until the gate is confident (mean top probability > auto), then sparse
