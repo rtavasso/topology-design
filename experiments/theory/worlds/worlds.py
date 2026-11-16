@@ -184,6 +184,7 @@ class Model:
         c, p = self.c, self.p
         r = p["E"][worlds].sum(1)[:, None, :].expand(-1, x.shape[1], -1)        # [M, B, mv]
         h, gates = x, []
+        self.pools, self.assign = [], None       # filled when record=True (per-token arms)
         for _ in range(n):
             if c["arm"] == "mono":
                 z = torch.tanh(torch.cat([h, r], -1) @ p["B1"].T + p["b1"])
@@ -195,7 +196,7 @@ class Model:
                 pool = torch.softmax(z @ p["vb"], -1)                                        # [M, B, 2]
                 out = (pool[..., None] * (z @ p["V"].T)).sum(2)
                 if record:
-                    gates.append(pool.detach())
+                    gates.append(pool.detach()); self.pools.append(pool.detach())
             elif c["arm"] == "tok_streams":
                 a = torch.softmax(p["E"][worlds] @ p["G"].T, -1)                             # [M, 2, K] token -> streams
                 f = torch.einsum("kiw,mbkw->mbki", p["Vs"], torch.tanh(torch.einsum("kwj,mbj->mbkw", p["Bs"], h)))
@@ -204,7 +205,7 @@ class Model:
                 g = torch.einsum("mbt,mtk->mbk", pool, a)                                    # effective gate on streams
                 out = (g[..., None] * f).sum(2)
                 if record:
-                    gates.append(g.detach())
+                    gates.append(g.detach()); self.pools.append(pool.detach()); self.assign = a.detach()
             elif c["arm"] == "unit":
                 lg = r @ p["uC"].T + p["ub"] + torch.tanh(torch.cat([r, h], -1) @ p["gW1"].T + p["gb1"]) @ p["gW2"].T
                 out = (torch.sigmoid(lg) * torch.tanh(h @ p["uB"].T)) @ p["uV"].T
