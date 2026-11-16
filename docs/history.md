@@ -2103,6 +2103,24 @@ Also: the "normalised against raw" comparison in round C is confounded (the flag
 
 **Decisions.** None. I37 annotated; L58 added. D139 stays open.
 
+## Entry 107 (15 Nov 2026): what a design that can answer I37 looks like — properties from the logic of the claim down to the staging
+
+**Premise.** The researcher: "how can we get a better experimental design to answer the question we have? what properties does it have? like go high level to low level". Discussion; nothing run, nothing designed in detail. Follows the diagnosis of Entry 106.
+
+**Level 1 — the claim is an interaction.** "Streams recombine where a monolith does not" is architecture × split: the arms should agree on combinations seen in training and differ on combinations not seen. So the outcome is a gap (held-out combinations against seen ones), and the test is whether the gap differs between arms at equal fit on what was seen. Three outcomes must be distinguishable before running: the gap closes and streams line up with the true primitives (support); the gap is the same at every coverage (I37's null: recombination comes with coverage); the gap closes without alignment, or closes equally for a non-modular control (something other than modularity).
+
+**Level 2 — the phenomenon comes first.** The monolith must be shown to fail on held-out combinations while fitting seen ones, on the same carrier, before any candidate is trained. If it does not fail, the carrier cannot test the claim and the work stops there.
+
+**Level 3 — properties of the carrier.** (a) True primitives exist and are known to the experimenter but are not named in the input: which applies must be inferred from state and context. (b) Every primitive is seen; combinations are partly held out; the share seen is a dial. (c) A held-out combination puts something new in front of the block itself (primitives active together, or a primitive meeting a state or context it never met), not only a new sequence. (d) A solution that memorises seen combinations exists and fits training — otherwise nothing can fail. (e) Both arms can represent the true solution: at full coverage they must reach the same error. (f) Exact scoring, and the true primitive of each step available for analysis. (g) Several independent instances of the task, not one teacher. The rewrite carrier has (a), (f) and an observed gap (rung 4: 0.47 against 0.94); a toy qualifies only once level 2 is shown on it.
+
+**Level 4 — arms, each isolating one thing.** Monolithic looped block (baseline). Streams with a learned gate (candidate). Gate on every unit (gating without grouping). Monolith with a tuned generic regulariser (any regulariser against modularity). Streams with the gate set from the true primitive (ceiling: is modularity rewarded at all here). Exact references where computable: what a memoriser of seen combinations outputs and what the compositional solution outputs, so each model is placed between them. Whatever decides what applies when is learned inside each arm; no shared, pre-factored controller.
+
+**Level 5 — measurement.** Primary: the gap at matched fit on seen combinations, as a curve over coverage, paired seeds, effect size with a bootstrap. Mechanism: agreement between the gate's choice and the true primitive, on seen and on held-out combinations; forcing the gate to the true primitive's stream; removing one stream and checking that only its primitive suffers.
+
+**Level 6 — procedure.** Stage 0: the monolith alone over the coverage dial (the phenomenon, and the choice of the coverage at which to compare, made without the candidate). Stage 1: the ceiling arm. Stage 2: the comparison, each arm tuned until its optimum is inside the grid, trained to a plateau, selection by a criterion that can see the primary outcome. Stage 3: mechanism. Written before stage 2: the primary metric, the smallest effect that counts, what would count as the null, and the stop rule of stage 0. Review of the design before stage 0 and of results after.
+
+**Decisions.** None. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
