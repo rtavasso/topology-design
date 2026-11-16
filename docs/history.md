@@ -2154,6 +2154,22 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None that commit the program. I37 restated in the ledger with its two halves. D139 stays open.
 
+## Entry 109 (16 Nov 2026): what the worlds results mean — binding, not routing; a constraint, not a capacity
+
+**Premise.** The researcher: "what is the interpretation of these results?" Discussion; nothing run.
+
+**Interpretation.**
+1. *Binding against routing.* Two things had been run together under "streams recombined by a gate". Routing: a gate looks at a summary of the context and picks which fixed block of weights handles the input (a mixture of experts). Binding: every item the context makes available gets its own application of an operation to the state, and the applications compete. Entry 108 says the second is what carries over to unseen sets, and the first is not: streams or gated units behind a pooled gate stayed at the blend level on the selection task.
+2. *A constraint, not a capacity.* The pooled-gate streams can represent the exact solution (a test builds it by hand) and fit the trained worlds best of all arms. They are not driven to the solution that transfers. The per-item arms cannot express a solution that is specific to a pair; each branch sees one primitive. So what the architecture contributed was the exclusion of pair-specific solutions, not the ability to represent the modular one. *Why* the pooled-gate streams settle elsewhere — pair-specific use of streams is the natural guess — was not measured.
+3. *What a "stream" should be.* On this evidence, not a parameter slot chosen by a router, but an operation instantiated once per item of context. Whether instances share weights mattered little here (15–35 %, unresolved). That is the shared, code-conditioned interpreter of Neural Interpreters, and it is also what attention over tokens already is: a value and a score per token, pooled competitively.
+4. *Consequences inside the program.* The Entry 104 candidate is a compute and trainability result (one stream per pass at no loss), not a recombination result; its gate is of the routing kind. Entry 105's finding that gated units match streams fits the same picture: partitioning weights is not the lever. And I37's null, "recombination comes with coverage", is not what happened either: the summed-read block stayed worse than not moving even with 13 of 15 worlds trained.
+5. *What the results do not explain.* Rung 4. Its model read its axioms by attention — per item, with scores — and still sat at the non-composing reference (0.47 against 0.94). So the ingredient that sufficed here was already present there and did not suffice. Either the per-item read was not applied where it was needed, or rung 4's difficulty lies elsewhere (several steps, each needing a different rule; instances rather than a fixed pair). The carrier is silent on which.
+6. *Where the difficulty moved.* Recombination was easy here because the input itemises the candidates. The open question is upstream: where items come from when the input does not name them, and whether a learner applies one shared operation per item unprompted.
+
+**Standing.** Small carrier, twelve splits, predictions not blind, much of the per-item success by construction (Entry 108). These are readings to carry to a real carrier as hypotheses, not findings about transformers.
+
+**Decisions.** None. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
