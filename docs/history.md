@@ -2083,6 +2083,26 @@ Also: the "normalised against raw" comparison in round C is confounded (the flag
 
 **Decisions.** None that commit the program. I37 updated: its question is untested, and the testbed cannot test it. D139 stays open.
 
+## Entry 106 (15 Nov 2026): why the comparison of Entry 105 did not answer the question — a diagnosis
+
+**Premise.** The researcher: "take a step back and diagnose why your experiment didnt answer the question we had". Discussion; nothing run.
+
+**The question we had** (I37, Entries 94–95): does breaking the block into streams of learned primitives, recombined by a gate, let a loop handle combinations it was not trained on where one monolithic block does not?
+
+**Diagnosis.**
+1. *The baseline never had the failure.* A test of a cure needs a patient with the disease. Rung 4 is where a monolithic loop was seen to fail on held-out combinations (0.47 against 0.94). I never reproduced that failure on the testbed before comparing; every block that could fit the training programs had a held-out-to-training ratio near 1.
+2. *The held-out split was at the wrong level.* Programs were held out; nothing was held out from the block. I had split the model into a controller (register and attention read: which instruction applies on this pass) and a block (apply it). Recombining instructions in new orders is done entirely by the controller, and the controller was shared by every arm. What each block saw — one token and a state drawn fresh from the whole space — was fully covered in training. I37's own null was "recombination comes with coverage"; I built complete coverage at the block's input and then varied the block.
+3. *The task handed over the decomposition.* Each token named one primitive, and exactly one primitive applied per pass. So the primitives did not have to be discovered, and nothing was ever recombined inside a pass: the gate was a selector, not a mixer. The idea under test was learned primitives and learned recombination; the task required neither. The gated units sorting themselves into per-token groups without being asked is the same fact seen from the other side.
+4. *The teacher was shaped like the student.* I chose "K primitives, one per pass" as ground truth so that I could score which stream ran when. That was right for Entry 104's question (can a gate before the streams be trained) and wrong for this one: a task that mirrors the candidate cannot tell it from anything else that can represent the task.
+5. *I had the warning three times and changed the prediction instead of the design.* Entry 104's limits listed "the sequence names the operations" and "the register is a clock". My own first prediction for round M was that the monoliths would recombine. The design review said that prediction "holds by construction". I rewrote it as a ratio and ran. A main outcome known in advance is a zero-information run (L27); the hours then went into learning-rate regimes on a task every gated block solves to 1e-6.
+6. *Scope substitution.* "Run the comparison" meant the comparison I37 names, on a carrier with known rules. I ran the comparison I could run in this session and said so, without first asking whether the testbed could in principle separate the two hypotheses.
+
+**What a test of the question has to have** (conditions, not a design): a baseline that demonstrably fails on held-out combinations while fitting the training ones; held-out items at the level of what the block receives (which primitives are active together, or which primitive meets which region of state or context); primitives that are not named by the input, so that something must be discovered; more than one primitive bearing on a step, so that something is recombined; and the part that decides what applies when must not be a shared, pre-factored component given to both arms.
+
+**What stands from Entry 105.** The measurements are correct for what they measure: on a task whose decomposition is given, gating beats additive conditioning by two orders, and one-stream execution saves compute at no clear cost in accuracy. They are not evidence for or against I37.
+
+**Decisions.** None. I37 annotated; L58 added. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
