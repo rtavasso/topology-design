@@ -286,4 +286,8 @@ def run(over, seed, ret_model=False):
                 r2.append(1 - ((X @ coef - y) ** 2).sum().item() / (y ** 2).sum().item())
                 mass.append((coef[te[m]].abs().sum() / coef.abs().sum()).item())
             out["r2"], out["mass_on_pair"] = sum(r2) / len(r2), sum(mass) / len(mass)
+            # one pass: is the block's update closer to the true update or to the blend of the world's two primitives?
+            true, blend = (T.step(te, x) - x) / T.eps, (T.step(te, x, "blend") - x) / T.eps
+            den = (true ** 2).sum().item()
+            out["one_true"], out["one_blend"] = ((upd - true) ** 2).sum().item() / den, ((upd - blend) ** 2).sum().item() / den
     return (out, S, T, tr, te) if ret_model else out

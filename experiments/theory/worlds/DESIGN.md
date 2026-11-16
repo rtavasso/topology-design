@@ -1,6 +1,6 @@
 # Do streams recombine where a monolithic block does not? — staged design on a "worlds" carrier
 
-**Status: EXPLORATORY design, revision 2 (15 Nov 2026).** Revision 1 is in git at 808286e. It was reviewed before any run (`review/review_design.md`: "run after changes"); this revision makes those changes. What I had seen when writing it: 100–300-step smoke tests of every arm, and the reviewer's untuned one-seed probes at coverage 9 (table in the review). History Entries 106–108; idea I37 in the ledger. Code `worlds.py`, `stage0.py`; exact statements `tests/test_worlds.py`.
+**Status: EXPLORATORY design, revision 2 (15 Nov 2026).** Revision 1 is in git at 808286e. It was reviewed before any run (`review/review_design.md`: "run after changes"); this revision makes those changes, and the same reviewer re-checked it (`review/review_design_rev2.md`: three small fixes to `stage0.py` and a tighter support reading, made here). What I had seen when writing it: 100–300-step smoke tests of every arm, and the reviewer's untuned one-seed probes at coverage 9 (table in the review). History Entries 106–108; idea I37 in the ledger. Code `worlds.py`, `stage0.py`; exact statements `tests/test_worlds.py`.
 
 ## 1. The question and the logic
 
@@ -29,9 +29,9 @@ Six primitives f_p(h) = tanh(A_p h) on a six-dimensional state, each with a trig
 
 For `sum` the references are `allmean` and `one` (applies one of the two).
 
-**Regimes**, read off those references: *garbage* (at or above `allmean`: worse than ignoring the world); *does not choose* (around `blend`); *recombines* (at most half of `blend`); *beyond what the data force* (at most half of `trans`); *full* (within 3× of its own seen error). Rung 4's model was in the second.
+**Regimes**, read off those references: *garbage* (at or above `allmean`: worse than ignoring the world); *worse than blend* (between `blend` and `allmean`); *partial* (between half of `blend` and `blend`); *recombines* (at most half of `blend`); *beyond what the data force* (at most half of `trans`); *full* (recombines, and within 3× of its own seen error). Rung 4's model sat at its non-composing reference: the boundary of the second and third.
 
-**Controls for the unfamiliar-input confound** (F52): a teacher whose primitives are all identical, so the world is irrelevant — any gap there is the input alone; and a one-pass regression of the block's update on the six true primitive outputs on held-out worlds (R², and the share of weight on the world's own two primitives).
+**Controls for the unfamiliar-input confound** (F52): a teacher whose primitives are all identical, so the world is irrelevant — any gap there is the input alone; and on held-out worlds, after one pass, the distance of the block's update to the true update and to the blend of the world's two primitives (is it closer to choosing or to averaging).
 
 **Limits stated now.** Tokens map one-to-one to primitives: the candidates are named; what must be discovered is each primitive's function and trigger, from pairs only. The `select` teacher (an available set, per-primitive bids, larger bid wins) has the shape of the "bids" arms below; the carrier cannot show that streams help when the data are not of this shape. Fifteen worlds, three teachers.
 
@@ -50,14 +50,14 @@ Further rows: `unit` (summed read; a soft gate on each of 60 units — gating wi
 
 ## 4. Outcomes
 
-Error = squared error of the change h_4 − h_0 relative to the teacher's change, on fresh inputs fixed per split (the same for every arm). Reported per run for seen and held-out worlds, per held-out world, and placed in the regimes of §2. The held-out/seen ratio is *not* an outcome (it grows with fit). Comparisons between arms are paired ratios of held-out error over the same splits: median, number of splits won, and a bootstrap interval over splits; an **identical-arm null** (`tok_mono` against itself with a different initialisation) gives the spread such ratios have by chance.
+Error = squared error of the change h_4 − h_0 relative to the teacher's change, on fresh inputs fixed per split (the same for every arm). Reported per run for seen and held-out worlds, per held-out world, and placed in the regimes of §2. The held-out/seen ratio is *not* an outcome (it grows with fit). Comparisons between arms are paired ratios of held-out error over the same splits: median, number of splits won, and a bootstrap interval over splits; an **identical-arm null** (`tok_mono` and `mono`, each against itself with a different initialisation) gives the spread such ratios have by chance.
 
 ## 5. Tuning rules (L57)
 
 - Each arm: learning rate from {0.003, 0.01, 0.03, 0.1}, cosine decay; extended if the best is at an edge. Summed-read streams arms also choose softmax or sigmoid scores.
 - Selection by seen-world error on three other splits (100–102). Since that cannot see the outcome, held-out error is reported for every configuration, and **a verdict must hold at every rate whose seen error is within 2× of the best**.
 - Steps: 4,000 and 8,000 are compared directly in stage 0; seen and held-out error are recorded every 1,000 steps.
-- Fit: `mono`'s seen error must come within 2× of `tok_mono`'s at some width (40 or 120) and step count; if it cannot, `mono` is reported as under-fitting and its row is a reference, not a baseline.
+- Fit: `mono`'s seen error must come within 2× of `tok_mono`'s at some width (40 or 120, each with its own rate) and step count; if it cannot, `mono` is reported as under-fitting and its row is a reference, not a baseline.
 
 ## 6. Stages
 
@@ -72,7 +72,7 @@ Questions: which regime is each monolith in on held-out worlds, at each coverage
 - C4 the read, streams: `tok_streams` / `streams_self`.
 
 Readings fixed in advance:
-- **Support for I37** (under a given read): C1 or C2 at most 1/2 in at least 10 of 12 splits, outside the identical-arm null, with the streams arm at least *recombining* (≤ half of `blend`), and the weight-decay monolith not doing the same.
+- **Support for I37** (under a given read): C1 or C2 at most 1/2 in at least 10 of 12 splits, outside the identical-arm null, *and at most half the same contrast measured on seen worlds* (so that a better fit alone does not count), with the two arms in different regimes — the streams arm at least *recombining* — and the weight-decay monolith not doing the same.
 - **The read, not streams:** C3 and C4 at most 1/5, and C1 within [1/2, 2].
 - **Gating, not grouping:** `unit` within 2× of `streams_self` where `streams_self` beats `mono`.
 - **Null:** all four contrasts within [1/2, 2].
@@ -83,9 +83,9 @@ Independent review of results after stage 2 (or at a stop).
 
 ## 7. Predictions (committed before stage 0; I had seen the smoke tests and the reviewer's probes named above)
 
-Stage 0. **R0a** `mono` on `select` at coverage 9 is in the *garbage* regime in at least 5 of 6 splits, at width 40 and 120. **R0b** In the irrelevant-world control both monoliths have held-out error within 1.5× of seen. **R0c** `tok_mono` on `select` at coverage 9 *recombines* in at least 5 of 6 splits and is below `trans` in at least 4, but is not *full* in at least 4. **R0d** `tok_mono` on `sum` is *full* at every coverage. **R0e** `tok_mono`'s held-out error on `select` falls from coverage 7 to 13.
+Stage 0. **R0a** `mono` on `select` at coverage 9 is in the *garbage* regime in at least 5 of 6 splits, at width 40 and 120. **R0b** In the irrelevant-world control both monoliths have held-out error within 1.5× of seen (or below 1e-3). **R0c** `tok_mono` on `select` at coverage 9 *recombines* in at least 5 of 6 splits and is below `trans` in at least 4, but is not *full* in at least 4. **R0d** `tok_mono` on `sum` is *full* at every coverage. **R0e** `tok_mono`'s held-out error on `select` falls from coverage 7 to 13.
 
-Stage 2 (`select` unless stated). **R2a** C3 ≤ 1/5 in 12 of 12 splits, both tasks. **R2b** C1 within [1/2, 2]: with the per-token read, separate streams add nothing clear (confidence about 0.55). **R2c** C2 ≤ 1/2 in at least 10 of 12, but `streams_self` does not *recombine* (median above half of `blend`). **R2d** C4 ≤ 1/5. **R2e** `sum`: both per-token arms *full*; neither summed-read arm *recombines* (median above half of the smaller reference). **R2f** the weight-decay monolith's best is within 2× of `mono`. **R2g** `unit` within 2× of `streams_self`.
+Stage 2 (`select` unless stated). **R2a** (a confirmation, not a bet: the reviewer's probes show it) C3 ≤ 1/5 in 12 of 12 splits, both tasks. **R2b** C1 within [1/2, 2]: with the per-token read, separate streams add nothing clear (confidence about 0.55). **R2c** C2 ≤ 1/2 in at least 10 of 12, but `streams_self` does not *recombine* (median above half of `blend`). **R2d** C4 ≤ 1/5. **R2e** `sum`: both per-token arms *full*; neither summed-read arm *recombines* (median above half of the smaller reference). **R2f** the weight-decay monolith's best is within 2× of `mono`. **R2g** `unit` within 2× of `streams_self`.
 
 If R2a, R2b and R2d hold, the answer to I37 on this carrier is: recombination comes from branching the computation per available primitive and pooling by a simple rule, whether or not the branches have separate weights.
 
