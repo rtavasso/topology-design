@@ -30,6 +30,20 @@ Predictions, written and committed before the run, after reading the review and 
       3 of each other, with four streams and with eight.
   S8  Early in training the candidate is ahead: at step 1,000 its held-out error is lower than the per-unit gate's in
       at least 8/10 seeds, with four streams and with eight.
+EXTENSION (written after the S-runs, before the extension runs). The S-runs chose 0.01 for every row - the top of
+the two-rate grid again. A three-seed check at 0.03 was better for all six rows tried, by 1.4 to 270 times (per-unit
+gate, 18 units: 1.3e-3 -> 4.9e-6), so at 0.01 with decay everything is under-trained and the S-ratios are partly
+ratios of training speed. The extension sweeps 0.03 and 0.1 for every row (same three seeds, same rule, compared with
+the 0.01 training errors already measured) and reruns the ten seeds at each row's best of {0.01, 0.03, 0.1}. This is a
+deviation from the committed design; S1-S8 are scored on the committed design and the extension is reported beside it.
+Predictions for the extension, having seen the six three-seed numbers at 0.03:
+  X1  Eight streams: candidate still better than the per-unit gate - median ratio at least 2, better in at least 8/10.
+  X2  Four streams: ratio between 1 and 5, candidate better in at least 7/10.
+  X3  Eighteen units: no clear winner - median ratio between 1/3 and 3.
+  X4  Branch: data-reading per-unit gate within 3x of the candidate, candidate better in at least 7/10.
+  X5  Additive block still at least 30x the candidate.
+  X6  At step 1,000 the candidate is ahead of the per-unit gate in at least 8/10 seeds (four and eight streams).
+
 What each outcome would mean. S1 with S2 and S3: grouping into streams buys compute everywhere and accuracy where
 streams are many or units few. S1 with S2 and S3 failing: grouping buys compute only. S4 says how much of the branch
 lead belongs to gating and how much to streams.
@@ -67,17 +81,32 @@ def madds(over):
     return W * (d + mv) + d * W + (c["Hg"] * (mv + d) + W * c["Hg"] if c["gate_h"] else 0)
 
 
-def rates():
+def rates(pre="arch_m2"):
     out = {}
     for f in os.listdir(HERE):
-        if f.startswith("arch_m2_lr_") and f.endswith(".json"):
+        if f.startswith(pre + "_lr_") and f.endswith(".json"):
             out.update(json.load(open(os.path.join(HERE, f))))
     return out
 
 
+PREV = {"N1": 1.5e-5, "N4": 5.9e-5, "N3": 5.2e-3, "N1s": 4.2e-5, "N4a": 9.4e-4, "N12": 4.8e-4,
+        "N8": 1.1e-5, "N10": 3.6e-4, "N14": 1.2e-3, "N13": 1.1e-2}      # training error at 0.01 from the S-sweep (arch_m2_sweep.md)
+
 if __name__ == "__main__":
     mode = sys.argv[1]
-    if mode == "sweep":                      # sweep <tag> <row> ...
+    PRE = "arch_m2x" if mode.startswith("x") else "arch_m2"
+    if mode == "xsweep":                     # xsweep <tag> <row> ...: rates 0.03 and 0.1, compared with 0.01 from PREV
+        best = {}
+        print("| row | rate | training error, length 4 (median of 3 seeds) | held-out, length 4 |\n|---|---|---|---|", flush=True)
+        for key in sys.argv[3:]:
+            res = {1e-2: PREV[key]}
+            for lr in (3e-2, 1e-1):
+                rs = [run(dict(ROWS[key][1], lr=lr), s) for s in (100, 101, 102)]
+                res[lr] = med([r["train_by_len"][4] for r in rs])
+                print(f"| {key} | {lr:g} | {res[lr]:.1e} | {med([r['by_len'][4] for r in rs]):.1e} |", flush=True)
+            best[key] = min(res, key=res.get)
+        json.dump(best, open(os.path.join(HERE, f"arch_m2x_lr_{sys.argv[2]}.json"), "w"))
+    elif mode == "sweep":                      # sweep <tag> <row> ...
         best = {}
         print("| row | rate | training error, length 4 (median of 3 seeds) | held-out, length 4 |\n|---|---|---|---|", flush=True)
         for key in sys.argv[3:]:
@@ -88,8 +117,8 @@ if __name__ == "__main__":
                 print(f"| {key} | {lr:g} | {res[lr]:.1e} | {med([r['by_len'][4] for r in rs]):.1e} |", flush=True)
             best[key] = min(res, key=res.get)
         json.dump(best, open(os.path.join(HERE, f"arch_m2_lr_{sys.argv[2]}.json"), "w"))
-    elif mode == "main":                     # main <tag> <row> ...
-        lr = rates(); store = {}
+    elif mode in ("main", "xmain"):          # main <tag> <row> ...
+        lr = rates(PRE); store = {}
         print("| block | rate | parameters | multiply-adds per pass | training, length 4 | held out, length 4 | held out / training | length 8 / length 4 | inputs x2 / x1 | at step 1,000; 2,000 | address kept |")
         print("|---|---|---|---|---|---|---|---|---|---|---|", flush=True)
         for key in sys.argv[3:]:
@@ -100,11 +129,11 @@ if __name__ == "__main__":
             print(f"| {key} {label} | {lr[key]:g} | {s[0]['nparams']} | {madds(over)} | {fmt([r['train4'] for r in s])} | {fmt([r['te4'] for r in s])} | "
                   f"{med([r['te4'] / r['train4'] for r in s]):.2f} | {med([r['te8'] / r['te4'] for r in s]):.2f} | {med([r['x2'] / r['te4'] for r in s]):.1f} | "
                   f"{med([r['c1'] for r in s]):.1e}; {med([r['c2'] for r in s]):.1e} | {med([r['addr'] for r in s]):.2f} |", flush=True)
-            json.dump(store, open(os.path.join(HERE, f"arch_m2_results_{sys.argv[2]}.json"), "w"))
-    elif mode == "paired":
+            json.dump(store, open(os.path.join(HERE, f"{PRE}_results_{sys.argv[2]}.json"), "w"))
+    elif mode in ("paired", "xpaired"):
         st = {}
         for f in sorted(os.listdir(HERE)):
-            if f.startswith("arch_m2_results_"):
+            if f.startswith(PRE + "_results_"):
                 st.update(json.load(open(os.path.join(HERE, f))))
         print("| block | error / its candidate's, length 4 (median of per-seed ratios) [min, max] | seeds where the candidate is better | same at step 1,000 | same at length 8 | same with inputs x2 | seeds with length 8 / length 4 above 3 |\n|---|---|---|---|---|---|---|")
         for key in ROWS:
