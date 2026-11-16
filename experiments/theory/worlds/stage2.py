@@ -31,13 +31,15 @@ FIXED = {"select": {"mono": dict(lr=0.03), "tok_mono": dict(lr=0.01), "mono_wide
 
 
 def best_cfg(task, arm):
-    base = arm.replace("null_", "").split("_wd")[0]
+    base = arm.replace("null_", "").split("_wd")[0].split("_lr")[0]
     if base in FIXED[task]:
         c = dict(FIXED[task][base])
     else:
         c = dict(json.load(open(os.path.join(HERE, f"stage2_cfg_{task}_{base}.json")))["best"])
     if "_wd" in arm:
         c["wd"] = float(arm.split("_wd")[1])
+    if "_lr" in arm:                         # another rate whose seen error is within 2x of the best (DESIGN.md section 5)
+        c["lr"] = float(arm.split("_lr")[1])
     return ("mono" if base == "mono_wide" else base), c
 
 
