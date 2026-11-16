@@ -19,9 +19,9 @@ Arms are a 2 × 2 with about 2,500 parameters each. **Read:** the world enters a
 | Arm | Read | Block | Error on trained worlds | Error on held-out worlds | Where that sits |
 |---|---|---|---|---|---|
 | `mono` | summed | one block | 0.066 | 1.3 | worse than not moving, 12/12 |
-| `mono`, width 120 (6.8× the parameters) | summed | one block | 0.023 | 1.0 | the same, 12/12 |
+| `mono`, width 120 (6.8× the parameters) | summed | one block | 0.023 | 1.0 | worse than ignoring the world, 12/12 |
 | `mono`, best weight decay | summed | one block | 0.088 | 0.92 | worse than ignoring the world, 9/12 |
-| `unit` (a gate on every unit) | summed | gated units | 0.015 | 0.63 | worse than blending, 10/12 |
+| `unit` (a gate on every unit) | summed | gated units | 0.015 | 0.63 | above the blend reference, 11/12 |
 | `streams_self` | summed | streams | 0.0071 | 0.42 | around blending (0.88 of `blend`) |
 | `streams_joint` | summed | streams | 0.0088 | 0.39 | around blending |
 | `tok_mono` | per token | one block | 0.025 | 0.059 | 0.13 of `blend`, 0.28 of `trans` |
@@ -42,7 +42,7 @@ The four contrasts fixed in advance (ratio of held-out errors over the same spli
 
 **"The read, not streams" is met** (C3 and C4 at most 1/5; C1 within [1/2, 2]) at both coverages. **"Support for I37" is not met under either read.**
 
-1. **How the set of available primitives is read decides whether a block recombines.** Run once per token and pooled by bids, a single block with one set of weights is at 0.13 of the blend reference on worlds it never saw, and below a third of what the trained comparisons force — it has learned bids that compare correctly across primitives never compared in training. Read as one summed vector, the same block is worse than not moving, at any width or weight decay, although it fits trained worlds equally well at width 120. A control in which the world is irrelevant shows no gap at all, so this is not the unfamiliar vector as such; it is an unconstrained function of it.
+1. **How the set of available primitives is read decides whether a block recombines.** Run once per token and pooled by bids, a single block with one set of weights is at 0.13 of the blend reference on worlds it never saw, and below a third of what the trained comparisons force — it has learned bids that compare correctly across primitives never compared in training. Read as one summed vector, the same block is worse than ignoring the world (at matched parameters, worse than not moving), at any width or weight decay, although it fits trained worlds equally well at width 120. A control in which the world is irrelevant shows no gap at all, so this is not the unfamiliar vector as such; it is an unconstrained function of it.
 2. **Streams do not supply recombination.** Under the summed read, streams fit trained worlds nine times better than the monolith and are three times better on held-out worlds — and still only at the level of blending the two primitives: they know which two are available and do not choose between them. Under the per-token read, streams fit trained worlds three times better than the single block and are 1.2–1.5 times better on held-out worlds; the gap between held-out and trained error is *larger* with streams (4.7× against 2.4× at coverage 9). The 0.65 is outside the spread of two initialisations (0.94) but it is not stable across learning rates whose fit is equally good: pairing the arms at other such rates gives 0.49, 0.80 and 1.08.
 3. **Gating without grouping does no better than streams** under the summed read (`unit` is 1.0–1.4 times `streams_self` on held-out worlds); neither recombines.
 4. **`sum`** (coverage 9): both per-token arms are within 3× of their trained-world error in 12/12 splits — this is close to forced, since summing per-token branches is the task's own form. Under the summed read the monolith is again worse than not moving; streams reach 0.15 (8 of 12 splits below half the smaller reference), which I had predicted they would not.
