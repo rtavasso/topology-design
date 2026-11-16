@@ -2223,6 +2223,30 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. I38 updated. D139 stays open.
 
+## Entry 113 (16 Nov 2026): design of the comparison — the lookup against the other stream configurations and a monolithic block
+
+**Premise.** The researcher: "design the experiment to compare this version with the other moe stream configurations and monolithic". A design only; I ran nothing. [experiments/theory/lookup/DESIGN.md](../experiments/theory/lookup/DESIGN.md), revision 3, after two reviews by an agent that did not write it (`review/review_design.md`, `review/review_design_rev2.md`).
+
+**Revision 1 and why it was not sound.** I put the new arms on the worlds carrier (Entry 108) as single changes to `tok_streams` — naive weight mixing, bids from a block's own units, keys computed from the weights, a hard load, and the full lookup — with a bank-size dial, and wrote that the lookup's held-out error "can at best equal" `tok_streams` there. The review: *not sound as written*.
+- The adoption reading could be met with the lookup's parts contributing nothing: the compute clause was arithmetic owned by the hard load, the margin of 2 would have passed the per-token monolith, no row dropped the lookup, and a better result was defined in advance as a bug.
+- On a carrier where items are names, a key computed from the weights is a stored table under another parametrisation. The reviewer's one-seed placebo (the same key head on random features) trained as well as the real key.
+- "At best equal" did not follow: U1 and U4 bound which functions are expressible, not what training finds.
+- At 24 primitives the reference code does not fit in memory and the reference scale collapses.
+- Also: a star where L56 and L59 ask for a factorial; the hard load, the key's normalisation and the own-unit bid each hid a second choice; no null for the reference arm.
+
+**Revision 2 → 3.** Revision 2 split the experiment into a check on names and a new part on evidence items. Second review: *sound with corrections* — the four blocking findings resolved, and for the new part: `ev_lookup` differed from the stored-key arm in two things at once (the match form of the address, and its tie to the applied weights), so an untied match arm is needed; the unit of evidence and the identification measure were not defined; the encoder arm is under-trained at 4,000 steps (a trivial way to "show the phenomenon"); the `sum` criterion for weight mixing passed an arm 3,000 times worse on held-out worlds than on trained ones; "cleared" was failure to reject; and the order should be evidence first.
+
+**The design as it stands.**
+- *Main part, evidence carrier.* One change to the worlds carrier: a primitive is shown as demonstrations (x, f_p(x)) instead of named by a token. Bank arms share blocks and bids and differ only in the load: a learned encoder against stored keys (two widths); the researcher's key head as worded (encoder against keys computed at a learned probe); `ev_lookup` (the applied block evaluated at the item's states and compared with what the item shows); `match_untied` (the same match against a second set of blocks); `ev_lookup` with the gradient cut. Monolithic arms with per-item and summed reads, routing streams, an oracle, and `tok_streams` on names as the ceiling. Test conditions fixed in advance: held-out worlds, demonstration states at 1.5–3 times the training scale, count and noise. Stage E0 runs the encoder and monolithic arms first with a stop rule (if a learned encoder identifies at 0.99 in and out of distribution, the experiment ends there). Readings separate the tie from the match form from capacity, and include "does not bootstrap" and "an encoder suffices".
+- *Side part, names.* Naive weight mixing first (the researcher's premise), then a 2 × 2 × 2 of bid, key and load with a placebo key and nulls — a check for harm that cannot favour keys computed from weights.
+- *Rule for a reading.* Twelve teachers; three nulls of the reference arm; worse or better only if it holds at equal rates and every qualifying pairing; "not worse" needs an upper bound below 1.5.
+
+**One-seed indications from the reviewer's probes (not readings, L30).** On names every new arm tied `tok_streams` on `select`; weight mixing tied on `select` and failed to recombine on `sum` (0.19 held-out at width 36 against 6e-5 seen). On evidence the match arms identified at 1.000 in and out of distribution, tied or not; the encoder arm needed 8,000 steps and fell to 0.93 at twice the scale; cutting the gradient changed nothing. The predictions in the design are therefore not blind.
+
+**What I got wrong.** I reused a carrier without asking whether the mechanism's distinguishing part could change anything on it (L58's question, again), wrote a reading that arithmetic could satisfy, and set the evidence carrier aside in a paragraph when it was the experiment. New lesson L60.
+
+**Decisions.** None taken; nothing is run until the researcher says so. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

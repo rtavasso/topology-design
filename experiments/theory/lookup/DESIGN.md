@@ -1,206 +1,202 @@
 # The lookup block against the other stream configurations and a monolithic block — design
 
-**Status: DESIGN, revision 2, nothing run by the author. EXPLORATORY.** Written 16 Nov 2026 at the researcher's request ("design the experiment to compare this version with the other moe stream configurations and monolithic"). Revision 1 was reviewed before any script (`review/review_design.md`: "not sound as written", four blocking findings); section 12 lists what changed. The version under test is the one in `docs/weight_lookup.md` (Entries 110–112, idea I38). History Entry 113.
+**Status: DESIGN, revision 3, nothing run by the author. EXPLORATORY.** Written 16 Nov 2026 at the researcher's request ("design the experiment to compare this version with the other moe stream configurations and monolithic"). Reviewed twice before any script, by an agent that did not write it: revision 1 "not sound as written" (`review/review_design.md`), revision 2 "sound with corrections" (`review/review_design_rev2.md`). Section 13 lists what each review changed. The version under test is the one in `docs/weight_lookup.md` (Entries 110–112, idea I38). History Entry 113.
 
-## 1. What is being decided, and why there are two parts
+## 1. What is being decided, and why the carrier has to change
 
 Which stream configuration the program carries forward: the per-token streams arm that recombined in Entry 108 (`tok_streams`), or the lookup block, in whole or in part.
 
-The lookup differs from `tok_streams` in three ingredients: **bids from a block's own units**, **keys computed from the blocks' weights**, and **a hard load** (only the loaded blocks are computed). The same functions are expressible with or without each of them (U1, U4). That does not bound what training finds on held-out worlds, so the lookup can come out better or worse. But it does mean one thing for the design: on the worlds carrier an item is a *name* (a token with a free embedding), and a name can be addressed by a table. A key computed from the weights then has no job a stored key cannot do. The reviewer's one-seed placebo — the same key head fed random features unrelated to the weights — trained as well as the real one.
+The lookup differs from `tok_streams` in three ingredients: **keys computed from the blocks' weights**, **bids from a block's own units**, and **a hard load** (only loaded blocks are computed). The same functions are expressible with or without each (U1, U4). That does not bound what training finds, so any of them can help or hurt. But it does decide where the comparison can be informative. On the worlds carrier an item is a *name* — a token with a free embedding — and a name can be addressed by a table. A key computed from the weights then has no job a stored key cannot do: in the first reviewer's one-seed check, the same key head fed random features unrelated to the weights trained as well as the real one.
 
-So the comparison is in two parts.
+So the experiment has a main part and a side part.
 
-- **Part I, on names: does the lookup survive training?** Each ingredient is tested for harm, the premise about naive weight mixing is tested, and cost is tabulated. Nothing in Part I can favour keys computed from weights; it can only clear them or convict them.
-- **Part II, on evidence: does addressing by content earn its place?** One change to the carrier: an item is a few demonstrations (x, f_p(x)) of a primitive instead of its token. Now nothing can be addressed by a table. A stored-key arm needs a learned encoder from demonstrations to an address, a monolithic block has to infer which function is meant, and the lookup can compare its stored primitives against the evidence. This is the form of the comparison in which the three configurations can come apart for a reason that belongs to the lookup. It also meets the property the Entry 108 carrier lacked (Entry 107: primitives not named by the input).
+- **Main part, on evidence.** One change to the carrier: an item is a few demonstrations (x, f_p(x)) of a primitive, not its token. Nothing can be addressed by a table. A stored-key arm needs a learned encoder from demonstrations to an address; a monolithic block has to infer which function is meant; the lookup can compare its stored primitives against what the item shows. This is the form of the comparison in which the configurations can come apart for a reason that belongs to the lookup, and it meets the property the Entry 108 carrier lacked (Entry 107: primitives not named by the input).
+- **Side part, on names.** A check for harm: does naive weight mixing break, and does any ingredient damage training where the baseline is known to work. It cannot favour keys computed from weights.
 
-Both parts use a block with one site, where "one key head per site" and "one key head" are the same thing; retrieval of different sites from different blocks (U5) is not tested here.
+Both parts use a block with one site, where "one key head per site" is the same as "one key head". Retrieving different sites from different blocks (U5) is not tested.
 
 ## 2. Carrier
 
-The worlds carrier of Entry 108 (`experiments/theory/worlds/worlds.py`): P primitives f_p(h) = tanh(A_p h) on a six-dimensional state, a trigger w_p each; a world is two primitives; four passes; the block sees the state and the world. Tasks `select` (apply the primitive whose trigger is larger) and `sum` (apply both). Some worlds are never trained; every primitive is. Exact references (`blend`, `trans`, own seen error) place a held-out error on a scale. The baseline failure is already reproduced there (summed-read monolith worse than not moving, 12/12).
+The worlds carrier of Entry 108 (`experiments/theory/worlds/worlds.py`): six primitives f_p(h) = tanh(A_p h) on a six-dimensional state, a trigger w_p each; a world is two primitives; four passes; the block sees the state and the world. Tasks `select` (apply the primitive whose trigger is larger) and `sum` (apply both). Nine of fifteen worlds are trained; every primitive is. Exact references (`blend`, `trans`, own seen error) place a held-out error on a scale.
 
-Changes to the code that both parts need: references computed once per split and in chunks (they do not depend on the arm); a constructive split sampler for P > 6 (random cycle through all primitives plus random chords, checked by `graph_ok`).
+**The evidence carrier** changes one thing. Each of a world's two primitives is presented as **m demonstrations** (x_i, y_i = f_p(x_i)), x_i ~ N(0, I). Triggers are not demonstrated, so bids are learned as before.
 
----
+- *Unit of evidence.* One draw of demonstrations per (world, state): every state in a batch comes with its own evidence, in training and in evaluation. (A deployed lookup would compute the load once per world; the cost table counts it that way.)
+- Training: m = 2, no noise.
+- Test conditions, fixed in advance, none trained on:
 
-# Part I — names: does the lookup survive training?
-
-## 3. Arms
-
-**Stage 1a, the premise.** The researcher's reason for a lookup is that naive gate-and-sum in weight space is fragile.
-
-| Arm | Change from `tok_streams` |
+| Condition | What is new to the model |
 |---|---|
-| `wmix` | the pooled gate mixes weights, W̄ = Σ_k g_k W_k, and one block is applied |
-| `wmix_in` | weights are mixed within a token (Σ_k a_tk W_k); the two tokens' outputs are pooled as before |
-| `wmix_sum` | `wmix` with the summed read and a gate on it (the routing form) |
+| held-out worlds | the pair of primitives |
+| **shifted evidence** | demonstration states at 1.5, 2 and 3 times the training scale; read as a curve, with 2× the pre-named point |
+| count and noise | m = 1 and m = 4; noise 0.1 on y. Reported; no reading is attached. |
 
-On `select` the target gate is one-hot, where weight and output mixing agree (W1), so width 16 is fair. On `sum`, averaging two blocks' weights adds their functions only if they occupy different hidden units (W4); with every pair a world that needs width 6 × 6 = 36. `wmix` runs on `sum` at width 16 (cannot represent the target; reported, bears on nothing) and at width 36 (can; 1.77 times the parameters, with `tok_streams` at width 36 beside it).
+Held-out worlds hold nothing out from the load (it sees one item at a time). The evidence conditions do, so they are read on trained worlds as well as held-out ones.
 
-**Stage 1b, the ingredients: a full 2 × 2 × 2.**
+## 3. Arms on the evidence carrier
 
-| Factor | Off (as `tok_streams`) | On |
+All bank arms use the plain `tok_streams` configuration (soft load, separate bid nets, eight blocks of width 16) with **identical blocks and bids**; they differ only in how an item's load over the blocks is computed. Parameter counts are reported, not equalised by widening blocks.
+
+| Arm | Load of an item on block k | What it stands for |
 |---|---|---|
-| Bid | separate net per block, with bias | β_k · tanh(B_k h), the block's own units, no bias |
-| Key | stored | computed: the block's output at C = 1 learned probe state (six features for K = 8 blocks, so the projection cannot act as a table), projected; initial scale set so the initial load logits match `tok_streams`; features raw |
-| Load | soft over all blocks | hard: soft until the token-to-block load's top probability, averaged over tokens, passes 0.8 or step 2,000 comes; then top-1, not renormalised (the top entry keeps its softmax value, so the address still gets gradient) |
+| `enc_streams` | encoder(demonstrations) · stored key. The encoder is a small network on [x; y], averaged over the m demonstrations. | stored keys |
+| `enc_streams`, wide | the same, encoder about three times the parameters | capacity |
+| `probe_enc` | encoder(demonstrations) · key computed from the block's weights at a learned probe state | the researcher's key head, as worded |
+| **`ev_lookup`** | −‖c · f_k(x) − y‖² / τ, averaged over the demonstrations: the applied block itself is evaluated at the item's states and compared with what the item shows. c is one learned scalar (the applied block may be a rescaled primitive, as on `sum`); τ starts so that the initial load logits have the spread of `tok_streams`'. | Entry 112's key head with the probe supplied by the item: **match form + tied to the applied weights** |
+| `match_untied` | the same match against a second set of blocks g_k, stored beside the applied ones and trained only through the load | **match form without the tie** |
+| `ev_lookup`, gradient from load to weights cut | | whether the addressing gradient shapes the primitives |
+| `enc_mono` | one shared block conditioned on encoder(demonstrations), run per item, pooled by bids | monolithic, per-item read |
+| `mono` | one block conditioned on the summed encodings | monolithic, summed read |
+| `streams_self` | gate on the summed encodings | routing streams |
+| `oracle` | load set from the truth (the choice between the two items is still learned bids) | ceiling for identification |
+| `tok_streams` on names | | ceiling for the task: what the bank does when identification is free |
 
-All off is `tok_streams`; all on is `lookup`. Parameters matched at about 2,500 by block width. Controls, each for one named confound:
+`ev_lookup` differs from `enc_streams` in two things, and the arms separate them: `enc_streams` → `match_untied` changes the *form* of the address (prediction-error match in place of a generic network); `match_untied` → `ev_lookup` adds the *tie* to the applied weights, which is the researcher's proposal.
 
-| Control | For |
-|---|---|
-| `null_tok_streams` (another initialisation) | the noise floor of every contrast |
-| placebo key (the key head on fixed random features) | whether a computed key does anything a table does not |
-| computed key with the gradient from key to weights cut | the two-way coupling of Entry 112 |
-| computed key, features standardised over the bank | the normalisation, which the review found changes how sharp the address gets |
-| own-unit bid at width 16; `tok_streams` at the own-unit arm's width | width against bid source |
-| hard from step 0 | whether the soft start is needed (L56) |
-
-Old arms for the table, from stored Entry 108 runs once stage 0 reproduces them: `mono`, `tok_mono`, `streams_self`, `streams_joint`, `unit`, `oracle`.
+**By construction, and not.** If the bank holds the six primitives exactly, a match identifies a noiseless demonstration perfectly at every scale (checked by the reviewer: 1.000 at scales 1–4). A block also has the teacher's exact form V tanh(B x), so it extrapolates by form; the shift test is tilted towards the match arms for that reason. Not by construction: whether a bank whose addressing depends on its own unfinished contents sorts itself into the primitives; how a trained (not exact) bank behaves off its training states; whether a learned encoder is in fact worse, and whether the tie adds anything to the match.
 
 ## 4. Measures
 
-- Seen and held-out error; regime against the references.
-- **Failed run:** seen error non-finite or more than 10 times the median of `tok_streams`.
-- **Allocation:** number of different blocks the tokens load (argmax); collisions; for hard arms the switch step and collisions at the switch.
-- **Hardening after training** of every soft arm (no retraining).
-- **Compute per pass** at inference (multiply-adds, one state, two-token world; things that do not read the state are computed once per world). At P = 6: `mono` 2,400; `tok_mono` 4,880; `tok_streams` 2,328; `wmix` 2,456, or 1,304 with per-token mixtures cached; any hard arm about 580. The saving belongs to the hard load alone and is reported as a table, not as a condition of any reading.
+- Seen and held-out error under every test condition; regime against the references.
+- **Identification, defined by function.** After training, each block is matched to the teacher primitive it computes (best scalar allowed, within 5 % in function), in every run. An item is identified when its most-loaded block computes its primitive. Reported with: primitives no block computes, primitives computed by more than one block.
+- **Failed run:** seen error non-finite or more than 10 times the median of `tok_streams` on names.
+- **Compute:** multiply-adds per pass, plus the per-world cost of the load (`ev_lookup`: K · m block evaluations; encoder arms: m encoder evaluations per item).
 
-## 5. Contrasts and readings
+## 5. Statistics and the rule for a reading
 
-Paired ratios over the same twelve splits; median and bootstrap 5–95 % interval. An arm is **worse** than another if its interval lies above the interval of `null_tok_streams`, **better** if below, **indistinguishable** if they overlap — and then the interval's width is what was ruled out, and is stated. Readings are two-sided. A better result stands if it survives three checks: equal rates, equal width, and the null.
+Twelve splits on **twelve teachers** for every newly run arm (the stored Entry 108 runs used three; teacher medians there differed more than chance in two of twelve comparisons). Paired ratios over splits; median, bootstrap 5–95 % interval, and the per-teacher values.
 
-On `sum`, where `tok_streams` is exact to 1e-6 and every ratio is huge, the criterion is the regime (held-out error at most half the smaller reference), not a ratio.
+- **Noise floor:** three other initialisations of the reference arm; the envelope of their intervals.
+- **Worse / better:** interval entirely above / below the envelope, **at equal learning rates and at every pairing of rates whose seen error is within 2× of the best**. If it holds at some pairings only, the reading is "rate-dependent" and nothing is concluded.
+- **Not worse (cleared):** interval's upper bound below 1.5.
+- Otherwise **unresolved**, and reported as such.
 
-Pre-fixed contrasts: each factor's main effect and the leave-one-out arms against `lookup`; `lookup` / `tok_streams`; **`lookup` / hard-only** (equal compute: do bids and keys from content add anything to a hard `tok_streams`?); `lookup` / `tok_mono`; computed key / placebo key.
+Tuning: rate from {0.003, 0.01, 0.03, 0.1} on splits 100–102 by seen error, extended until interior (L57), **and step count** from 4,000, 8,000, 16,000 (the encoder arm needed 8,000 in the reviewer's probe); each arm is run at the step count where its seen error has stopped falling.
 
-| Reading | Condition | What follows |
-|---|---|---|
-| Premise shown | `wmix` does not recombine on `sum` at width 36 (seen error at most 10× `tok_streams`' but held-out above half the smaller reference), or is worse on `select` held-out error | Weight *averaging* is fragile here. This separates averaging from summing outputs; `tok_streams` is on the good side of it exactly as the lookup is (U1). |
-| Premise not shown | `wmix` recombines on `sum` at width 36 and is indistinguishable on `select` | Nothing is wrong with gate-and-sum in weight space on this carrier. |
-| An ingredient is cleared | indistinguishable or better on both errors, no more failed runs or collisions than `tok_streams` | It may be carried to Part II. |
-| An ingredient is convicted | worse on either error, or more failed runs | Dropped, unless a named control form is cleared (gradient cut; hardening after training). |
-| Keys from weights do nothing here | computed key indistinguishable from the placebo | Expected. Part I says nothing for them. |
-| Keep `tok_streams` with a hard load | `lookup` indistinguishable from hard-only, or worse | On names, the lookup's content parts are dropped; the cost saving is kept. |
-| Nothing survives | hard load convicted in every form | `tok_streams` as it is. |
+## 6. Stages on the evidence carrier
 
-## 6. Stages, bank size, stop rules
+- **Stage 0.** Forward identities as tests; `tok_streams` and `tok_mono` re-run on three splits against the stored numbers; `tok_streams` on the twelve teachers. Stop on a mismatch.
+- **Stage E0 — the phenomenon first.** `enc_streams` (both widths), `enc_mono`, `mono`, `oracle`. **Stop rule:** if the better encoder arm identifies at 0.99 or more in distribution *and* at 2× evidence, with held-out error not worse than `tok_streams` on names, then a learned encoder already does the job, addressing by content has nothing to fix here, and the experiment ends with that finding. If the encoder arm cannot be trained at any step count (seen error above 0.05), that is recorded as "the encoder arm does not bootstrap" and E1 proceeds.
+- **Stage E1.** All arms of section 3, `select`; the bank arms also on `sum`.
+- **Stage E2 — the bank grows**, only for arms still standing: twelve primitives, 18 trained worlds, sixteen blocks, constructive split sampler (P = 6 re-run with it so only P changes), references computed once per split in chunks. This is where blocks addressed by content can merge or starve. Reported with the share of forced decisions and the graph distance of held-out pairs, which move with P.
+- **Stage E3 — mechanism.** Identification and the block-to-primitive match over training (does the bank sort itself, and when); duplicates among spare blocks.
 
-- **Stage 0.** Forward identities as tests (the factorial with every factor off equals `tok_streams`; `wmix` equals it at one-hot gates). Re-run `tok_streams` and `tok_mono` on three splits against the stored numbers. Stop on any mismatch.
-- **Stage 1a.** The `wmix` arms, `select` and `sum`, coverage 9, twelve splits. Reported before 1b is run. It does not stop 1b: the ingredients are tested either way.
-- **Stage 1b.** The factorial and controls, `select` at coverage 9 and 7, `sum` at coverage 9, twelve splits.
-- **Stage 1c, a larger bank.** P = 12 with 18 trained worlds (three per primitive), the constructive sampler, K = 16 blocks and 16-dimensional embeddings (at P = 6 these are 8 and 8, so both are ⌈4P/3⌉), monoliths at matched parameters, every arm tuned again; P = 6 re-run with the constructive sampler so that only P changes. All eight factorial arms, twelve splits. Reported with the share of forced decisions and the graph distance of held-out pairs, which move with P (0.46 → 0.28; 2.0 → 2.5).
-  P = 24 is used for one thing only: seen error, failed runs and allocation with 32 blocks (does a hard or computed-key load starve or merge blocks?). No held-out reading is taken there, because the reference scale collapses (`trans` 0.40 against `blend` 0.49; forced share 0.15).
+## 7. Readings on the evidence carrier
 
-## 7. Predictions for Part I
-
-Not blind: the reviewer's one-seed probes of every arm are in the review, and they tied `tok_streams` on `select` throughout.
-
-| | Prediction | Confidence |
-|---|---|---|
-| P1 | `wmix` on `select`: indistinguishable from `tok_streams` on both errors | 0.6 |
-| P2 | `wmix` on `sum`, width 36: fits (seen error under 1e-3) and does not recombine | 0.65 |
-| P3 | `wmix_in` on `sum`, width 36, recombines where `wmix` does not | 0.5 |
-| P4 | Each factor's main effect on held-out error is indistinguishable from the null at P = 6 | 0.6 each |
-| P5 | Computed key indistinguishable from the placebo | 0.8 |
-| P6 | `lookup` indistinguishable from hard-only | 0.6 |
-| P7 | Hardening a trained soft `tok_streams` raises its seen error at least fivefold | 0.75 |
-| P8 | At P = 24 some hard arm has more collisions than soft `tok_streams` | 0.55 |
-
----
-
-# Part II — evidence: does addressing by content earn its place?
-
-## 8. The one change to the carrier
-
-A world is still two primitives, but each is presented as **m demonstrations** (x_i, y_i = f_p(x_i)), with fresh states x_i ~ N(0, I) at every step. Nothing names a primitive. Triggers are not demonstrated, so bids are learned as before. Tasks, worlds, held-out worlds and references are unchanged. Training uses m = 2 and no noise.
-
-Three test conditions are fixed in advance, none of them trained on:
-
-| Condition | What is new |
-|---|---|
-| held-out worlds | the pair of primitives, as in Entry 108 |
-| **shifted evidence** | demonstration states at twice the training scale |
-| fewer or more, or noisy | m = 1 and m = 4; noise of 0.1 on y |
-
-## 9. Arms
-
-All bank arms share blocks, bids, load and combination (the configuration cleared in Part I); they differ only in **how an item's load over the blocks is computed**.
-
-| Arm | Load of item j on block k | Stands for |
-|---|---|---|
-| `enc_streams` | encoder(demonstrations) · stored key G_k. The encoder is a small network on [x; y], averaged over the m demonstrations. | stored keys: the per-token streams arm with the token replaced by a learned description |
-| `probe_enc` | encoder(demonstrations) · key computed from the block's weights at a learned probe state | the researcher's key head, taken literally |
-| **`ev_lookup`** | −‖M (f_k(x) − y)‖², averaged over the demonstrations, with a learned metric M and temperature: the block is evaluated at the item's own states and compared with what the item shows | the key head of Entry 112 with the probe states supplied by the item |
-| `ev_lookup`, gradient from load to weights cut | | whether the addressing gradient shapes the primitives, for better or worse |
-| `enc_mono` | one shared block conditioned on encoder(demonstrations), run per item, pooled by bids | monolithic with the per-item read |
-| `mono` | one block conditioned on the summed encodings | monolithic, summed read |
-| `streams_self` | gate on the summed encodings | the routing form |
-| `enc_streams`, wide encoder (about three times the parameters) | | capacity against mechanism |
-| `oracle` | load set from the truth | floor |
-
-`ev_lookup` is an adaptation of the proposal, not the proposal as worded: the key is still a function of the block's weights, but the probe is the item's state, so query and key meet in the space of what a primitive does. `probe_enc` keeps the learned probe.
-
-What is by construction and what is not. If the bank holds the six primitives exactly, `ev_lookup` identifies a noiseless in-distribution demonstration perfectly; that part is arithmetic. Not by construction: whether the bank becomes the primitives when its addressing depends on its own unfinished contents (at the start every block explains every demonstration equally badly); what happens when the demonstration state is outside what the blocks were trained on, where the blocks themselves are wrong; and whether a learned encoder is in fact worse.
-
-Cost is counted honestly: `ev_lookup` evaluates every block on every demonstration once per world (K · m block evaluations, not per state or pass); the encoder arms run the encoder m times per item.
-
-## 10. Measures, stages, readings
-
-Measures as in Part I, plus **identification**: the share of items whose most-loaded block is the block allocated to the item's true primitive (defined when allocation is one-to-one), under each test condition.
-
-- **Stage E0, the phenomenon first.** `enc_streams`, `enc_mono`, `mono` and `oracle` only; tuned; twelve splits. Stop rule: if `enc_streams` identifies at 0.99 or better in distribution and under shifted evidence, and its held-out error is indistinguishable from the token arm's of Part I, then a learned encoder already does the job, there is nothing for addressing by content to fix on this carrier, and Part II ends with that finding.
-- **Stage E1.** All arms, `select`, coverage 9, twelve splits; `sum` for the bank arms.
-- **Stage E2, mechanism.** Allocation and identification over training for `ev_lookup` (does the bank sort itself, and when); the bank after training against the teacher's primitives.
+Each row names the error it is read on. "Evidence error" is error on trained worlds under 2× evidence; "held-out error" is on held-out worlds with in-distribution evidence.
 
 | Reading | Condition | What follows |
 |---|---|---|
-| Content addressing earns its place | `ev_lookup` better than `enc_streams` on held-out error in distribution or under shifted evidence, allocation one-to-one in at least 10 of 12 splits, and the wide encoder does not close the gap | The lookup, with evidence keys, is the configuration to carry forward where items are not named. |
-| Capacity, not mechanism | as above, but the wide encoder closes the gap | A learned encoder does it at a price; reported as cost. |
-| An encoder suffices | indistinguishable in every condition | Keys from weights are dropped. |
-| It does not bootstrap | `ev_lookup` worse on seen error, or allocation collapsed | Joint training of content and content-addressing fails here as posed. Whether a schedule rescues it is a separate question, not answered by adding one after the fact. |
-| The literal key head | `probe_enc` against `enc_streams` | Expected indistinguishable, for the reason Part I gives. |
-| Monolithic | `enc_mono` and `mono` against the bank arms, by regime | Whether a single block can infer the function from evidence and recombine. |
+| **The tie earns its place** | `ev_lookup` better than `match_untied` on evidence error or held-out error | Keys computed from the applied weights do something a separate matcher does not. The lookup is carried forward. |
+| **Match-form addressing, not the tie** | `match_untied` better than `enc_streams` (wide included) on evidence error, and `ev_lookup` not better than `match_untied` | Comparing stored functions with evidence helps; tying them to the applied weights is an economy of parameters, reported as such. |
+| **Capacity** | the wide encoder closes the gap to the match arms | A learned encoder does it at a price. |
+| **An encoder suffices** | E0's stop rule, or all bank arms not worse than each other in every condition | Keys from weights are dropped. |
+| **`ev_lookup` does not bootstrap** | seen error worse than `enc_streams`, or in more than 3 of 12 runs some primitive has no block | Joint training of content and its own addressing fails as posed. No schedule is added after the fact. |
+| **Partial** | primitives without a block in 1–3 of 12 runs | Reported as a failure rate beside whichever row above holds. |
+| **`ev_lookup` worse on held-out error only** | | The tie costs recombination; `match_untied` or `enc_streams` is preferred. |
+| **The key head as worded** | `probe_enc` against `enc_streams` | Expected not worse and not better. |
+| **Monolithic** | `enc_mono`, `mono` by regime, and against the bank arms | Whether a single block can infer the function from evidence and recombine. |
 
-## 11. Predictions for Part II (blind: nothing has been run on this carrier)
+## 8. Predictions on the evidence carrier
+
+Not blind: the second reviewer ran one-seed probes of these arms (in the review). On that seed the match arms tied each other and held under shift, the encoder arm needed 8,000 steps and then lost under shift, and cutting the gradient changed nothing.
 
 | | Prediction | Confidence |
 |---|---|---|
-| E1 | `enc_streams` identifies at 0.9 or better in distribution, and below 0.8 under shifted evidence | 0.7; 0.55 |
-| E2 | `ev_lookup` reaches one-to-one allocation in at least 9 of 12 splits | 0.5 |
-| E3 | Where it does, it identifies at 0.95 or better under shifted evidence | 0.55 |
-| E4 | In distribution, held-out error of `ev_lookup` and `enc_streams` is indistinguishable | 0.5 |
-| E5 | `mono` is garbage on held-out worlds; `enc_mono` recombines | 0.85; 0.55 |
-| E6 | `probe_enc` indistinguishable from `enc_streams` | 0.75 |
-| E7 | Cutting the gradient from load to weights makes `ev_lookup` worse on seen error | 0.5 |
+| E1 | The better encoder arm identifies at 0.99 or more in distribution and below 0.97 at 2× evidence (E0 does not stop) | 0.7 |
+| E2 | `ev_lookup`: every primitive has a block in at least 11 of 12 runs | 0.65 |
+| E3 | `ev_lookup` better than `enc_streams` on evidence error | 0.7 |
+| E4 | `ev_lookup` not better than `match_untied` anywhere on `select` (the reading is "match form, not the tie") | 0.6 |
+| E5 | In distribution, held-out error of `ev_lookup`, `match_untied` and `enc_streams` is mutually not worse | 0.5 |
+| E6 | `mono` is garbage on held-out worlds; `enc_mono` recombines | 0.85; 0.5 |
+| E7 | `probe_enc` not worse and not better than `enc_streams` | 0.7 |
+| E8 | Cutting the gradient from load to weights changes neither error of `ev_lookup` | 0.6 |
+| E9 | At twelve primitives some match arm has a primitive without a block in at least 2 of 12 runs | 0.4 |
 
 ---
 
-## 12. What changed from revision 1, by review finding
+# Side part — names: a check for harm
 
-| Finding | Change |
+Run after E1. Cut, on the second review's advice, to what can still say something.
+
+## 9. Stage N1 — is naive weight mixing fragile?
+
+The researcher's premise for wanting a lookup. Arms: `wmix` (the pooled gate mixes weights, W̄ = Σ_k g_k W_k, one block applied), `wmix_in` (weights mixed within a token, outputs pooled across tokens), `wmix_sum` (the routing form, summed read), against `tok_streams`. `select` at width 16 (the target gate is one-hot, where the two mixings agree, W1). `sum` at width 36: averaging two blocks' weights adds their functions only if they occupy different hidden units (W4), which with every pair a world needs 6 × 6 units; that is 1.77 times the parameters, so `tok_streams` at width 36 runs beside it. Twelve splits.
+
+| Reading | Condition |
 |---|---|
-| 1 adoption could be met with the lookup's parts idle | Compute removed from every reading; `lookup` / hard-only and `lookup` / `tok_mono` added; rows that drop the lookup added; readings two-sided; margin taken from the null of `tok_streams` |
-| 2 a computed key is a table on names | Placebo control; one probe state so the key cannot be a table; Part I states it can only test for harm; Part II added |
-| 3 "at best equal" did not follow | Withdrawn (section 1) |
-| 4 P = 24 breaks references and scale | References once per split, in chunks; constructive sampler at both P; rules in P stated; held-out readings at P = 6 and 12 only |
-| 5 star, not factorial | Full 2 × 2 × 2 at both P |
-| 6 hard load underspecified | Probability, no renormalisation, fallback step, recorded switch; hard-from-zero control; the old prediction on hardening reversed |
-| 7 normalisation a hidden dial | Raw in the factorial with matched initial scale; standardised as a named control |
-| 8 own-unit bid changed three things | Width controls; no bias, stated |
-| 9 `wmix` | First, as its own stage; 1.77×; regime criterion on `sum`; cached cost; `wmix_in` |
-| 10 noise floor and power | `null_tok_streams`; twelve splits everywhere; failed run defined against `tok_streams` |
-| 11 tuning at larger P | Every arm tuned at each P |
+| Premise shown | on `sum`, `wmix` fits (seen error under 1e-3) and is not in Entry 108's *full* regime (held-out under half the smaller reference **and** within 3× of its own seen error); or on `select` it is worse than `tok_streams` on held-out error |
+| Premise not shown | full on `sum`, not worse on `select` |
 
-## 13. Tuning, seeds, statistics, cost
+Either way the finding separates weight *averaging* from summing outputs. `tok_streams` and the lookup are on the same side of it (U1).
 
-Every arm's learning rate on splits 100–102 by seen error at each P and on each carrier, from {0.003, 0.01, 0.03, 0.1}, extended until the best is interior (L57); contrasts also at every pairing of rates within 2× of the best seen error, and at equal rates. Twelve splits over three teachers (the bootstrap treats splits as independent, as in Entry 108). AGENTS.md asks for more seeds before a headline claim; everything stays EXPLORATORY. Every script is committed with its predictions before it runs (L56); results are reviewed by an agent that wrote none of this.
+## 10. Stage N2 — do the ingredients harm training?
 
-Runs take 15–30 s at P = 6, about 45 s at P = 12, about 2 minutes at P = 24. Part I: about five hours on two processes. Part II: about three.
+A full 2 × 2 × 2 on `select`, coverage 9, twelve splits.
+
+| Factor | Off (as `tok_streams`) | On |
+|---|---|---|
+| Bid | separate net per block | β_k · tanh(B_k h), the block's own units, no bias |
+| Key | stored | computed from the block's output at one learned probe state, projected; initial scale matched to `tok_streams`; features raw |
+| Load | soft | hard: soft until the top load probability, averaged over tokens and a batch, passes 0.8 or step 2,000 comes; then top-1, not renormalised |
+
+Controls: three nulls of `tok_streams` and one of `lookup`; a placebo key (the key head on fixed random features); the computed key with gradient cut and with standardised features; a separate bid net without bias; own-unit bids at width 16 and `tok_streams` at the own-unit arm's width (the bid's main effect is read together with these); hard from step 0; hardening after training (not renormalised) of every soft arm.
+
+Pre-fixed contrasts: each factor's main effect; leave-one-out against `lookup`; `lookup` / `tok_streams`; `lookup` / hard-only (equal compute); computed key / placebo.
+
+| Reading | Condition | What follows |
+|---|---|---|
+| Cleared | not worse on both errors (upper bound below 1.5), no more failed runs or collisions than `tok_streams` | the ingredient may be used |
+| Convicted | worse on either error, or more failed runs | dropped, unless a named control form is cleared |
+| Unresolved | neither | said so; not carried forward on this evidence |
+| The content parts add something on names | `lookup` better than hard-only | stands after checks at equal rates and equal width |
+| The content parts add nothing on names | `lookup` not worse and not better than hard-only; computed key not better than the placebo | expected; the hard load's cost saving is kept, the rest is decided on the evidence carrier |
+
+Compute per pass at inference, reported as a table and part of no reading: `mono` 2,400; `tok_mono` 4,880; `tok_streams` 2,328; `wmix` 2,456, or 1,304 with per-token mixtures cached; any hard arm about 580. The saving belongs to the hard load alone.
+
+## 11. Predictions on names
+
+Not blind (first reviewer's one-seed probes).
+
+| | Prediction | Confidence |
+|---|---|---|
+| N1 | `wmix` on `select` not worse than `tok_streams` on both errors | 0.55 |
+| N2 | `wmix` on `sum`, width 36: fits and is not full (premise shown) | 0.7 |
+| N3 | `wmix_in` on `sum`, width 36, is full | 0.45 |
+| N4 | Every factor is cleared on held-out error | 0.5 |
+| N5 | Computed key not better than the placebo | 0.8 |
+| N6 | `lookup` not better than hard-only | 0.65 |
+| N7 | Hardening a trained soft `tok_streams` raises its seen error at least fivefold | 0.75 |
+
+---
+
+## 12. Cost
+
+Runs take 15–30 s at 4,000 steps with six primitives; the evidence arms need up to four times the steps. Stage 0 and E0: about one hour on two processes. E1: about three. N1 and N2: about three. E2: about three.
+
+## 13. What the reviews changed
+
+| Review finding | Change |
+|---|---|
+| R1.1 adoption could be met with the lookup's parts idle | compute is in no reading; `lookup` / hard-only added; rows that drop the lookup; readings two-sided |
+| R1.2 a computed key is a table on names | placebo control; the evidence carrier became the main part |
+| R1.3 "at best equal" did not follow from the identities | withdrawn (section 1) |
+| R1.4 24 primitives breaks references and scale | dropped; twelve primitives only, references in chunks, constructive sampler at both sizes |
+| R1.5 star, not factorial | full 2 × 2 × 2 |
+| R1.6–8 hard load, normalisation, own-unit bid under-specified | specified; controls named |
+| R1.9, R2.4 `wmix` | its own stage; 1.77×; Entry 108's *full* regime and an absolute fit condition on `sum`; `wmix_in` |
+| R1.10, R2.5, R2.6 noise floor, margin, teachers | three nulls; "not worse" needs an upper bound below 1.5; readings must hold at equal rates; twelve teachers |
+| R2.1 `ev_lookup` changed two things | `match_untied` added; the readings separate the match from the tie |
+| R2.2 unit of evidence | one draw per (world, state) |
+| R2.3 identification circular | defined by function, in every run |
+| R2.7 encoder arm under-trained at 4,000 steps | step count tuned; wide encoder in E0; "does not bootstrap" row for the encoder arm |
+| R2.8 trivial wins and losses | learned scalar in the match; initial temperature fixed; blocks identical across bank arms; duplicates counted |
+| R2 order | evidence first, on the plain `tok_streams` configuration; names cut to N1 and one factorial; bank size moved to the evidence carrier |
 
 ## 14. What this cannot show
 
 - Anything about several sites (section 1).
-- Where items come from when the input does not itemise them (Entry 109, point 6). In Part II the input still arrives as two separate items.
-- A regime where weight *averaging* is the right operation: primitives that lie in a linear family in weight space, where a new primitive is a mixture of stored ones. There naive weight mixing is exact and output mixing is not; which holds depends on the teacher, and a synthetic carrier cannot say which real tasks resemble.
-- The carrier's limits from Entry 108 stand: the `select` teacher has the shape of the per-item arms, and a block contains a teacher primitive exactly.
+- Where items come from when the input does not itemise them (Entry 109, point 6): the evidence still arrives as two separate items.
+- A regime where weight *averaging* is the right operation: primitives in a linear family in weight space, where a new primitive is a mixture of stored ones. There naive weight mixing is exact and output mixing is not; which holds depends on the teacher.
+- The carrier's limits from Entry 108 stand: the `select` teacher has the shape of the per-item arms, and a block contains a teacher primitive exactly — which also tilts the shift test (section 3).
+- Twelve splits; AGENTS.md asks for more seeds and a full bootstrap before a headline claim.
