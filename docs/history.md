@@ -2247,6 +2247,16 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None taken; nothing is run until the researcher says so. D139 stays open.
 
+## Entry 114 (16 Nov 2026): a visualiser of the lookup, on a trained block's own matrices
+
+**Premise.** The researcher: "create a visualizer of what this approach is doing by how weight matrices for a block are constructed thru qkv", then "make this with the actual matrices in the looped block". The first version used made-up weights. The second needs trained ones, so I trained the lookup block once per kind of item — which is not a stage of the design (Entry 113) and from which no reading is taken.
+
+**What was run.** `experiments/theory/lookup/viz_model.py`, committed before it ran: the block of [weight_lookup.md](weight_lookup.md) sections 4 and 8 with one site (eight blocks of sixteen units; keys computed from the weights; bids from the blocks' own units; soft load), on the worlds carrier, `select`, coverage 9, split 0, teacher 10, model seed 0. One model with named items (key: the block's output at a learned probe state, projected; 4,000 steps), one with demonstrations (key: the block's output at the item's own state, one demonstration per item; 8,000 steps). Weights exported to `viz_model.json`; the page is `viz_page.html` (also published as an artifact). The page's arithmetic was checked against the Python forward pass on a fixed case (largest difference 1e-4, from rounding the weights to four decimals).
+
+**One-seed observations (indications only, L30).** Error on trained / held-out worlds: 0.0105 / 0.049 with names, 0.0075 / 0.055 with demonstrations (the stored `tok_streams` run on this split: 0.0074 / 0.053). In each model six of the eight blocks match a teacher primitive to within 0.2 % in function and two compute no primitive. On states where the two triggers are close the trained share between the items sits near one half while its larger side agrees with the teacher's choice. On the trained weights, averaging matrices in place of stacking units gives a block 40–50 % away from the sum of its loaded blocks on such passes, and exactly equal when one block holds all the weight.
+
+**Decisions.** None. The design's stages have not been run. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
