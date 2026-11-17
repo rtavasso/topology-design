@@ -2257,6 +2257,16 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. The design's stages have not been run. D139 stays open.
 
+## Entry 115 (17 Nov 2026): when averaging stored weights is meaningful
+
+**Premise.** The researcher: "maybe doing weighted averaging of values doesnt make sense for a weight matrix because of weight fuzzing? or maybe it does bc each value is a basis?" Discussion; nothing trained. Tests W7–W9 (`tests/test_weight_mixing.py`) committed before their first run; all held. [weight_lookup.md](weight_lookup.md) section 9.
+
+**Answer.** Both, about different parts of the block. A weighted average of weights equals the weighted average of their outputs exactly where the output is linear in those weights. That holds for the write matrix over a shared read matrix (W7) and for a single matrix (W1); it fails for the read matrix, which sits inside the nonlinearity (W7), and for two factors averaged separately, which produce cross terms pairing one block's write with another's read even in a linear block (W8). The read rows define basis functions and the write columns are coefficients over them: coefficients can be averaged, definitions cannot. Stacking units is exactly a weighted average of write matrices written over the union of all read rows (W9), so the lookup is the averaging done in coordinates that correspond.
+
+**Opened, not pursued.** Values as coefficient matrices over one shared dictionary of read rows, with supports that overlap: exact under attention, at the price of evaluating the dictionary.
+
+**Decisions.** None. I38 updated.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.

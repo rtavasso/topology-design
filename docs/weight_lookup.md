@@ -1,6 +1,6 @@
 # Building one block by attention over a bank of weights — a formalisation
 
-**Status: a formalisation, nothing trained.** Written 16 Nov 2026 for idea I38 (history Entries 110–112). Exact statements are tests in `tests/test_weight_lookup.py` (U1–U8) and `tests/test_weight_mixing.py` (W1–W6). Related work is cited from memory and has not been re-read.
+**Status: a formalisation, nothing trained.** Written 16 Nov 2026 for idea I38 (history Entries 110–112). Exact statements are tests in `tests/test_weight_lookup.py` (U1–U8; W7–W9 in `tests/test_weight_mixing.py`) and `tests/test_weight_mixing.py` (W1–W6). Related work is cited from memory and has not been re-read.
 
 ## 1. The atom is a unit, not a row and not a matrix
 
@@ -69,3 +69,20 @@ The researcher's proposal: the parallel blocks are learnable parameters, a prior
 **8.3 One key per block and site, not one per unit.** A key computed from a single unit's weights addresses by *similarity*; a primitive is a set of units that are *used together*, and those are different from one another by necessity. Measured on the worlds teacher (ten teachers, six primitives of six units each): with a linear key on the read row, one query can pick a primitive's six units out of the thirty-six in 0 of 60 cases; with the write column added, 5 of 60 and never all six primitives of a teacher; with the full product v bᵀ, always — but only because thirty-six units give thirty-six independent features, so the key head is then a table with one entry per unit, a free key by another name (U7). So the membership of units in a primitive should come from the block structure — which is what "parallel blocks as a prior of primitives" already provides — and the key head should compute one key per block and site from all of that block's units there. That is the arrangement of U4 (the tested per-token streams arm) with the group's key computed from the group's weights instead of stored beside them.
 
 **8.4 What changes against stored keys (expectation, untested).** The address follows the content: there is no table to go stale, a primitive that changes is found where it now belongs, and two primitives that compute nearly the same thing at the probes get nearly the same address and cannot be told apart by an item — by construction. The coupling runs both ways: the loss can now change what a primitive computes in order to change who retrieves it, unless the gradient from the address into the weights is cut. Under soft retrieval there is a positive feedback (retrieved together → same gradient → more alike → closer keys) that merges primitives; with stored keys the addresses can separate first and the content follow ("the gate must lead", Entry 110), and here they cannot move independently.
+
+## 9. When does a weighted average of stored weights mean anything? (Entry 115)
+
+The researcher's question: perhaps averaging the values makes no sense for a weight matrix, because the weights blur; or perhaps it does, because each value is a basis element. Both are right, about different parts of the block, and the line between them is exact.
+
+**The rule.** A weighted average of stored weights equals the weighted average of what they compute exactly where the output depends on those weights *linearly*. It fails where the averaged weights pass through a nonlinearity, or multiply other averaged weights.
+
+- One matrix applied to its input: averaging matrices is averaging outputs (W1).
+- The **write** matrix of a block, when every block shares the read matrix: exact at every gate (W7). The read matrix fixes a set of basis functions tanh(b_i · h); a write matrix holds coefficients over them; averaging coefficients over one basis is the ordinary sense of a weighted sum.
+- The **read** matrix: not exact (W7). Its rows define the basis functions, and an average of two definitions is a third function, not a mix of the two.
+- Two factors averaged separately: not exact even with no nonlinearity (W8). The product of the averages contains cross terms g_k g_l V_k B_l, one block's write applied to another block's read.
+
+So "each value is a basis" is true of a **unit** (a basis function with its coefficient vector) and of a write matrix over a shared basis; "the weights blur" is true of a read matrix and of a whole block averaged entry by entry, where index i means a different basis function in each block.
+
+**The lookup is the averaging that works.** Put every block's read rows into one common list. Write each block's write matrix over that list, with zeros where the rows are not its own. Then a plain weighted average of those write matrices is exactly the weighted sum of the blocks' outputs, at any weights (W9). Stacking units and averaging matrices are the same operation once the matrices are written in common coordinates; the naive average fails only because it averages in coordinates that do not correspond.
+
+**What this opens.** Nothing requires the padded write matrices to have disjoint supports. Stored values could be coefficient matrices over one shared dictionary of read rows, with primitives reusing each other's basis functions; attention over such values is an exact weighted average. The price is that the read side is no longer retrieved: the whole dictionary is evaluated unless the combined coefficients are sparse.
