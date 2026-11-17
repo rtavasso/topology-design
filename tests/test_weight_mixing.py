@@ -95,3 +95,43 @@ def test_W6_small_deltas_on_a_shared_base_mix_almost_linearly():
         Bk, Vk = B0 + s * B, V0 + s * V
         gaps.append((weight_mix(Bk, Vk, gate, h) - output_mix(Bk, Vk, gate, h)).abs().max().item())
     assert gaps[1] < gaps[0] / 50                                    # ten times smaller deltas: about a hundred times closer
+
+
+# ---- Entry 115: when is a weighted average of stored weights meaningful? ----------------------------------------
+# Predictions (before the first run): all three are identities and hold to rounding; the "is not" halves differ by O(1).
+
+def test_W7_averaging_write_matrices_over_a_shared_read_matrix_is_exact_averaging_read_matrices_is_not():
+    B, V, g = _streams(7)
+    h = torch.randn(4, d, generator=g)
+    gate = torch.tensor([0.5, 0.3, 0.2])
+    # same read matrix in every stream: the block is linear in its write matrix, so averaging V is averaging outputs
+    Bsh = B[:1].expand(K, w, d)
+    assert torch.allclose(weight_mix(Bsh, V, gate, h), output_mix(Bsh, V, gate, h), atol=1e-13)
+    # same write matrix, different read matrices: the average goes through tanh
+    Vsh = V[:1].expand(K, d, w)
+    assert (weight_mix(B, Vsh, gate, h) - output_mix(B, Vsh, gate, h)).abs().max().item() > 1e-2
+
+
+def test_W8_even_without_a_nonlinearity_averaging_two_factors_separately_is_not_averaging_the_maps():
+    B, V, g = _streams(8)
+    h = torch.randn(4, d, generator=g)
+    gate = torch.tensor([0.5, 0.3, 0.2])
+    maps = torch.einsum("kiw,kwj->kij", V, B)                                   # stream k is the linear map V_k B_k
+    avg_of_maps = torch.einsum("k,kij->ij", gate, maps)
+    factors = torch.einsum("k,kiw->iw", gate, V) @ torch.einsum("k,kwj->wj", gate, B)
+    assert (factors - avg_of_maps).abs().max().item() > 1e-2                    # cross terms g_k g_l V_k B_l
+    cross = torch.einsum("k,l,kiw,lwj->ij", gate, gate, V, B)
+    assert torch.allclose(factors, cross, atol=1e-13)
+    assert torch.allclose(h @ avg_of_maps.T, torch.einsum("k,kbi->bi", gate, torch.einsum("kij,bj->kbi", maps, h)), atol=1e-13)
+
+
+def test_W9_stacking_units_is_averaging_write_matrices_written_over_one_common_set_of_read_rows():
+    B, V, g = _streams(9)
+    h = torch.randn(4, d, generator=g)
+    R_all = B.reshape(K * w, d)                                                 # the union of every stream's read rows
+    for gate in (torch.tensor([0.5, 0.3, 0.2]), torch.tensor([1.0, 1.0, 0.0]), torch.rand(K, generator=g)):
+        W_pad = torch.zeros(K, d, K * w)
+        for k in range(K):
+            W_pad[k, :, k * w:(k + 1) * w] = V[k]                               # stream k's write matrix, zero elsewhere
+        W_bar = torch.einsum("k,kin->in", gate, W_pad)                          # a plain weighted average of matrices
+        assert torch.allclose(torch.tanh(h @ R_all.T) @ W_bar.T, output_mix(B, V, gate, h), atol=1e-13)
