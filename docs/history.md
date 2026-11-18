@@ -2267,6 +2267,14 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. I38 updated.
 
+## Entry 116 (18 Nov 2026): what a normal block contains, and which block the lookup has been tested on
+
+**Premise.** The researcher: "what are the layers of a normal block? is a transformer block? with attn and mlp?" A question of fact; nothing run.
+
+**Answer given.** A standard transformer block (the one in `src/topology_design/rewrite/model.py`, `Block`) has two sublayers, each added back to the residual stream after a layer norm: self-attention (query, key and value maps and an output map, split into heads) and a feed-forward network (one matrix in, a nonlinearity, one matrix out). The block of the lookup work so far (Entries 104–115) is **not** that: it is the feed-forward half alone, V tanh(B h), on a single state vector with no positions and no attention sublayer. The read matrix is the feed-forward input matrix and the write matrix its output matrix. In a full transformer block the lookup would have two sites (weight_lookup.md section 8.1): feed-forward hidden units, and attention heads. By Entry 115's rule the write sides (feed-forward output matrix, attention output map) can be averaged over a shared read side; the feed-forward input matrix and the query and key maps cannot (they sit inside a nonlinearity), and a head's value and output maps are two factors (W8). These statements about the attention site follow from the standard form of the layer and are not tested here.
+
+**Decisions.** None.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
