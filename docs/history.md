@@ -2291,6 +2291,28 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** D140 opened (the researcher's). D139 stays open.
 
+## Entry 118 (18 Nov 2026): has context-dependent weight lookup been done? A literature check
+
+**Premise.** The researcher: "This is sort of compositionally built Mixtures of Experts with effectively infinite experts (thru unique composition) and program lookup which is what our original experiments were trying to do, but working directly on weights. Has this work been done by anyone already?" Twenty-two papers read (depth per paper in [literature.md](literature.md), section "Has context-dependent weight lookup been done?"), searched in one session. Nothing run.
+
+**Answer.** Mostly yes; the pieces exist and several are recent.
+- *The unit-grain bank retrieved by key* is PEER (2024): over a million single-neuron experts σ(uᵀx)v, product keys, top-k, beating dense and coarse mixtures at equal compute. Its query is the token's own state and its keys are stored. "Infinite experts by composition" is its premise, and SMoRA's and Polytropon's.
+- *Composing weights by attention scores* is what multi-head attention already does across heads (Schug et al. 2025), and strengthening it improves held-out combinations. A feed-forward mixture of experts in the same study gave only capacity-like gains.
+- *Whether weight-space composition generalises compositionally* has a theorem (Schug et al. 2024): yes if every module is seen, the training combinations are connected, and there is **no spare capacity**; with spare modules the learner spends one per task. This is the read-side averaging that Entry 115 calls inexact — exact there because the task family has that form.
+- *Context-dependent weights* are old (fast weights 1991; hypernetworks 2016, which fell back to scaling rows of a static matrix, a gate per unit). In a looped block: Ouroboros (2026), with context-set coefficients over a rank-one bank — better than a static table on training data, worse than no loop on held-out text.
+- *Binding learned functions to context items* by attention with stored keys is Neural Production Systems (2021), beside Neural Interpreters.
+- *Experts in loops* is active work at language-model scale in 2026 (LoopMoE, Tying the Loop, Hyperloop).
+
+**Not found** (within this search): keys computed from the stored weights themselves; retrieval by matching the applied block against evidence in the context, as a trained layer; and a single controlled study of context-loaded units against a static block, at matched parameters and compute, on held-out combinations.
+
+**What it changes.**
+- Entry 115's rule is known (the modular-learning survey states it), and the fragility of merging unaligned weights is Git Re-Basin's subject. They are not contributions.
+- The storage half of "expanding the space" — more parameters at fixed compute — is established by PEER; measuring it again would repeat it.
+- The theorem's condition bears directly on the researcher's hope: more stored pieces is the condition under which compositional generalisation is lost. Entry 108's reading (the architecture helped as a constraint, not as capacity) agrees.
+- The earlier "cited from memory" lists (Entries 110–117) are now partly read; what is still unread is listed at the end of the literature section.
+
+**Decisions.** None. D140 stays open and now has this to weigh.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
