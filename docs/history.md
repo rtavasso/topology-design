@@ -2293,7 +2293,7 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 ## Entry 118 (18 Nov 2026): has context-dependent weight lookup been done? A literature check
 
-**Premise.** The researcher: "This is sort of compositionally built Mixtures of Experts with effectively infinite experts (thru unique composition) and program lookup which is what our original experiments were trying to do, but working directly on weights. Has this work been done by anyone already?" Twenty-two papers read (depth per paper in [literature.md](literature.md), section "Has context-dependent weight lookup been done?"), searched in one session. Nothing run.
+**Premise.** The researcher: "This is sort of compositionally built Mixtures of Experts with effectively infinite experts (thru unique composition) and program lookup which is what our original experiments were trying to do, but working directly on weights. Has this work been done by anyone already?" Twenty-three papers read, three of them at abstract level only (depth per paper in [literature.md](literature.md), section "Has context-dependent weight lookup been done?"), searched in one session. Nothing run.
 
 **Answer.** Mostly yes; the pieces exist and several are recent.
 - *The unit-grain bank retrieved by key* is PEER (2024): over a million single-neuron experts σ(uᵀx)v, product keys, top-k, beating dense and coarse mixtures at equal compute. Its query is the token's own state and its keys are stored. "Infinite experts by composition" is its premise, and SMoRA's and Polytropon's.
