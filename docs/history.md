@@ -2275,6 +2275,22 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None.
 
+## Entry 117 (18 Nov 2026): the researcher states the question — context-dependent weights against static weights
+
+**Premise.** The researcher, in full: "My thought is that static weights have to learn an averaging over the inputs and store information and patterns in a single space. And attention gives a way to do this sort of dynamic contextual lookup in a really efficient way. But I think there's an abstraction, a level higher, where we can do weight modification based on context itself, sort of expanding the space that a model stores information in by doing this weight lookup using context of the input and state. But I do have sort of unknown questions on how that actually fits together in terms of avoiding the fragility of weights and sort of how weights, what weights are really doing, what they represent. They're matrices and their functions. They are sort of like a key value lookup. They interact together in shared spaces and disparate spaces, depending on the matrices. And attention does averaging over values based on query key compatibility. And that works as a latent, and I'm unsure if that compatibility works as weights. And this is really what I want to explore, is how context-dependent model weights compare to static weights. I'm not sure if this clarification is aligned with what we've done so far, or if this changes anything for you." Discussion; nothing run.
+
+**Answer given.**
+- *Aligned in mechanism, not in how the experiments are framed.* Entries 110–116 are about this object. The experiments (104–108) and the design (113) were framed around narrower questions: whether streams recombine, and how a bank should be addressed.
+- *Where the idea sits.* Two things vary: what is looked up, and what does the looking. A static feed-forward layer: learned parameters, queried by the current state alone (a unit's read row is a key, its write column a value, the nonlinearity the compatibility). Attention: context activations, queried by the state — equivalently a weight matrix built from the context as a sum of value-times-key terms and applied to the query, so attention is already context-dependent weights made of activations. The researcher's object: learned parameters, queried by context and state.
+- *What static weights cannot do.* Context reaches them only added into the state, so it can shift which units fire and cannot change what a unit reads or writes. Context-dependent weights are the multiplicative case.
+- *Does compatibility-weighted averaging work on weights as on latents.* Latents share one space, the residual stream, so their average corresponds. A matrix's hidden-unit index is arbitrary per block, so entrywise averages blur. A unit is two vectors in the shared space; at that grain the write side averages as latents do and the read side never does (Entry 115).
+- *Three ways context can change weights,* fragility growing along the list: select or reweight stored units (built here; exact; makes nothing new); add units made from the context (attention); generate weights with a network (most expressive; blur and extrapolation live here).
+- *What our evidence says on static against context-dependent,* and what it changes: as in the ledger's direction update of this date. Decision D140 opened.
+
+**Cited from memory, not re-read:** feed-forward layers as key–value memories (Geva et al. 2021); fast weights (Schmidhuber 1992; Ba et al. 2016; Schlag et al. 2021); multiplicative interactions (Jayakumar et al. 2020); hypernetworks (Ha et al. 2016). To be read before any claim of novelty.
+
+**Decisions.** D140 opened (the researcher's). D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
