@@ -2362,6 +2362,18 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None taken by the researcher. Revision 5 awaits its own review before anything is run. D139 stays open.
 
+## Entry 122 (20 Nov 2026): confirmation review of revision 5; revision 6
+
+**Premise.** The same reviewer on revision 5: [review_design_rev5.md](../experiments/theory/lookup/review/review_design_rev5.md). Verdict: **sound with corrections** — the blocking findings of the last review are resolved in the text and stages 0, A and B can be scripted; one sentence of contribution A was wrong as a derived statement and stage C had lost its readings. Nothing run by me.
+
+**The wrong sentence.** I wrote that under a normalised address "what is left is one bid offset per primitive, and connected trained worlds fix those up to a common constant". That holds only if bids have the teacher's own form. A bid is a free function of the state and a trained world fixes only the sign of a bid difference, so held-out decisions are pinned only where trained comparisons chain — the "linear triggers" assumption that Entry 108's review had already corrected once. The reviewer's exact construction (raise the bid of b and of everything that beats b through trained chains) keeps every trained decision and breaks any chosen held-out world; it is now test B5. Transfer beyond the chains is measured (Entry 108: 0.93–0.95), not derived.
+
+**Other corrections taken.** B1 was exact only through the large self-excitation I built in; it is now one-sided and the statement is "trained worlds bound each cross term from above only". B2 holds for saturated loads; the margin-free statement is that a load is a function of one item. Stage A gains a second route by which the pooled gate fails — weight leaking onto blocks of neither item — and three removals on the trained model; the reviewer's one-seed causal check: 0.454 held-out, 0.272 with the fitted offset removed, 0.325 with non-members masked, 0.093 with both, seen error unchanged. Stage C gets absolute readings, a fixed rate, a frozen-encoder-with-replay arm and named expectations. Stage B gets conditions for the static-against-bank cell and one identification statistic for all arms. Wording: "capacity is irrelevant" is an observation at one seed, only the gate-level freedom is derived; the tie in part C is an economy, not a necessity (MOSAIC pairs separate models).
+
+**Tests.** B0–B5 pass. B5's first run failed on my bound for trained worlds (1e-9 against a floor that moves by 1e-5 when decisions sharpen); recorded in the docstring. That is the fourth threshold of mine in this file that the first run refuted.
+
+**Decisions.** None. The design stands at revision 6, reviewed; nothing is run until the researcher says so. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
