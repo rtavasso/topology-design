@@ -134,3 +134,26 @@ About nine hours on two processes: stage 1 one and a half, stage 2 two, stage 3 
 ## 12. Set aside from revision 3
 
 The check on names (naive weight mixing; the 2 × 2 × 2 of bid source, key source and hard load) answered narrower questions. Naive weight averaging is settled by the rule in section 2. A hard load and bids from a block's own units are engineering choices to be made once the comparison above says whether the bank is worth engineering.
+
+## 13. A further claim, recorded and not tested here: closing the loop (the researcher, 20 Nov; Entry 120)
+
+"The looped transformer with this dynamic weights, if we can condition somehow on past state or past block configurations, lets us dynamically error correct and path find."
+
+What that needs, and what the bank supplies:
+
+| Needed | Supplied by |
+|---|---|
+| An explicit set of moves to choose among | the bank: its blocks can be listed and tried. Static weights have no such list. |
+| A record of where the loop has been | past states (so a move can be undone) and past configurations (which blocks ran on which pass: a short, discrete trace of the program so far) |
+| **A signal of error that can be read inside the forward pass** | not supplied by the loop or the bank as such. Candidates: how well the loaded blocks explain the context's evidence (the match score of `bank_match`, so C3 is its precondition); distance to a goal the context gives; the state ceasing to change |
+
+Without the third, a history gives sequencing ("what comes next"), not correction. With it, a loop that chooses its block once from the context executes a plan and lets errors accumulate (open loop); one that looks up again on every pass, using the current state against the evidence or the goal, corrects them (closed loop).
+
+Why this design cannot show it. The load is computed once per world and reused on all four passes; the context shows which primitives are in play and the state settles between them, so no choice ever has to be revisited; and training never contains an error to correct. Nothing in stages 1–4 would change if the four passes were one pass with a larger step.
+
+A carrier that could: the context gives only start and end states of an unknown *sequence* of primitives, and the model has to find the sequence. Then open and closed loop differ, the number of passes matters, and "path finding" has a definite meaning (search over sequences of blocks, with returning to an earlier state as a move).
+
+Cautions from the record. Published looped mixtures settle into one selection across passes (Looping Beyond Twice; the middle passes of LoopMoE), and Ouroboros gained nothing from more loops. A loop learns to correct errors only if training shows it states that contain them.
+
+Order. After stage 2, because the error signal depends on C3 (i): a bank that cannot index itself has nothing to check its choice against.
+

@@ -2313,6 +2313,34 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. D140 stays open and now has this to weigh.
 
+## Entry 119 (18 Nov 2026): proposed contribution and re-aimed design (revision 4)
+
+**Premise.** The researcher: "So given our framing, what is our proposed contribution and experimental design?" [experiments/theory/lookup/DESIGN.md](../experiments/theory/lookup/DESIGN.md), revision 4. Nothing run. The independent review was started and stopped by a usage limit before it wrote anything; it was resumed on 20 Nov. **Revision 4 is therefore unreviewed as of this entry.**
+
+**Thesis proposed.** Keeping primitives as separately stored, retrievable units matters less for what a model can compute than for what it can recognise: a bank of blocks can be run on the context's evidence and compared with it, so the model can index itself, and be extended by adding a block; fixed weights cannot.
+
+**Claims.** C1, a decomposition: fit per parameter and compute come from selecting units; recombination comes from binding per context item, with static or stored weights; recognition is C3. C2: the capacity condition of Schug et al.'s theorem belongs to composing with one code for the whole context; under per-item loading spare capacity is harmless. C3: retrieval by evaluating the applied blocks on evidence trains from scratch, survives evidence shift where an encoder degrades, and addresses a block added after training with nothing else changed.
+
+**Not claimed** (Entry 118): storage at fixed compute, composing weights by attention scores, the averaging rule, binding functions to context items, experts in loops.
+
+**Design.** The evidence carrier of Entry 113. A 2 × 2 of weights (static, bank) by binding (pooled, per item) with a learned encoder throughout, and a ladder in addressing (encoder, match against a separate copy, match against the applied blocks); static arms at compute-matched, parameter-matched and triple size. Stage 1 runs the static arms first with a stop rule; stage 2 the 2 × 2 and ladder; stage 3 a capacity dial (6, 8, 12, 24 blocks for six primitives); stage 4 adds a sixth primitive after training on five, from demonstrations alone, and measures new-pair error and damage to old pairs; stage 5 mechanism. Readings fixed in advance, including the ones that sink each claim.
+
+**My own doubts, recorded.** C2 may fail as "the condition is not capacity" (my prediction, 0.55). The tie in C3 may add nothing during training (one-seed probe of the earlier review), leaving its case to stage 4. Scale: a feed-forward block on a synthetic carrier.
+
+**Decisions.** D140 resolved by the request: the design is re-aimed at static against context-dependent weights. D139 stays open.
+
+## Entry 120 (20 Nov 2026): closing the loop — error correction and path finding
+
+**Premise.** The researcher: "I'd also argue that the looped transformer with this dynamic weights, if we can conditions somehow on past state or past block configurations, let's us dynamically error correct and path find". Discussion; nothing run. Recorded as section 13 of the design.
+
+**Answer given.** The argument holds on one condition. Search needs three things: an explicit set of moves, a record of where the loop has been, and a signal of error readable inside the forward pass. A bank supplies the first (static weights have no list of moves to try); past states and past configurations supply the second (a state to return to; a short discrete trace of which blocks ran); neither supplies the third. Candidates for it: the fit of the loaded blocks to the context's evidence (so C3 is the precondition), distance to a goal in the context, the state ceasing to change. Without it, history gives sequencing, not correction. The distinction is open loop (choose from the context once, execute) against closed loop (look up again each pass against the evidence or goal).
+
+**Why revision 4 cannot show it.** Its load is computed once per world; no choice has to be revisited; training contains no errors; its four passes could be one. A carrier that could: the context gives only start and end states of an unknown sequence of primitives.
+
+**Cautions.** Looped mixtures in print settle into one selection per pass; Ouroboros gained nothing from loops; correction has to be trained on states that contain errors. Relatives cited from memory and not read: recurrent networks with recall for mazes (Schwarzschild et al. 2021; Bansal et al. 2022), the Hierarchical and Tiny Recursive reasoning models (2025).
+
+**Decisions.** None. Recorded as idea I39, ordered after stage 2 of revision 4 because it depends on C3 (i).
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
