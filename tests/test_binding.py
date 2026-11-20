@@ -9,6 +9,17 @@ tanh(A_p h)); a block's bid is lam * (w_p . h) + beta_p; u[k, j] says how much i
                                                                                          address normalised first)
 Predictions (written before the first run): B1-B4 hold as stated; they are consequences of where u's cross terms
 enter. In B1 the trained-world error stays below 1e-6 while one held-out world's error passes 0.05.
+
+First run (20 Nov): all five failed, B0 included. With bids of sharpness 50 the exact bank is not exact: near a tie
+between the two triggers the softmax blends the two primitives, an error floor of 0.002-0.004 that my absolute
+thresholds of 1e-6 ignored. The run therefore said nothing about the structural statements. Second version, below:
+sharper bids, and "unchanged" is tested as a difference from the ideal setting's error, not as an absolute size.
+Offsets are in units of the bid sharpness (an offset of 6 is six trigger units: it decides every state).
+Second run: B0 and B4 failed for the normalised pooled gate only - my guard against log 0 (adding 1e-300) capped
+the penalty on an unloaded block at -690, below the bids, so unloaded blocks won. A bug in the construction; removed.
+Third run: B1-B4 held. B0's bound of 1e-3 on the ideal setting failed at 0.0022 (one world; the rest 1e-7 to 1e-5):
+one state in 512 passes within 1/LAM of a tie. B0 now bounds the worst world at 1e-2, the median at 1e-4, and
+requires the three gates to agree with each other to 1e-9 at the ideal setting.
 """
 import os
 import sys
@@ -21,7 +32,8 @@ from worlds import DEF, Teacher, sample_worlds  # noqa: E402
 
 C = dict(DEF, task="select")
 P, D, N = C["P"], C["d"], C["n"]
-LAM, SELF = 50.0, 2000.0
+LAM, SELF = 2e3, 1e6
+OFF = 6 * LAM
 
 
 def _setup(split=0):
@@ -48,7 +60,7 @@ def _run(T, worlds, x, gate, u, beta):
                 share = torch.softmax(torch.stack([(la * bid).sum(-1), (lb * bid).sum(-1)], -1), -1)
                 g = share[..., :1] * la + share[..., 1:] * lb
             else:
-                g = torch.softmax(torch.log(la + lb + 1e-300) + bid, -1)
+                g = torch.softmax(torch.log(la + lb) + bid, -1)                 # log 0 = -inf: an unloaded block cannot win
         h = h + T.eps * (g[..., None] * f).sum(2)
     tgt = T.run(worlds, x, N)
     return ((h - tgt) ** 2).sum((1, 2)) / ((tgt - x) ** 2).sum((1, 2))
@@ -61,31 +73,37 @@ def _ideal():
 def test_B0_all_three_gates_reproduce_the_teacher_at_the_ideal_setting():
     T, tr, te, x = _setup()
     u, beta = _ideal()
-    for gate in ("pooled", "item", "norm"):
-        assert _run(T, torch.cat([tr, te]), x, gate, u, beta).max().item() < 1e-6
+    allw = torch.cat([tr, te])
+    e = {gate: _run(T, allw, x, gate, u, beta) for gate in ("pooled", "item", "norm")}
+    assert e["pooled"].max().item() < 1e-2            # floor: a state within 1/LAM of a tie is blended (about 1 in 512)
+    assert e["pooled"].median().item() < 1e-4
+    assert (e["pooled"] - e["item"]).abs().max().item() < 1e-9 and (e["item"] - e["norm"]).abs().max().item() < 1e-9
 
 
 def test_B1_pooled_gate_each_held_out_world_has_an_offset_that_no_trained_world_sees():
     T, tr, te, x = _setup()
     u0, beta = _ideal()
+    seen0, held0 = _run(T, tr, x, "pooled", u0, beta), _run(T, te, x, "pooled", u0, beta)
     for i, (a, b) in enumerate(te.tolist()):
         u = u0.clone()
-        u[a, b] += 300.0; u[b, a] -= 300.0            # cross terms: how much item b excites a's block, and the reverse
-        assert _run(T, tr, x, "pooled", u, beta).max().item() < 1e-6                # every trained world: unchanged
+        u[a, b] += OFF; u[b, a] -= OFF                # cross terms: how much item b excites a's block, and the reverse
+        assert (_run(T, tr, x, "pooled", u, beta) - seen0).abs().max().item() < 1e-9   # every trained world: unchanged
         held = _run(T, te, x, "pooled", u, beta)
         assert held[i].item() > 0.05                                               # this held-out world: now wrong
-        others = torch.cat([held[:i], held[i + 1:]])
-        assert others.max().item() < 1e-6                                          # and only this one
+        d = (held - held0).abs(); d[i] = 0
+        assert d.max().item() < 1e-9                                               # and only this one
 
 
 def test_B2_normalising_each_items_address_removes_that_freedom_with_or_without_a_single_softmax():
     T, tr, te, x = _setup()
     u0, beta = _ideal()
+    allw = torch.cat([tr, te])
     for gate in ("item", "norm"):
+        base = _run(T, allw, x, gate, u0, beta)
         for a, b in te.tolist():
             u = u0.clone()
-            u[a, b] += 300.0; u[b, a] -= 300.0
-            assert _run(T, torch.cat([tr, te]), x, gate, u, beta).max().item() < 1e-6
+            u[a, b] += OFF; u[b, a] -= OFF
+            assert (_run(T, allw, x, gate, u, beta) - base).abs().max().item() < 1e-9
 
 
 def test_B3_what_is_left_is_one_bid_offset_per_primitive_and_connected_trained_worlds_fix_it():
@@ -94,9 +112,10 @@ def test_B3_what_is_left_is_one_bid_offset_per_primitive_and_connected_trained_w
     g = torch.Generator().manual_seed(4)
     for gate in ("item", "norm"):
         for _ in range(5):
-            beta = 60.0 * torch.randn(P, generator=g).double()
-            assert _run(T, tr, x, gate, u, beta).max().item() > 1e-3               # any uneven offsets show in training
-        assert _run(T, torch.cat([tr, te]), x, gate, u, torch.full((P,), 37.0)).max().item() < 1e-6   # a common constant does not
+            beta = 1.2 * LAM * torch.randn(P, generator=g).double()
+            assert _run(T, tr, x, gate, u, beta).max().item() > 1e-2               # any uneven offsets show in training
+        allw = torch.cat([tr, te])
+        assert (_run(T, allw, x, gate, u, torch.full((P,), 0.7 * LAM)) - _run(T, allw, x, gate, u, torch.zeros(P))).abs().max().item() < 1e-9   # a common constant does not
 
 
 def test_B4_if_the_trained_worlds_fall_into_two_groups_the_offset_between_the_groups_is_free_again():
@@ -104,7 +123,7 @@ def test_B4_if_the_trained_worlds_fall_into_two_groups_the_offset_between_the_gr
     tr = torch.tensor([[0, 1], [1, 2], [0, 2], [3, 4], [4, 5], [3, 5]])              # two triangles, not connected
     te = torch.tensor([[0, 3], [1, 4], [2, 5]])                                    # worlds across the two groups
     u, _ = _ideal()
-    beta = torch.tensor([0.0, 0.0, 0.0, 80.0, 80.0, 80.0])
+    beta = torch.tensor([0.0, 0.0, 0.0, 1.0, 1.0, 1.0]) * 1.6 * LAM
     for gate in ("item", "norm"):
-        assert _run(T, tr, x, gate, u, beta).max().item() < 1e-6
+        assert (_run(T, tr, x, gate, u, beta) - _run(T, tr, x, gate, u, torch.zeros(P))).abs().max().item() < 1e-9
         assert _run(T, te, x, gate, u, beta).min().item() > 0.02
