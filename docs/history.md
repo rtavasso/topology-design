@@ -2341,6 +2341,27 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. Recorded as idea I39, ordered after stage 2 of revision 4 because it depends on C3 (i).
 
+## Entry 121 (20 Nov 2026): review of revision 4 — the proposed contribution did not stand; revision 5
+
+**Premise.** The independent review of revision 4 (Entry 119), resumed after the usage limit: [review_design_rev4.md](../experiments/theory/lookup/review/review_design_rev4.md). Verdict: **not sound as written.** "The contribution as stated is weak: one claim is a replication (C1), one cannot come out in its favour on this carrier (C2), and one has closer prior art than the literature notes list and is largely arithmetic here (C3)." Nothing run by me; the reviewer's training probes are one seed, one split.
+
+**What fell, and why.**
+- *C1 (the 2 × 2 of weights by binding).* The "weights" factor changed four things at once (how context enters, function class — a bank block contains a teacher primitive exactly —, bid source, normalisation), and nothing was held out at its level: a per-item branch sees only a state and one item, both trained. By my own definition a static block gated per unit is context-dependent; the factor is additive against multiplicative conditioning, which is known (Jayakumar et al. 2020, unread; our Entry 105). Stage 1's stop rule could not fire.
+- *C2 (capacity).* I cited a theorem without checking its conditions against the carrier: it needs module count **and width** equal to the teacher's, a free code per task, and a fixed combination (`select` is none). Six blocks of width 16 are already 2.7 times over. And the pooled gate has a memorising solution at every size, in the gate. Probes: pooled 0.45, 0.38, 0.38 held-out at 6, 8, 24 blocks (bar 0.25).
+- *C3 (the block as its own key).* Prior art I had not found: MOSAIC (1998) is the untied match trained from scratch; modular meta-learning (2018) scores the applied modules on the task's data. "Fixed weights cannot" was false of the arm itself. The add-a-primitive stage was under-specified, mostly arithmetic, and could not separate the tie.
+- *Section 13.* Condition right in substance; "four passes could be one" wrong for `select` (a single fourfold step has error 0.199; the choice changes mid-loop in 0.195 of cases); the proposed sequence carrier needs a step near 1.
+
+**What the review proposed, and I adopted** (revision 5):
+- *Part A, what binding is.* In a pooled gate the cross terms (how much item b excites the block of a) enter trained worlds only in sums that training wants small, so every held-out pair's decision has a free offset; normalising each item's address before the items meet removes it; what remains is one bid offset per primitive, fixed by connected trained worlds. I derived this as exact tests before writing it down (`tests/test_binding.py`, B0–B4). It is an instance of a known principle (Wiedemer et al. 2023; Lachapelle et al. 2023 — read to their main results), and corrects Entry 109's "binding, not routing": routing with a normalised address binds. One-seed probe: pooled with normalised loads 0.0092 / 0.056, the per-item arm's numbers.
+- *Part B,* the addressing ladder on evidence, with the claim narrowed to whether a bank addressed by its own unfinished contents sorts itself; static against bank reduced to one cell (off-distribution codes) with a unit-gated static arm.
+- *Part C,* closing the loop (the researcher's Entry 120), as the place where the tie and the loop have a job; requirements recorded, not designed.
+
+**The tests' own first runs failed, recorded.** B0–B4 were committed with predictions and all five failed on the first run: my absolute thresholds ignored the blending of the two primitives near a tie (a floor of 0.002–0.004 at the bid sharpness I chose). The second run failed for one gate through a guard against log 0 that I had added. The third left B0's bound too tight by a factor of two. B1–B4 hold in the corrected construction; the docstring keeps the three runs.
+
+**What I got wrong, in kind.** I stated a contribution as I would a design choice: without reading the theorem I leaned on against the carrier, without searching each claim's prior art separately (and outside the mixture-of-experts literature), and without asking whether the favourable outcome could occur. Lesson L61.
+
+**Decisions.** None taken by the researcher. Revision 5 awaits its own review before anything is run. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
