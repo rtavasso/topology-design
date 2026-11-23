@@ -2412,6 +2412,18 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None.
 
+## Entry 125 (23 Nov 2026): does the design need to change for the vision as corrected?
+
+**Premise.** The researcher: "does our design need to change to incorporate this correction in vision". Nothing run; the design file is unchanged pending his decision.
+
+**Answer given: yes, in what it tests first; no, in what it already contains.**
+- *What stays.* Stage A (what binding is) is a prerequisite of the vision — a block composed for a context never seen only helps if the choice of units is right on that context — and is cheap. Stages B and C (addressing by evidence; adding a primitive) remain sound but are about how the address is computed, which the vision as now stated does not turn on.
+- *What is missing.* Three things the vision's centre needs and no stage has. (1) **Unit grain with sharing:** every bank arm in revision 6 selects whole blocks, and the teacher's primitives use disjoint units; the vision is rows and columns chosen per context, with fewer stored units than the layers they make up. (2) **Different blocks on successive passes:** the teacher applies the same kind of step on every pass and the load is fixed per world. (3) **The thing being approximated:** no arm is a deep network with distinct layers.
+- *The change proposed.* One new stage, placed after A and before B and C: a teacher that is a deep network whose layers are drawn from a shared dictionary of units (a dial for how much layers share), with the layer on each pass set by context and state; arms: an untied dense network, a static looped block, a block-grain bank, a unit-grain bank, the last with and without the pass index.
+- *Cautions stated.* Entry 105 was an earlier attempt at part of this and could not answer its question (L58). If the context names units directly the unit-grain bank is exact by construction (U1), so context must name layers and the bank must discover the shared units. The language-model-scale relatives exist (Tying the Loop, MoEUT, PEER, SMoRA), so the claim would be a controlled small-scale account, not a new architecture. It would need its own review before any run.
+
+**Decisions.** D141 opened (the researcher's): add that stage ahead of B and C, or keep revision 6's order.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
