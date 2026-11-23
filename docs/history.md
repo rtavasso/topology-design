@@ -2424,6 +2424,26 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** D141 opened (the researcher's): add that stage ahead of B and C, or keep revision 6's order.
 
+## Entry 126 (23 Nov 2026): literature review before designing the layers stage
+
+**Premise.** The researcher: "do a lit review for what already exists before we design". The idea as corrected in Entries 123–125: one bank of units; a block composed per pass by context and state; the looped model standing in for a deep network of distinct layers with fewer stored units. Twenty-one papers read (depth per paper in [literature.md](literature.md), section "A looped bank standing in for a deep network of distinct layers"). Nothing run.
+
+**What exists.**
+- *Theory.* Any L-layer network equals a tied, input-injected network of the same depth whose width is the sum of the layers' widths, the state acting as program counter (Deep Equilibrium Models, Theorem 3). A tied block is provably limited unless something changes per pass, and a per-pass diagonal scaling removes the limit (Xu & Sato 2025).
+- *Layers as combinations of one bank, fixed per layer:* done since 2019 — shared templates (a third of the parameters at near-baseline error; layers fold into loops), shared bases, a shared rank-one bank with per-layer scalings, a tied block plus per-depth low-rank terms (58.4 against 58.6 at 80 % of the parameters; 51.7 at half).
+- *A tied block acting as distinct layers through which experts fire:* reported this year at language-model scale. Dense looped models scale worse than untied ones and looped mixtures of experts do not; on the second pass 25–53 % of tokens get a disjoint set of experts (Sparse Layers are Critical). Statistics, no causal test, two loops, eight experts.
+- *Supporting measurements in trained models:* up to 95 % of feed-forward units can be skipped per token with the set predictable from the previous layer's state (Deja Vu); one feature dictionary across layers beats per-layer dictionaries (crosscoders); read-side matrices share bases across neighbouring layers and write-side ones do not (Basis Sharing).
+- *Unit grain:* conditional execution of 12 of 4,095 units trained from scratch (UltraFastBERT); one pool of stored vectors shared by several layers (Memory Layers).
+- *Unseen sequences:* layers trained under shuffled order run in arbitrary orders and infer their position from their input (LayerShuffle).
+
+**Not found.** Units from one bank shared across all passes, chosen by context items and state without a pass index, as one system; unit configurations never used together in training, tested as such; the size of bank needed against the untied network as a function of how much the layers share, with exact references.
+
+**Consequences for the stage** (six, listed in the literature section): the summed-width tied block as the exact reference and a same-width static arm; three cheap, strong baselines as arms (per-pass diagonal scaling, per-pass low-rank terms, a state-conditioned gate); read and write sharing as separate dials; pass index against state as a factor; the recurring stability practices; held-out configurations as the measurement nobody reports.
+
+**A correction this forces on Entry 124.** I wrote that the looped bank "can stand in for a deep network exactly to the extent the network's layers share a common set of features". Theorem 3 shows it can always stand in, at the summed width; sharing decides only how much smaller than that the bank can be.
+
+**Decisions.** None. D141 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
