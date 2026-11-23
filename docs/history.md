@@ -2444,6 +2444,18 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. D141 stays open.
 
+## Entry 127 (23 Nov 2026): "so is none of this novel?"
+
+**Premise.** The researcher, after the literature review of Entry 126. Discussion; nothing run.
+
+**Answer given.** The idea is not novel as an idea; one version of it, and one question about it, appear to be untested.
+- *Not novel:* storing more than is computed with; retrieving units by key; composing weights by attention scores; layers as combinations of one shared bank; a tied block acting as distinct layers through which experts fire; a bank shared across depth; context-dependent weights; binding functions to context items; choosing modules by how well they predict what is observed. Each has a paper, several from this year, some at language-model scale.
+- *Not found, within three searches of one session each:* (1) the combination — units from one bank shared across every pass, chosen by context items and state with no pass index; (2) the question the vision turns on — whether unit configurations never used together in training work, tested as such; (3) how small the bank can be against the untied network as the layers' sharing varies, with exact references; (4) the account of which part of a gate over a bank decides (2) (Entry 122), an instance of a known principle.
+- *How much weight "not found" bears:* little. Three times in this line I called something unfound and prior art turned up within days (Entries 118, 121, 126), and the field moved several papers in the last six months.
+- *What kind of contribution is left:* not a new architecture and not a scale result; a controlled answer to (2), which the published work asserts from routing statistics and does not test. It would be news in either direction.
+
+**Decisions.** None. D141 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
