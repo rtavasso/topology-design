@@ -2374,6 +2374,28 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. The design stands at revision 6, reviewed; nothing is run until the researcher says so. D139 stays open.
 
+## Entry 123 (23 Nov 2026): the idea as a whole, in the researcher's words, and where each part stands
+
+**Premise.** The researcher: "The idea of this being that we can train a model with more parameters than it would use at inference, sort of like a mixture of experts, but without the static blocks of a mixture of experts composing new blocks, and then looping however long we want, such that we could effectively loop and have new layers that have never been seen before that are based on what the context wants. And that each iterative layer actually takes in the input sequence and the current state, potentially, or prior layers, activations, I don't know, and can actually understand and learn about the dynamics of the system as a whole. And this sort of looped recursion with uniquely composed blocks gives, in a sense, a quasi-infinite depth to the model. Because you could do whatever you want. You could loop again, you could create a new block, you have all the computation you need, sort of this like Turing complete computational method that it routes and selects based on context and state. And that would learn stably as well, would be the goal, because of what we talked about earlier about how training a router under dynamic weights can fail, and sort of getting around that." Discussion; nothing run.
+
+**Answer given: the idea is four claims, of different standing.**
+
+| Claim | Standing |
+|---|---|
+| More parameters stored than computed with | Established by others (mixtures of experts; PEER at the grain of single units). |
+| A block composed for this context, never seen in training, works | Conditional. A composed block is a new *subset* of stored units, and in a feed-forward site units add, so its function is determined (U1). Whether the *choice* is right on a new combination is part A of the design: normalised per-item address, and beyond chained comparisons an empirical matter. |
+| Loop as long as wanted: depth for free | **Not tested by anything we have designed, and the hard part in the literature.** Looped models run past their trained number of passes degrade: range set by the training-time maximum, "overthinking", errors compounding with little self-correction (Kohli et al. 2026; Liang et al. 2026). What is known to help is what the researcher lists: re-reading the input each pass (Fan et al. 2025), varying the number of passes in training. |
+| It trains stably | Open. Our record: a shared router repeats one selection per pass (Looping Beyond Twice); the Entry 104 candidate's best rates destroy its address at eight passes; the one model trained for the visualiser blends where it should select. What we have that bears on it: the normalised address removes a freedom training cannot determine (part A); a soft start; and an address trained by how well blocks explain evidence, where the address has its own error signal (part B: does the bank sort itself). |
+
+**Three sharpenings.**
+- *Where "never seen before" comes from.* Lookup cannot make a new unit, only a new subset or weighting of stored ones: unbounded in number, bounded in kind. The unbounded part of the idea is composition *across passes* — the order in which blocks are applied — and that is the axis our carrier barely exercises (at its step sizes a sequence is nearly a bag; review of revision 4).
+- *Turing completeness is not what the bank adds.* A static looped transformer is already a programmable computer in principle (Giannou et al. 2023), with the program in its input. What a bank adds is where instructions live: in addressable storage, fetched per pass, instead of superposed in one block and selected through activations. That is a claim about what is learnable and what interferes, not about what is computable. It also needs memory that grows with the input — the attention sublayer over a sequence. Our block so far is the feed-forward half on one state vector, which is a finite-state machine however long it loops.
+- *"Takes in the input sequence and the current state, or prior layers' activations."* Input and state: the known requirement. Prior passes: Entry 120 — useful for correction only with an error signal readable in the forward pass.
+
+**What it changes.** Revision 6's stages test the second claim and part of the fourth. The third — more passes than trained, with blocks recomposed each pass — is the centre of the idea as stated and is in no stage (section 9 of the design records what a carrier for it needs). Not a decision of mine.
+
+**Decisions.** None. D139 stays open.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
