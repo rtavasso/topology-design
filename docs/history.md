@@ -2396,6 +2396,22 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. D139 stays open.
 
+## Entry 124 (23 Nov 2026): "quasi-infinite depth" means variety of layers, not number of passes — a correction to Entry 123
+
+**Premise.** The researcher, on Entry 123's third claim: "the quasi-infinite depth isn't coming from the loop. It's coming from the composed blocks where we're selecting rows and columns for the weights of a block based on context and state. And that specific block configuration of weights hasn't been seen before during training. And so when I say quasi-infinite depth, I mean to say that we are approximating what a dense network with quasi-infinite or with infinite layers would be able to do with this smaller model by composing any of the blocks or approximating the functions that those blocks in the dense model would compute with our composable blocks. and then being able to loop on top of that". Discussion; nothing run.
+
+**What I had wrong.** I read "depth for free" as running more passes than trained, and answered with the length-generalisation literature. His claim is different: a looped model whose block is recomposed each pass stands in for a deep network with *distinct* layers, each layer approximated by a composition from one bank.
+
+**Answer given.**
+- *Two roles.* Composition supplies the variety (no two passes need use the same layer); applying the composed blocks one after another still supplies the depth. One composed block alone, however new, is one layer: a sum of its units.
+- *What the claim amounts to.* With the stored units fixed, a composed block is linear in its gate weights (U1), so every block that can be composed lies in the span of the bank's N unit functions: unbounded in number, at most N-dimensional as a family. The model is therefore "any deep network whose layers all lie in that span". It can stand in for a deep dense network exactly to the extent that the network's layers share a common set of features — a claim about how much the layers of a deep network have in common.
+- *Evidence in what we have read.* For: expert weights tied across groups of four layers match the untied model at half the parameters, with attention keeping the tied layers distinct (Tying the Loop); a shared-layer mixture of experts slightly beats a parameter-matched dense model (MoEUT, 18.30 against 18.97); the middle layers of trained language models share a representation space (Transformer Layers as Painters). Against, or bounding: replacing layers by copies of one layer is the most damaging intervention in that paper, so layers are not repeats; and letting every depth reach every shared expert was the worst ablation in Mixture of Universal Experts.
+- *What is specific to his version and unsettled.* Those models choose a layer's experts from the token's state and the layer or loop index. His chooses from context and state with no index, so the state has to carry where the computation is (the "computational status" of Liang et al. 2026); the grain is the unit, not the expert; and the compositions used at test may never have been used in training, which is part A's question.
+
+**Consequence for the record.** Entry 123's third row should read: "a looped bank stands in for a deep network of distinct layers: supported in outline at language-model scale with index-conditioned routing; untested for selection by context and state, at unit grain, and for compositions unseen in training." Running more passes than trained is a separate claim, which the researcher did not make.
+
+**Decisions.** None.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
