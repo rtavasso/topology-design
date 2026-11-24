@@ -2456,6 +2456,36 @@ Contrasts fixed in advance (ratio of held-out errors, paired over splits): the r
 
 **Decisions.** None. D141 stays open.
 
+## Entry 128 (23 Nov 2026): the deeper and wider search, and its review
+
+**Premise.** After Entry 127 the researcher: "go deeper and wider and be as thorough and mutli facteted in your search as possible". Reading only; nothing run.
+
+**What was done.** Eight waves, sixty-nine papers, read inline, written up as the last section of [literature.md](literature.md) with read depth per paper and committed before review (06864bc). The waves were chosen to leave the mixture-of-experts literature, where the earlier passes had mostly looked: module networks and controllers (2016–2021); hypernetworks and fast weights; weight-space mixing (convolution kernels, LoRA libraries, task vectors); looped mixtures of experts, including five papers of 2025–2026; tests and theory of unseen combinations; binding; supernets and dropout; continual learning; multitask recurrent networks in neuroscience. Then an independent reviewer who had not written it ([review](../experiments/theory/lookup/review/review_literature_128.md); 34 searches, about 45 reads) was asked to overturn the remaining "not found" lines, spot-check twelve claims, and judge the conclusions.
+
+**What my pass changed.**
+1. *Overturned:* "keys computed from the stored weights: not found" (Entry 118). Arrow (2024) computes each adapter's key from its weights alone, with an absolute value for the sign symmetry test U6 is about; SCOFF (2020) and Compositional Attention (2022) score each stored weight set by applying it to the item. Contribution B of the design has prior art for its mechanism.
+2. *Narrowed, Entry 127 (1):* a pool of 128-unit experts shared across passes and chosen by state is MoEUT, which this file already held.
+3. *Narrowed, Entry 127 (2):* combinations never trained have been tested as such at module grain at least seven times since 2019, with theory for given gates (Saxe 2022) beside Schug 2024. They work when selection is given, bottlenecked, or computed from what the modules do, on connected training combinations; learned freely, selection is left undetermined by the seen combinations (measured by Bahdanau et al. 2019).
+4. *Placed, Entry 127 (4):* the binding account is an instance of the superposition catastrophe (1961, 1981); the slot remedy is Entry 122's "normalise each item first".
+5. *In print already:* Entry 117's map (Jayakumar et al. 2020; exactly, for an ordinary block, Dherin et al. 2025); Entry 115's averaging rule (CondConv 2019; HydraLoRA 2024 for the shared-read case).
+6. *Idea I39's mechanism* exists (a recurrent router, 2025; HyperTransformer 2022).
+7. *For the layers stage:* Kobayashi et al. (2024) is close to stage B, and its known axis is a bottleneck between inferring the combination and executing it; fixed weights with a structured context input reach unseen tasks (Riveland & Pouget, 83 %; MAC).
+
+**Review: "sound with corrections", twelve.** The ones that change what the researcher is told:
+- *A body of work I had not touched.* Sparse coding and unrolled inference. A weight-tied network that reuses one bank of units on every pass, with a sparse state-chosen active set, is LISTA (2010) and Rolfe & LeCun (2013; I then read it: eleven passes, 400 units, units of a second kind first active on the second pass). My line "single-unit bank shared across passes: not found" was **false as worded**.
+- *The nearest thing to the remaining question exists.* Barin Pacela et al. (2026; I then read it) hold out sets of units never co-active in training: one-pass encoders fail; iterative inference with the true dictionary succeeds; with the learned dictionary it does not — the learned bank is the limit.
+- *The idea as a whole is in print as a proposal.* DeepThink (3 Nov 2026; I then read it): bank of units, activator on state, context and step, assembly in parameter or output space, one shared looped operator; "We have not conducted experiments."
+- *One claim of mine was wrong.* I wrote that Chain-of-Experts shows one gate shared across iterations fails. Its ablation reuses the first iteration's *selection*; re-read and confirmed. With that removed, the evidence that a selector needs a pass index is one clear failure against three recipes that work without, and my "known failure, known cure" went back to Entry 126's "a factor to vary".
+- *One concession of mine was wrong.* "A transformer's state already carries the context, so selection by context is no extra ingredient" contradicts Kobayashi (decodable, not used) and the binding account. Withdrawn; a separate context route into the selector is a real ingredient (Lory has it at block grain).
+- *Over-concession on MoEUT:* it shows the mechanism of claim (3), not a bank smaller than the layers it replaces.
+- Also: Saxe's parameters, the Bahdanau reading (outcome depends on module type as well as start), "seven forms" split into three kinds, error correction narrowed (Bakermans et al. keep and prune hypotheses over module sequences), units selected by the prompt at scale (Hou et al. 2025), a central expert pool for all layers (CS-MoE 2026), and five minor points. All made in place; reviewer's reads that I did not repeat are marked as such.
+
+**Where it stands.** Not found, after both: (a) unit configurations held out as such, selected by a context separate from the input, in a task-trained block; (b) single-unit experts retrieved by key, compute below bank size, in a weight-tied loop; (c) bank size against the layers' sharing, with exact references; (d) a trained loop that reads its record of selections and returns to an earlier choice. Each is narrower than Entry 127's list, each has a neighbour within one step, and at least six 2026 papers are adjacent. What the literature says the answer to (a) will be: unseen unit sets work given a good bank and iterative, residual-driven selection; one-pass selection and a poorly learned bank are where it fails.
+
+**Failures of mine.** (1) A "not found" false as worded, because I searched in the idea's vocabulary (experts, routing) and never in its mathematics (dictionaries, sparse codes). (2) The Chain-of-Experts misreading: my extraction prompt described the ablation I expected, and the summarising reader answered inside that frame; the same happened in my first read of Barin Pacela et al., where the reader corrected the frame. (3) A concession stated as fact without checking it against my own notes. (4) About half the papers are read in part; two hosts refused. Lessons L62, L63.
+
+**Decisions.** None. D141 stays open; no design document changed.
+
 ## Template for future entries
 
 Date, premise, evidence (with run or test links), argument, decisions, rejected alternatives, expected falsifiers.
